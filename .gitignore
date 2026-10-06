@@ -1,0 +1,44 @@
+```gitignore
+# Dependencies
+/vendor/
+
+# Environment / local configuration
+.env
+.env.*
+!.env.example
+
+# IDEs / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# OS files
+Thumbs.db
+
+# Logs
+*.log
+
+# PHPUnit / test artifacts
+.phpunit.result.cache
+
+# Laravel / application runtime files
+/storage/
+bootstrap/cache/
+
+# Coverage reports
+/coverage/
+clover.xml
+coverage.xml
+
+# Build artifacts
+/node_modules/
+/public/build/
+/public/hot
+
+# Local development
+/workbench/vendor/
+/workbench/.env
+/workbench/storage/
+```
