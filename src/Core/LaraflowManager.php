@@ -24,14 +24,14 @@ class LaraflowManager
 
     public function connector(string $name): Connector
     {
-        try {
+        if ($this->connectors->has($name)) {
             return $this->connectors->get($name);
-        } catch (\InvalidArgumentException) {
-            $connector = $this->factory->make($name);
-
-            $this->connectors->register($name, $connector);
-
-            return $connector;
         }
+
+        $connector = $this->factory->make($name);
+
+        $this->connectors->register($name, $connector);
+
+        return $connector;
     }
 }

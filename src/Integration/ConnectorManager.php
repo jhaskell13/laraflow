@@ -18,11 +18,15 @@ class ConnectorManager
 
     public function get(string $name): Connector
     {
-        if (! isset($this->connectors[$name])) {
+        if (! $this->has($name)) {
             throw new InvalidArgumentException("Connector [{$name}] is not registered.");
         }
 
         return $this->connectors[$name];
     }
 
+    public function has(string $name): bool
+    {
+        return isset($this->connectors[$name]);
+    }
 }

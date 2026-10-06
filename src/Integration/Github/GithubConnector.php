@@ -2,8 +2,10 @@
 
 namespace Laraflow\Integration\Github;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Laraflow\Auth\Authenticator;
+use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -20,13 +22,20 @@ class GithubConnector implements Connector
     public function request(ConnectorRequest $request): ConnectorResponse {
         $options = $this->authenticator->authenticate($request->options);
 
-        $response = Http::baseUrl('https://api.github.com')
-            ->acceptJson()
-            ->send(
-                $request->method,
-                $request->uri,
-                $options
+        try {
+            $response = Http::baseUrl('https://api.github.com')
+                ->acceptJson()
+                ->send(
+                    $request->method,
+                    $request->uri,
+                    $options
+                );
+        } catch (ConnectionException $exception) {
+            throw new TransportException(
+                message: 'Unable to connect to Github.',
+                previous: $exception,
             );
+        }
 
         return new ConnectorResponse(
             status: $response->status(),

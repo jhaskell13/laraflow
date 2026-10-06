@@ -46,4 +46,32 @@ class ConnectorManagerTest extends TestCase
 
         $manager->get('does-not-exist');
     }
+
+    public function test_it_can_determine_if_a_connector_is_registered(): void
+    {
+        $manager = new ConnectorManager();
+
+        $connector = new class implements Connector {
+            public function name(): string
+            {
+                return 'test';
+            }
+
+            public function request(
+                ConnectorRequest $request
+            ): ConnectorResponse {
+                return new ConnectorResponse(
+                    status: 200,
+                    headers: [],
+                    body: null,
+                );
+            }
+        };
+
+        $this->assertFalse($manager->has('test'));
+
+        $manager->register('test', $connector);
+
+        $this->assertTrue($manager->has('test'));
+    }
 }
