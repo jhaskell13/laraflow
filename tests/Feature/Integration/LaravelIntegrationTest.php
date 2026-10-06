@@ -2,13 +2,14 @@
 
 namespace Laraflow\Tests\Feature\Integration;
 
-use Illuminate\Http\Client\Response;
 use Laraflow\Auth\GithubTokenAuthenticator;
 use Laraflow\Core\LaraflowManager;
 use Orchestra\Testbench\TestCase;
 use Laraflow\Core\LaraflowServiceProvider;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorManager;
+use Laraflow\Integration\ConnectorRequest;
+use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Integration\Github\GithubConnector;
 
 class LaravelIntegrationTest extends TestCase
@@ -35,12 +36,13 @@ class LaravelIntegrationTest extends TestCase
                 return 'test';
             }
 
-            public function request(
-                string $method,
-                string $uri,
-                array $options = []
-            ): ?Response {
-                return null;
+            public function request(ConnectorRequest $request): ConnectorResponse
+            {
+                return new ConnectorResponse(
+                    status: 200,
+                    headers: [],
+                    body: null
+                );
             }
         };
 
@@ -66,12 +68,13 @@ class LaravelIntegrationTest extends TestCase
                 return 'test';
             }
 
-            public function request(
-                string $method,
-                string $uri,
-                array $options = []
-            ): ?Response {
-                return null;
+            public function request(ConnectorRequest $request): ConnectorResponse
+            {
+                return new ConnectorResponse(
+                    status: 200,
+                    headers: [],
+                    body: null
+                );
             }
         };  
 
@@ -92,11 +95,46 @@ class LaravelIntegrationTest extends TestCase
 
         $manager->register('github', $github);
 
-        $relay = $this->app->make(LaraflowManager::class);
+        $laraflow = $this->app->make(LaraflowManager::class);
 
         $this->assertSame(
             $github,
-            $relay->connector('github')
+            $laraflow->connector('github')
         );
+    }
+
+    public function test_laraflow_can_create_github_connector(): void
+    {
+        config([
+            'laraflow.integrations.github.token' => 'test-token',
+        ]);
+
+        $laraflow = $this->app->make(LaraflowManager::class);
+
+        $connector = $laraflow->connector('github');
+
+        $this->assertInstanceOf(
+            GitHubConnector::class,
+            $connector
+        );
+
+        $this->assertSame(
+            'github',
+            $connector->name()
+        );
+    }
+
+    public function test_laraflow_reuses_the_same_connector_instance(): void
+    {
+        config([
+            'laraflow.integrations.github.token' => 'test-token',
+        ]);
+
+        $laraflow = $this->app->make(LaraflowManager::class);
+
+        $first = $laraflow->connector('github');
+        $second = $laraflow->connector('github');
+
+        $this->assertSame($first, $second);
     }
 }

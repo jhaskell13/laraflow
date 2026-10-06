@@ -2,10 +2,11 @@
 
 namespace Laraflow\Tests\Unit\Integration;
 
-use Illuminate\Http\Client\Response;
 use PHPUnit\Framework\TestCase;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorManager;
+use Laraflow\Integration\ConnectorRequest;
+use Laraflow\Integration\ConnectorResponse;
 
 class ConnectorManagerTest extends TestCase
 {
@@ -17,12 +18,13 @@ class ConnectorManagerTest extends TestCase
                 return 'test';
             }
 
-            public function request(
-                string $method,
-                string $uri,
-                array $options = []
-            ): ?Response {
-                return null;
+            public function request(ConnectorRequest $request): ConnectorResponse
+            {
+                return new ConnectorResponse(
+                    status: 200,
+                    headers: [],
+                    body: null
+                );
             }
         };
 

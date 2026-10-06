@@ -2,10 +2,11 @@
 
 namespace Laraflow\Integration\Github;
 
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Laraflow\Auth\Authenticator;
 use Laraflow\Integration\Connector;
+use Laraflow\Integration\ConnectorRequest;
+use Laraflow\Integration\ConnectorResponse;
 
 class GithubConnector implements Connector
 {
@@ -16,15 +17,21 @@ class GithubConnector implements Connector
         return 'github';
     }
 
-    public function request(
-        string $method,
-        string $uri,
-        array $options = []
-    ): Response {
-        $options = $this->authenticator->authenticate($options);
-        
-        return Http::baseUrl('https://api.github.com')
+    public function request(ConnectorRequest $request): ConnectorResponse {
+        $options = $this->authenticator->authenticate($request->options);
+
+        $response = Http::baseUrl('https://api.github.com')
             ->acceptJson()
-            ->send($method, $uri, $options);
+            ->send(
+                $request->method,
+                $request->uri,
+                $options
+            );
+
+        return new ConnectorResponse(
+            status: $response->status(),
+            headers: $response->headers(),
+            body: $response->json()
+        );
     }
 }
