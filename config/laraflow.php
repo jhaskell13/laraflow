@@ -3,7 +3,7 @@
 return [
     'integrations' => [
         'github' => [
-            'token' => env('RELAY_GITHUB_TOKEN'),
+            'token' => env('LARAFLOW_GITHUB_TOKEN'),
         ],
     ],
 ];

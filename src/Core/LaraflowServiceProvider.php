@@ -8,6 +8,9 @@ use Laraflow\Integration\ConnectorManager;
 use Laraflow\Core\LaraflowManager;
 use Laraflow\Integration\ConnectorFactory;
 use Laraflow\Integration\Github\GithubConnector;
+use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\WorkflowRunner;
 
 class LaraflowServiceProvider extends ServiceProvider
 {
@@ -31,6 +34,17 @@ class LaraflowServiceProvider extends ServiceProvider
             )
         );
 
+        $this->app->singleton(
+            ExecutionRepository::class,
+            fn () => new EloquentExecutionRepository()
+        );
+
+        $this->app->singleton(
+            WorkflowRunner::class,
+            fn ($app) => new WorkflowRunner(
+                $app->make(ExecutionRepository::class)
+            )
+        );
     }
 
     public function boot(): void

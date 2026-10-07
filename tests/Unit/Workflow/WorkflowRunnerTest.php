@@ -2,7 +2,7 @@
 
 namespace Laraflow\Tests\Unit\Workflow;
 
-use PHPUnit\Framework\TestCase;
+use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\Step;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowContext;
@@ -22,7 +22,7 @@ class WorkflowRunnerTest extends TestCase
             }
         };
 
-        $runner = new WorkflowRunner();
+        $runner = app(WorkflowRunner::class);
 
         $context = $runner->run($workflow);
 
