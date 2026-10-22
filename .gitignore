@@ -1,4 +1,3 @@
-```gitignore
 # Dependencies
 /vendor/
 
@@ -41,4 +40,3 @@ coverage.xml
 /workbench/vendor/
 /workbench/.env
 /workbench/storage/
-```

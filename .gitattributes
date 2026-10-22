@@ -1,0 +1,16 @@
+# Normalize line endings: store LF in the repository, check out LF everywhere.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Exclude development files from Composer dist archives
+/.github         export-ignore
+/tests           export-ignore
+/.gitattributes  export-ignore
+/.gitignore      export-ignore
+/phpunit.xml     export-ignore
