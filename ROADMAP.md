@@ -6,15 +6,16 @@ This roadmap is ordered by dependency and risk. It describes intended product wo
 
 ## Current state
 
-The repository has an early foundation:
+Milestone 0 is complete (October 2026). The repository has:
 
-- Composer package and Laravel service provider with package auto-discovery.
+- Composer package with Laravel auto-discovery, merged configuration, automatically loaded migrations, and `laraflow-config` / `laraflow-migrations` publish tags.
 - Connector, factory, manager, authentication, and a GitHub connector prototype.
 - Workflow, step, in-memory context, workflow runner, execution repository, Eloquent persistence models, and initial migrations.
 - Unit and feature tests for those foundations, including successful execution and persisted failure.
-- PHP 8.2+, Laravel 12, and Testbench 10 are currently declared in Composer.
+- Documentation: README with installation, configuration, first workflow, first connector, and current limitations; `docs/public-api.md` with stability levels and the decided runner API; `docs/compatibility.md`; `CHANGELOG.md`; `CONTRIBUTING.md`; `SECURITY.md`.
+- Declared support for PHP 8.2–8.4 and Laravel 12 (Testbench 10); SQLite tested, MySQL/MariaDB/PostgreSQL expected to work pending CI.
 
-The runner currently executes synchronously. It persists execution/step state and exposes a `resume()` path, but this is not yet a safe durable runtime: completed step outputs are not restored into context, resume does not validate the workflow against persisted steps, worker ownership/concurrency is not coordinated, and no queue/recovery scheduler exists. A process death can leave records running. The README is still a placeholder, and there is no package usage, compatibility, or release documentation yet.
+The runner still executes synchronously. It persists execution/step state and exposes an experimental `resume()`, but this is not yet a safe durable runtime: step records are created lazily so a crash mid-run leaves later steps unrecorded, completed step outputs are not restored into context, resume does not validate the workflow against persisted steps, worker ownership/concurrency is not coordinated, and no queue/recovery scheduler exists. A process death can leave records running. Milestone 1 addresses this.
 
 ## Product principles
 
@@ -25,13 +26,15 @@ The runner currently executes synchronously. It persists execution/step state an
 - Extensible without forcing a platform: synchronous use remains useful; queues, drivers, and integrations are opt-in.
 - Useful failure visibility: users can inspect what ran, what failed, and what can be retried without reading internal tables.
 
-## Milestone 0 — Make the package usable and establish contracts
+## Milestone 0 — Make the package usable and establish contracts ✅
+
+Completed October 2026. Kept for the record.
 
 ### Work
 
 - Replace the placeholder README with installation, configuration, first connector, first workflow, persistence setup, execution examples, and current limitations.
 - Define and document the public API boundaries: workflow definition, step definition, inputs/outputs, runner, execution handle, repository, and connector contracts.
-- Decide naming and behavior for `run`, `start`, `execute`, and `resume` before more applications depend on the current synchronous API.
+- Decide naming and behavior for `run`, `start`, `execute`, and `resume` before more applications depend on the current synchronous API. *Decided: `start`/`execute`/`run` returning a `WorkflowExecution` handle; `resume` removed. Recorded in `docs/public-api.md`; implemented in Milestone 1.*
 - Add config publishing and migration publishing/loading conventions, and document which approach the package supports.
 - Add package metadata that Laravel users expect: license, support policy, changelog, contribution guide, and security contact/process.
 - Record supported PHP, Laravel, and database versions as an explicit compatibility policy.
@@ -44,7 +47,7 @@ The runner currently executes synchronously. It persists execution/step state an
 
 ## Milestone 1 — Correct execution lifecycle and recovery semantics
 
-This is the next engineering priority.
+**This is the current milestone.** It also implements the runner API decided in Milestone 0.
 
 ### Work
 
@@ -172,7 +175,7 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 
 ## Suggested immediate order
 
-1. Replace the README placeholder and write down the public API and compatibility policy.
+1. ~~Replace the README placeholder and write down the public API and compatibility policy.~~ Done.
 2. Specify execution/step transitions and recovery guarantees.
 3. Correct resume semantics, including restoring completed outputs/context and validating the stored plan.
 4. Add execution claiming/concurrency protection and crash-boundary recovery coverage.

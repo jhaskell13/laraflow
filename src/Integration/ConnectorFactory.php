@@ -4,6 +4,9 @@ namespace Laraflow\Integration;
 
 use InvalidArgumentException;
 
+/**
+ * @internal Implementation detail; not covered by the compatibility policy.
+ */
 class ConnectorFactory
 {
     protected array $definitions = [];

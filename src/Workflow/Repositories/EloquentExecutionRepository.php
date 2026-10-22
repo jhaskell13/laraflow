@@ -10,6 +10,9 @@ use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\ExecutionStatus;
 
+/**
+ * @internal Implementation detail; not covered by the compatibility policy.
+ */
 class EloquentExecutionRepository implements ExecutionRepository
 {
     public function create(

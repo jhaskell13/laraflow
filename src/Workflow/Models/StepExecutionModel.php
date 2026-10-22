@@ -5,6 +5,9 @@ namespace Laraflow\Workflow\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @internal Implementation detail; not covered by the compatibility policy.
+ */
 class StepExecutionModel extends Model
 {
     protected $table = 'laraflow_step_executions';

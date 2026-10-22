@@ -1,18 +1,35 @@
 {
     "name": "laraflow/laraflow",
-    "description": "Laravel-native integration and automation framework",
+    "description": "Laravel-native framework for building integrations and durable, recoverable workflows.",
     "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "workflow",
+        "integration",
+        "automation",
+        "durable-execution",
+        "orchestration"
+    ],
+    "authors": [
+        {
+            "name": "James Haskell"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/jhaskell13/laraflow/issues",
+        "source": "https://github.com/jhaskell13/laraflow",
+        "security": "https://github.com/jhaskell13/laraflow/blob/main/SECURITY.md"
+    },
     "require": {
         "php": "^8.2",
-        "illuminate/support": "^12.0",
-        "illuminate/http": "^12.0"
+        "illuminate/database": "^12.0",
+        "illuminate/http": "^12.0",
+        "illuminate/support": "^12.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.0",
         "orchestra/testbench": "^10.12"
-    },
-    "scripts": {
-        "test": "./vendor/bin/phpunit"
     },
     "autoload": {
         "psr-4": {
@@ -24,11 +41,19 @@
             "Laraflow\\Tests\\": "tests/"
         }
     },
+    "scripts": {
+        "test": "./vendor/bin/phpunit"
+    },
     "extra": {
         "laravel": {
             "providers": [
                 "Laraflow\\Core\\LaraflowServiceProvider"
             ]
         }
-    }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

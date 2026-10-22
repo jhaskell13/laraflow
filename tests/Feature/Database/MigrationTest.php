@@ -7,6 +7,19 @@ use Laraflow\Tests\TestCase;
 
 class MigrationTest extends TestCase
 {
+    public function test_migrations_are_loaded_by_the_service_provider(): void
+    {
+        $paths = app('migrator')->paths();
+
+        $this->assertNotEmpty(array_filter(
+            $paths,
+            fn (string $path) => str_ends_with(
+                str_replace('\\', '/', realpath($path) ?: $path),
+                'database/migrations'
+            )
+        ));
+    }
+
     public function test_laraflow_tables_exist(): void
     {
         $this->assertTrue(

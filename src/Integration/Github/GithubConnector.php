@@ -10,6 +10,9 @@ use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 
+/**
+ * @experimental Prototype connector; HTTP behaviour is not yet configurable.
+ */
 class GithubConnector implements Connector
 {
     public function __construct(protected Authenticator $authenticator) {}

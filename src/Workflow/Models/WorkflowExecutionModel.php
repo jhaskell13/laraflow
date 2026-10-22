@@ -5,6 +5,9 @@ namespace Laraflow\Workflow\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @internal Implementation detail; not covered by the compatibility policy.
+ */
 class WorkflowExecutionModel extends Model
 {
     protected $table = 'laraflow_workflow_executions';

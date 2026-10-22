@@ -2,23 +2,19 @@
 
 namespace Laraflow\Tests;
 
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Laraflow\Core\LaraflowServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
+    use RefreshDatabase;
+
     protected function getPackageProviders($app): array
     {
         return [
             LaraflowServiceProvider::class,
         ];
-    }
-
-    protected function defineDatabaseMigrations(): void
-    {
-        $this->loadMigrationsFrom(
-            __DIR__ . '/../database/migrations'
-        );
     }
 
     protected function defineEnvironment($app): void

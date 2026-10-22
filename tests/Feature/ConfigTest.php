@@ -2,24 +2,17 @@
 
 namespace Laraflow\Tests\Feature;
 
-use Orchestra\Testbench\TestCase;
 use Laraflow\Core\LaraflowServiceProvider;
+use Laraflow\Tests\TestCase;
 
 class ConfigTest extends TestCase
 {
-    protected function getPackageProviders($app): array
+    public function test_package_configuration_is_merged_with_defaults(): void
     {
-        return [
-            LaraflowServiceProvider::class,
-        ];
-    }
-
-    public function test_laraflow_configuration_is_available(): void
-    {
-        $this->assertSame(
-            null,
-            config('laraflow.integrations.github.token')
-        );
+        $this->assertIsArray(config('laraflow.integrations'));
+        $this->assertArrayHasKey('github', config('laraflow.integrations'));
+        $this->assertTrue(config('laraflow.migrations.load'));
+        $this->assertNull(config('laraflow.integrations.github.token'));
     }
 
     public function test_github_token_can_be_configured(): void
@@ -32,5 +25,24 @@ class ConfigTest extends TestCase
             'test-token',
             config('laraflow.integrations.github.token')
         );
+    }
+
+    public function test_config_and_migrations_are_publishable(): void
+    {
+        $paths = LaraflowServiceProvider::pathsToPublish(
+            LaraflowServiceProvider::class,
+            'laraflow-config'
+        );
+
+        $this->assertCount(1, $paths);
+        $this->assertSame(config_path('laraflow.php'), array_values($paths)[0]);
+
+        $paths = LaraflowServiceProvider::pathsToPublish(
+            LaraflowServiceProvider::class,
+            'laraflow-migrations'
+        );
+
+        $this->assertCount(1, $paths);
+        $this->assertSame(database_path('migrations'), array_values($paths)[0]);
     }
 }

@@ -66,6 +66,15 @@ class WorkflowRunner
         return $context;
     }
 
+    /**
+     * Continue a previously persisted execution.
+     *
+     * @experimental Incomplete and unsafe for recovery: completed step
+     * results are not restored into the context, steps that never started
+     * have no records to run, the workflow definition is not validated
+     * against the persisted plan, and concurrent resumes are not prevented.
+     * Replaced by execute() in Milestone 1. See docs/public-api.md.
+     */
     public function resume(
         int|string $executionId,
         Workflow $workflow,

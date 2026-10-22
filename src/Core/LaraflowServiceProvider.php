@@ -16,6 +16,11 @@ class LaraflowServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->mergeConfigFrom(
+            __DIR__ . '/../../config/laraflow.php',
+            'laraflow'
+        );
+
         $this->app->singleton(
             ConnectorFactory::class,
             fn () => new ConnectorFactory()
@@ -49,11 +54,39 @@ class LaraflowServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->registerPublishing();
+        $this->registerMigrations();
+        $this->registerConnectors();
+    }
+
+    /**
+     * Load the package migrations automatically.
+     *
+     * Applications may disable this (for example, to customise the schema)
+     * and publish the migrations instead via the `laraflow-migrations` tag.
+     */
+    protected function registerMigrations(): void
+    {
+        if (! config('laraflow.migrations.load', true)) {
+            return;
+        }
+
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations');
+    }
+
+    protected function registerPublishing(): void
+    {
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
         $this->publishes([
             __DIR__ . '/../../config/laraflow.php' => config_path('laraflow.php'),
         ], 'laraflow-config');
 
-        $this->registerConnectors();
+        $this->publishes([
+            __DIR__ . '/../../database/migrations' => database_path('migrations'),
+        ], 'laraflow-migrations');
     }
 
     protected function registerConnectors(): void
@@ -64,7 +97,7 @@ class LaraflowServiceProvider extends ServiceProvider
             'github',
             fn () => new GithubConnector(
                 new GithubTokenAuthenticator(
-                    config('laraflow.integrations.github.token')
+                    (string) config('laraflow.integrations.github.token')
                 )
             )
         );
