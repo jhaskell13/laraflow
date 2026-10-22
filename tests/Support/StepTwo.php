@@ -1,9 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Support;
 
 use Laraflow\Workflow\Step;
 use Laraflow\Workflow\WorkflowContext;
+use RuntimeException;
 
 class StepTwo implements Step
 {
@@ -25,7 +28,7 @@ class StepTwo implements Step
         if (static::$failTimes > 0) {
             static::$failTimes--;
 
-            throw new \RuntimeException('step two blew up');
+            throw new RuntimeException('step two blew up');
         }
 
         $context->set('two', 'from-step-two');

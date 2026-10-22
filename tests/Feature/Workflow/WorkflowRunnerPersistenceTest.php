@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Feature\Workflow;
 
 use Laraflow\Tests\TestCase;
@@ -10,6 +12,7 @@ use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowContext;
 use Laraflow\Workflow\WorkflowRunner;
+use RuntimeException;
 
 class WorkflowRunnerPersistenceTest extends TestCase
 {
@@ -18,8 +21,8 @@ class WorkflowRunnerPersistenceTest extends TestCase
         $runner = app(WorkflowRunner::class);
 
         try {
-            $runner->run(new FailingWorkflow());
-        } catch (\RuntimeException) {
+            $runner->run(new FailingWorkflow);
+        } catch (RuntimeException) {
             // Expected.
         }
 
@@ -31,13 +34,13 @@ class WorkflowRunnerPersistenceTest extends TestCase
         $this->assertSame(ExecutionStatus::Failed->value, $execution->status);
         $this->assertNotNull($execution->failed_at);
         $this->assertSame('Something went wrong.', $execution->error);
-        $this->assertSame(\RuntimeException::class, $execution->error_class);
+        $this->assertSame(RuntimeException::class, $execution->error_class);
         $this->assertNull($execution->claim_token);
 
         $this->assertCount(1, $execution->steps);
         $this->assertSame(StepStatus::Failed->value, $execution->steps[0]->status);
         $this->assertSame('Something went wrong.', $execution->steps[0]->error);
-        $this->assertSame(\RuntimeException::class, $execution->steps[0]->error_class);
+        $this->assertSame(RuntimeException::class, $execution->steps[0]->error_class);
         $this->assertSame(1, $execution->steps[0]->attempts);
     }
 
@@ -45,7 +48,7 @@ class WorkflowRunnerPersistenceTest extends TestCase
     {
         $runner = app(WorkflowRunner::class);
 
-        $result = $runner->run(new TestWorkflow());
+        $result = $runner->run(new TestWorkflow);
 
         $this->assertTrue($result->isCompleted());
 
@@ -125,6 +128,6 @@ class FailingStep implements Step
 {
     public function handle(WorkflowContext $context): mixed
     {
-        throw new \RuntimeException('Something went wrong.');
+        throw new RuntimeException('Something went wrong.');
     }
 }

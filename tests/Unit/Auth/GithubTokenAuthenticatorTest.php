@@ -1,7 +1,12 @@
 <?php
 
-use PHPUnit\Framework\TestCase;
+declare(strict_types=1);
+
+namespace Laraflow\Tests\Unit\Auth;
+
 use Laraflow\Auth\GithubTokenAuthenticator;
+use Laraflow\Exceptions\ConnectorException;
+use PHPUnit\Framework\TestCase;
 
 class GithubTokenAuthenticatorTest extends TestCase
 {
@@ -19,12 +24,19 @@ class GithubTokenAuthenticatorTest extends TestCase
         $authenticator = new GithubTokenAuthenticator('test-token');
 
         $options = $authenticator->authenticate([
-            'headers' => [
-                'Accept' => 'application/json',
-            ],
+            'headers' => ['Accept' => 'application/json'],
+            'query' => ['page' => 2],
         ]);
 
         $this->assertSame('application/json', $options['headers']['Accept']);
         $this->assertSame('Bearer test-token', $options['headers']['Authorization']);
+        $this->assertSame(['page' => 2], $options['query']);
+    }
+
+    public function test_an_empty_token_is_rejected_up_front(): void
+    {
+        $this->expectException(ConnectorException::class);
+
+        new GithubTokenAuthenticator('   ');
     }
 }

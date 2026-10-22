@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Support;
 
 use Laraflow\Workflow\ExecutionRepository;
@@ -24,8 +26,7 @@ class CrashingExecutionRepository implements ExecutionRepository
         protected string $dieOnMethod,
         protected int $dieOnCall = 1,
         protected string $phase = 'before',
-    ) {
-    }
+    ) {}
 
     public function create(string $workflow, array $input = [], array $steps = []): WorkflowExecution
     {

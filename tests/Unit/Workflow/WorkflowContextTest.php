@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Unit\Workflow;
 
 use Laraflow\Workflow\WorkflowContext;
@@ -9,7 +11,7 @@ class WorkflowContextTest extends TestCase
 {
     public function test_it_can_store_and_retrieve_values(): void
     {
-        $context = new WorkflowContext();
+        $context = new WorkflowContext;
 
         $context->set('name', 'laraflow');
 
@@ -19,10 +21,30 @@ class WorkflowContextTest extends TestCase
 
     public function test_it_returns_default_for_missing_values(): void
     {
-        $context = new WorkflowContext();
+        $context = new WorkflowContext;
 
         $this->assertFalse($context->has('missing'));
         $this->assertSame('default', $context->get('missing', 'default'));
+    }
+
+    public function test_a_stored_null_is_a_value_not_an_absence(): void
+    {
+        $context = new WorkflowContext;
+
+        $context->set('optional', null);
+
+        $this->assertTrue($context->has('optional'));
+        $this->assertNull($context->get('optional', 'default'));
+    }
+
+    public function test_values_can_be_forgotten(): void
+    {
+        $context = new WorkflowContext(['temp' => 1, 'keep' => 2]);
+
+        $context->forget('temp');
+
+        $this->assertFalse($context->has('temp'));
+        $this->assertSame(['keep' => 2], $context->all());
     }
 
     public function test_it_can_be_seeded_and_dumped(): void

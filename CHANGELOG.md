@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Code audit — quality, tooling, and test depth
+
+#### Added
+
+- Laravel Pint (`pint.json`: Laravel preset, `declare(strict_types=1)`, imported globals) and PHPStan/Larastan at level 8 (`phpstan.neon`), wired as `composer lint`, `composer analyse`, `composer format`, and `composer check`. A GitHub Actions workflow runs all checks on PHP 8.2, 8.3, and 8.4.
+- `WorkflowRunner::start()` validates the workflow definition before persisting: an empty step list or a step that is not an existing `Step` class raises `InvalidWorkflowDefinitionException`.
+- `GithubTokenAuthenticator` rejects an empty token at construction with a `ConnectorException` naming the config key, instead of silently sending `Bearer `.
+- `ConnectorNotRegisteredException` and `InvalidConnectorException` (both `ConnectorException` subclasses) replace generic `InvalidArgumentException`s so every package error extends `LaraflowException`.
+- `WorkflowContext::forget()`; `LaraflowManager::has()`; `ConnectorFactory::has()`.
+- Tests: step resolution through the container with constructor dependencies; frozen-clock timestamps via `Date::setTestNow()`; provider-built GitHub connector sends the configured token end-to-end; missing-token failure; connector lazy build/caching; `ConnectorResponse` status boundaries; `vendor:publish` for both tags actually copies files; `migrate:rollback` drops the tables; `migrations.load=false` registers nothing; context null semantics; credentials absent from `TransportException`.
+
+#### Changed
+
+- `WorkflowRunner` receives the container and a PSR-3 logger by constructor injection instead of calling `app()` and the `Log` facade; all timestamps come from Laravel's `Date` facade.
+- `GithubConnector` receives Laravel's HTTP client factory by injection instead of using the `Http` facade.
+- The service provider autowires stateless singletons, reads configuration through the config repository, and uses `configPath()`/`databasePath()` for publishing.
+- Eloquent models declare `$fillable`, use the `casts()` method, and carry `@property` annotations.
+- `ConnectorRequest` and `ConnectorResponse` are `readonly` classes.
+- **Fixed:** `WorkflowContext::get()` returned the default for a stored `null`; it now distinguishes a null value from an absent key.
+- **Fixed:** `ConnectorFactory` error message said "did not return a factory"; it now names the expected and actual types.
+- `phpunit.xml` fails on risky tests, warnings, notices, and deprecations, and splits Unit/Feature suites.
+
 ### Milestone 1 — execution lifecycle and recovery
 
 #### Added

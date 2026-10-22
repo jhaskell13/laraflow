@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Feature\Workflow;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -15,11 +18,6 @@ use Laraflow\Workflow\StepStatus;
 
 class EloquentExecutionRepositoryTest extends TestCase
 {
-    protected function repository(): ExecutionRepository
-    {
-        return app(ExecutionRepository::class);
-    }
-
     public function test_it_creates_an_execution_with_its_full_step_plan_atomically(): void
     {
         $execution = $this->repository()->create(
@@ -128,8 +126,8 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
         [$step] = $this->repository()->steps($execution);
 
-        $step->markRunning(new \DateTimeImmutable());
-        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
+        $step->markRunning(new DateTimeImmutable);
+        $step->markCompleted(['customer_id' => 456], new DateTimeImmutable);
 
         $this->repository()->saveStep($step);
 
@@ -147,10 +145,10 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
         [$step] = $this->repository()->steps($execution);
 
-        $step->markRunning(new \DateTimeImmutable());
+        $step->markRunning(new DateTimeImmutable);
         $this->repository()->saveStep($step);
 
-        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
+        $step->markCompleted(['customer_id' => 456], new DateTimeImmutable);
         $execution->context = ['customer_id' => 456];
 
         $this->repository()->checkpoint($execution, $step);
@@ -171,7 +169,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
         [$step] = $this->repository()->steps($execution);
 
-        $step->markRunning(new \DateTimeImmutable());
+        $step->markRunning(new DateTimeImmutable);
         $this->repository()->saveStep($step);
 
         // Another worker reclaims the execution while worker-a is mid-step.
@@ -179,7 +177,7 @@ class EloquentExecutionRepositoryTest extends TestCase
             ->whereKey($execution->id)
             ->update(['claim_token' => 'worker-b']);
 
-        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
+        $step->markCompleted(['customer_id' => 456], new DateTimeImmutable);
         $execution->context = ['customer_id' => 456];
 
         try {
@@ -202,8 +200,8 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution = $this->repository()->create('SyncCustomerWorkflow');
         $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
 
-        $execution->markRunning(new \DateTimeImmutable());
-        $execution->markCompleted(new \DateTimeImmutable());
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markCompleted(new DateTimeImmutable);
 
         $this->repository()->release($execution);
 
@@ -224,11 +222,16 @@ class EloquentExecutionRepositoryTest extends TestCase
             ->whereKey($execution->id)
             ->update(['claim_token' => 'worker-b']);
 
-        $execution->markRunning(new \DateTimeImmutable());
-        $execution->markCompleted(new \DateTimeImmutable());
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markCompleted(new DateTimeImmutable);
 
         $this->expectException(ClaimLostException::class);
 
         $this->repository()->release($execution);
+    }
+
+    protected function repository(): ExecutionRepository
+    {
+        return app(ExecutionRepository::class);
     }
 }

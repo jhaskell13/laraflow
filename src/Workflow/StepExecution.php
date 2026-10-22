@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Workflow;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 
 /**
@@ -31,13 +34,12 @@ class StepExecution
         public mixed $output = null,
         public ?string $error = null,
         public ?string $errorClass = null,
-        public ?\DateTimeImmutable $startedAt = null,
-        public ?\DateTimeImmutable $completedAt = null,
-        public ?\DateTimeImmutable $nextRetryAt = null,
-    ) {
-    }
+        public ?DateTimeImmutable $startedAt = null,
+        public ?DateTimeImmutable $completedAt = null,
+        public ?DateTimeImmutable $nextRetryAt = null,
+    ) {}
 
-    public function markRunning(\DateTimeImmutable $at): void
+    public function markRunning(DateTimeImmutable $at): void
     {
         $this->assertTransition(StepStatus::Running, [
             StepStatus::Pending,
@@ -50,7 +52,7 @@ class StepExecution
         $this->startedAt = $at;
     }
 
-    public function markCompleted(mixed $output, \DateTimeImmutable $at): void
+    public function markCompleted(mixed $output, DateTimeImmutable $at): void
     {
         $this->assertTransition(StepStatus::Completed, [
             StepStatus::Running,
@@ -63,7 +65,7 @@ class StepExecution
         $this->errorClass = null;
     }
 
-    public function markFailed(string $error, string $errorClass, \DateTimeImmutable $at): void
+    public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void
     {
         $this->assertTransition(StepStatus::Failed, [
             StepStatus::Running,
@@ -95,7 +97,7 @@ class StepExecution
     }
 
     /**
-     * @param StepStatus[] $allowedFrom
+     * @param  StepStatus[]  $allowedFrom
      */
     protected function assertTransition(StepStatus $to, array $allowedFrom): void
     {

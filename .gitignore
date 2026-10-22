@@ -21,6 +21,7 @@ Thumbs.db
 
 # PHPUnit / test artifacts
 .phpunit.result.cache
+.phpunit.cache/
 
 # Laravel / application runtime files
 /storage/
@@ -40,3 +41,4 @@ coverage.xml
 /workbench/vendor/
 /workbench/.env
 /workbench/storage/
+.phpstan/

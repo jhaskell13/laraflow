@@ -18,13 +18,13 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 |-------|-------|-------|
 | `Laraflow\Workflow\Workflow` | Public | Abstract base. `steps(): array` returns an ordered list of step class names. |
 | `Laraflow\Workflow\Step` | Public | Interface. `handle(WorkflowContext $context): mixed`. The return value is persisted as the step output and must be JSON-serialisable. |
-| `Laraflow\Workflow\WorkflowContext` | Public | Key/value data shared between steps in one execution: `get`, `set`, `has`, `all`. Exposes execution metadata for idempotency: `executionId`, `stepPosition`, `attempt`, `idempotencyKey`. |
+| `Laraflow\Workflow\WorkflowContext` | Public | Key/value data shared between steps in one execution: `get`, `set`, `has`, `forget`, `all`. A stored `null` is a value (`has()` is true, `get()` returns null, not the default). Exposes execution metadata for idempotency: `executionId`, `stepPosition`, `attempt`, `idempotencyKey`. |
 
 ## Execution
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Workflow\WorkflowRunner` | Public | Entry point for running workflows: `start()`, `execute()`, `run()`. Behaviour is specified in [docs/execution-lifecycle.md](execution-lifecycle.md). |
+| `Laraflow\Workflow\WorkflowRunner` | Public | Entry point for running workflows: `start()`, `execute()`, `run()`. Resolve it from the container; its constructor (repository, container, PSR-3 logger, stale/error settings) is internal wiring. Behaviour is specified in [docs/execution-lifecycle.md](execution-lifecycle.md). |
 | `Laraflow\Workflow\WorkflowExecution` | Public | Read-only handle describing one execution: id, workflow class, input, context, status, error, timestamps. State changes go through `mark*()` transition methods that enforce the state machine. |
 | `Laraflow\Workflow\StepExecution` | Public | Read-only handle describing one step within an execution, with the same transition-method rule. |
 | `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`. More cases (e.g. `cancelled`) may be added; applications should handle unknown cases defensively. |
@@ -46,13 +46,13 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Core\LaraflowManager` | Public | `register(name, factory)` and `connector(name)`. |
+| `Laraflow\Core\LaraflowManager` | Public | `register(name, factory)`, `connector(name)`, `has(name)`. Factories run lazily, once; instances are cached for the application lifetime. |
 | `Laraflow\Integration\Connector` | Public (contract) | `name()` and `request(ConnectorRequest): ConnectorResponse`. |
-| `Laraflow\Integration\ConnectorRequest` | Public | Value object: method, uri, options. |
-| `Laraflow\Integration\ConnectorResponse` | Public | Value object: status, headers, body, `successful()`, `failed()`. |
+| `Laraflow\Integration\ConnectorRequest` | Public | Immutable (`readonly`) value object: method, uri, options. |
+| `Laraflow\Integration\ConnectorResponse` | Public | Immutable (`readonly`) value object: status, headers, body, `successful()` (2xx), `failed()`. |
 | `Laraflow\Auth\Authenticator` | Public (contract) | `authenticate(array $options): array`. |
-| `Laraflow\Auth\GithubTokenAuthenticator` | Public | Bearer-token authenticator. |
-| `Laraflow\Integration\Github\GithubConnector` | Experimental | Prototype; HTTP behaviour not yet configurable. |
+| `Laraflow\Auth\GithubTokenAuthenticator` | Public | Bearer-token authenticator. Rejects an empty token at construction with `ConnectorException`. |
+| `Laraflow\Integration\Github\GithubConnector` | Experimental | Prototype; HTTP behaviour not yet configurable. Takes an `Authenticator` and Laravel's HTTP client factory. |
 | `Laraflow\Integration\ConnectorFactory` | Internal | Used by `LaraflowManager`. |
 | `Laraflow\Integration\ConnectorManager` | Internal | Instance cache used by `LaraflowManager`. |
 
@@ -61,13 +61,16 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | Class | Level |
 |-------|-------|
 | `Laraflow\Exceptions\LaraflowException` | Public. Base class for all package exceptions. |
-| `Laraflow\Exceptions\ConnectorException` | Public. |
-| `Laraflow\Exceptions\TransportException` | Public. Thrown when a connector cannot reach its service. |
+| `Laraflow\Exceptions\ConnectorException` | Public. Base class for connector exceptions; also thrown directly for configuration problems such as a missing token. |
+| `Laraflow\Exceptions\ConnectorNotRegisteredException` | Public. Unknown connector name. |
+| `Laraflow\Exceptions\InvalidConnectorException` | Public. A connector factory returned something that is not a `Connector`. |
+| `Laraflow\Exceptions\TransportException` | Public. Thrown when a connector cannot reach its service. Never includes request options (they carry credentials). |
 | `Laraflow\Exceptions\Workflow\WorkflowException` | Public. Base class for workflow/lifecycle exceptions. |
 | `Laraflow\Exceptions\Workflow\ExecutionNotFoundException` | Public. Unknown execution id. |
 | `Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException` | Public. Another worker holds a fresh claim. |
 | `Laraflow\Exceptions\Workflow\ExecutionNotRunnableException` | Public. Execution is in a terminal status. |
 | `Laraflow\Exceptions\Workflow\ClaimLostException` | Public. This worker's claim was taken over; nothing was persisted. |
+| `Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException` | Public. `start()` rejected the definition: no steps, or a step that is not a class implementing `Step`. Nothing is persisted. |
 | `Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException` | Public. Supplied workflow does not match the persisted plan. |
 | `Laraflow\Exceptions\Workflow\InvalidStateTransitionException` | Public. Forbidden execution/step state transition. |
 | `Laraflow\Exceptions\Workflow\UnserializableValueException` | Public. Input/output/context value violates the serialization contract. |

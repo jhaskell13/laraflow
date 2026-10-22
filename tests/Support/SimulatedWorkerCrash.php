@@ -1,7 +1,9 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Support;
 
-class SimulatedWorkerCrash extends \Exception
-{
-}
+use Exception;
+
+class SimulatedWorkerCrash extends Exception {}

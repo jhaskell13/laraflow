@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Workflow;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 
 /**
@@ -18,6 +21,10 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  */
 class WorkflowExecution
 {
+    /**
+     * @param  array<string, mixed>  $input
+     * @param  array<string, mixed>  $context
+     */
     public function __construct(
         public readonly int|string $id,
         public readonly string $workflow,
@@ -27,15 +34,14 @@ class WorkflowExecution
         public ?string $error = null,
         public ?string $errorClass = null,
         public ?string $claimToken = null,
-        public ?\DateTimeImmutable $claimedAt = null,
-        public readonly ?\DateTimeImmutable $createdAt = null,
-        public ?\DateTimeImmutable $startedAt = null,
-        public ?\DateTimeImmutable $completedAt = null,
-        public ?\DateTimeImmutable $failedAt = null,
-    ) {
-    }
+        public ?DateTimeImmutable $claimedAt = null,
+        public readonly ?DateTimeImmutable $createdAt = null,
+        public ?DateTimeImmutable $startedAt = null,
+        public ?DateTimeImmutable $completedAt = null,
+        public ?DateTimeImmutable $failedAt = null,
+    ) {}
 
-    public function markRunning(\DateTimeImmutable $at): void
+    public function markRunning(DateTimeImmutable $at): void
     {
         $this->assertTransition(ExecutionStatus::Running, [
             ExecutionStatus::Pending,
@@ -47,7 +53,7 @@ class WorkflowExecution
         $this->startedAt ??= $at;
     }
 
-    public function markCompleted(\DateTimeImmutable $at): void
+    public function markCompleted(DateTimeImmutable $at): void
     {
         $this->assertTransition(ExecutionStatus::Completed, [
             ExecutionStatus::Running,
@@ -59,7 +65,7 @@ class WorkflowExecution
         $this->errorClass = null;
     }
 
-    public function markFailed(string $error, string $errorClass, \DateTimeImmutable $at): void
+    public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void
     {
         $this->assertTransition(ExecutionStatus::Failed, [
             ExecutionStatus::Running,
@@ -92,7 +98,7 @@ class WorkflowExecution
     }
 
     /**
-     * @param ExecutionStatus[] $allowedFrom
+     * @param  ExecutionStatus[]  $allowedFrom
      */
     protected function assertTransition(ExecutionStatus $to, array $allowedFrom): void
     {

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Exceptions\Workflow;
 
 class ExecutionAlreadyClaimedException extends WorkflowException
@@ -8,7 +10,7 @@ class ExecutionAlreadyClaimedException extends WorkflowException
     {
         return new self(
             "Workflow execution [{$id}] is running and claimed by another worker. "
-            . "It can be reclaimed once its claim is older than the configured stale_after."
+            .'It can be reclaimed once its claim is older than the configured stale_after.'
         );
     }
 }

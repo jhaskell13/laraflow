@@ -6,7 +6,7 @@ This document is the contract for how Laraflow persists, claims, runs, and recov
 
 | Method | Behaviour |
 |--------|-----------|
-| `start(Workflow $workflow, array $input = []): WorkflowExecution` | Validates the input against the serialization contract, then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing. |
+| `start(Workflow $workflow, array $input = []): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. |
 | `execute(int\|string $executionId, Workflow $workflow): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` in position order, checkpoints after each, and marks the execution terminal. Used for first execution *and* for recovery — there is one code path. |
 | `run(Workflow $workflow, array $input = []): WorkflowExecution` | `start()` followed by `execute()` in the same process. |
 

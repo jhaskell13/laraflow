@@ -1,21 +1,31 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Integration;
 
-class ConnectorResponse
+/**
+ * The result of a connector request, independent of transport.
+ */
+readonly class ConnectorResponse
 {
+    /**
+     * @param  array<string, mixed>  $headers
+     */
     public function __construct(
         protected int $status,
         protected array $headers,
         protected mixed $body,
-    ) {
-    }
+    ) {}
 
     public function status(): int
     {
         return $this->status;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function headers(): array
     {
         return $this->headers;

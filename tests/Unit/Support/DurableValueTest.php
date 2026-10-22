@@ -1,11 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Unit\Support;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Support\DurableValue;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 class DurableValueTest extends TestCase
 {
@@ -42,19 +46,19 @@ class DurableValueTest extends TestCase
     public static function unserializableValues(): array
     {
         return [
-            'object' => [new \stdClass()],
+            'object' => [new stdClass],
             'closure' => [fn () => null],
-            'nested object' => [['customer' => new \stdClass()]],
+            'nested object' => [['customer' => new stdClass]],
             'NAN' => [NAN],
             'INF' => [INF],
-            'datetime' => [new \DateTimeImmutable()],
+            'datetime' => [new DateTimeImmutable],
         ];
     }
 
     public function test_the_error_names_the_path_to_the_offending_value(): void
     {
         try {
-            DurableValue::assert(['customer' => ['loaded' => new \stdClass()]], 'output');
+            DurableValue::assert(['customer' => ['loaded' => new stdClass]], 'output');
             $this->fail('Expected UnserializableValueException.');
         } catch (UnserializableValueException $exception) {
             $this->assertStringContainsString('output.customer.loaded', $exception->getMessage());

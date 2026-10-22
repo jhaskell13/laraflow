@@ -1,57 +1,47 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Core;
 
+use Illuminate\Contracts\Config\Repository as Config;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\ServiceProvider;
 use Laraflow\Auth\GithubTokenAuthenticator;
-use Laraflow\Integration\ConnectorManager;
-use Laraflow\Core\LaraflowManager;
 use Laraflow\Integration\ConnectorFactory;
+use Laraflow\Integration\ConnectorManager;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\WorkflowRunner;
+use Psr\Log\LoggerInterface;
 
 class LaraflowServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(
-            __DIR__ . '/../../config/laraflow.php',
-            'laraflow'
-        );
+        $this->mergeConfigFrom(__DIR__.'/../../config/laraflow.php', 'laraflow');
 
-        $this->app->singleton(
-            ConnectorFactory::class,
-            fn () => new ConnectorFactory()
-        );
+        // Stateless services with resolvable constructors are autowired.
+        $this->app->singleton(ConnectorFactory::class);
+        $this->app->singleton(ConnectorManager::class);
+        $this->app->singleton(LaraflowManager::class);
 
-        $this->app->singleton(
-            ConnectorManager::class,
-            fn () => new ConnectorManager()
-        );
+        $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
 
-        $this->app->singleton(
-            LaraflowManager::class,
-            fn ($app) => new LaraflowManager(
-                $app->make(ConnectorFactory::class),
-                $app->make(ConnectorManager::class)
-            )
-        );
+        $this->app->singleton(WorkflowRunner::class, function (Container $app): WorkflowRunner {
+            /** @var Config $config */
+            $config = $app->make(Config::class);
 
-        $this->app->singleton(
-            ExecutionRepository::class,
-            fn () => new EloquentExecutionRepository()
-        );
-
-        $this->app->singleton(
-            WorkflowRunner::class,
-            fn ($app) => new WorkflowRunner(
+            return new WorkflowRunner(
                 repository: $app->make(ExecutionRepository::class),
-                staleAfterSeconds: (int) config('laraflow.execution.stale_after', 300),
-                maxErrorLength: (int) config('laraflow.execution.max_error_length', 65535),
-            )
-        );
+                container: $app,
+                logger: $app->make(LoggerInterface::class),
+                staleAfterSeconds: (int) $config->get('laraflow.execution.stale_after', 300),
+                maxErrorLength: (int) $config->get('laraflow.execution.max_error_length', 65535),
+            );
+        });
     }
 
     public function boot(): void
@@ -69,11 +59,11 @@ class LaraflowServiceProvider extends ServiceProvider
      */
     protected function registerMigrations(): void
     {
-        if (! config('laraflow.migrations.load', true)) {
+        if (! $this->config()->get('laraflow.migrations.load', true)) {
             return;
         }
 
-        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations');
+        $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
     }
 
     protected function registerPublishing(): void
@@ -83,25 +73,33 @@ class LaraflowServiceProvider extends ServiceProvider
         }
 
         $this->publishes([
-            __DIR__ . '/../../config/laraflow.php' => config_path('laraflow.php'),
+            __DIR__.'/../../config/laraflow.php' => $this->app->configPath('laraflow.php'),
         ], 'laraflow-config');
 
         $this->publishes([
-            __DIR__ . '/../../database/migrations' => database_path('migrations'),
+            __DIR__.'/../../database/migrations' => $this->app->databasePath('migrations'),
         ], 'laraflow-migrations');
     }
 
+    /**
+     * Bundled connectors are registered as lazy factories: configuration is
+     * read and credentials validated only when the connector is first used.
+     */
     protected function registerConnectors(): void
     {
+        /** @var LaraflowManager $laraflow */
         $laraflow = $this->app->make(LaraflowManager::class);
 
-        $laraflow->register(
-            'github',
-            fn () => new GithubConnector(
-                new GithubTokenAuthenticator(
-                    (string) config('laraflow.integrations.github.token')
-                )
-            )
-        );
+        $laraflow->register('github', fn (): GithubConnector => new GithubConnector(
+            new GithubTokenAuthenticator(
+                (string) $this->config()->get('laraflow.integrations.github.token', '')
+            ),
+            $this->app->make(HttpClient::class),
+        ));
+    }
+
+    protected function config(): Config
+    {
+        return $this->app->make(Config::class);
     }
 }

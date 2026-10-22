@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Exceptions\Workflow;
 
 class ClaimLostException extends WorkflowException
@@ -8,7 +10,7 @@ class ClaimLostException extends WorkflowException
     {
         return new self(
             "Lost the claim on workflow execution [{$id}]: another worker has reclaimed it. "
-            . "No further state for this execution was persisted by this worker."
+            .'No further state for this execution was persisted by this worker.'
         );
     }
 }

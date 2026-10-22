@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Support;
 
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
@@ -16,7 +18,7 @@ class DurableValue
 {
     /**
      * @throws UnserializableValueException if the value (or any nested
-     *         element) cannot be persisted as JSON without loss.
+     *                                      element) cannot be persisted as JSON without loss.
      */
     public static function assert(mixed $value, string $path): void
     {
@@ -34,7 +36,7 @@ class DurableValue
 
         if (is_array($value)) {
             foreach ($value as $key => $element) {
-                self::assert($element, $path . '.' . $key);
+                self::assert($element, $path.'.'.$key);
             }
 
             return;

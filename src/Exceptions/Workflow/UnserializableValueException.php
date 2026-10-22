@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Exceptions\Workflow;
 
 class UnserializableValueException extends WorkflowException
@@ -10,8 +12,8 @@ class UnserializableValueException extends WorkflowException
 
         return new self(
             "Value at [{$path}] of type [{$type}] cannot be persisted. "
-            . "Durable values must be JSON-serializable: null, bool, int, finite float, "
-            . "string, or arrays of those. Store an identifier and reload the object instead."
+            .'Durable values must be JSON-serializable: null, bool, int, finite float, '
+            .'string, or arrays of those. Store an identifier and reload the object instead.'
         );
     }
 }

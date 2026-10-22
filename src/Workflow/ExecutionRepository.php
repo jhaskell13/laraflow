@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Workflow;
 
 use Laraflow\Exceptions\Workflow\ClaimLostException;
@@ -23,7 +25,8 @@ interface ExecutionRepository
      * the persisted plan is a complete snapshot of the workflow definition
      * regardless of when or whether execution happens.
      *
-     * @param string[] $steps Ordered step class names.
+     * @param  array<string, mixed>  $input
+     * @param  list<string>  $steps  Ordered step class names.
      */
     public function create(
         string $workflow,
@@ -46,7 +49,7 @@ interface ExecutionRepository
      * claimant can succeed.
      *
      * @throws ExecutionNotFoundException
-     * @throws ExecutionNotRunnableException  when the execution is completed.
+     * @throws ExecutionNotRunnableException when the execution is completed.
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
      */
     public function claim(

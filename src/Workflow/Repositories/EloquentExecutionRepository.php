@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Workflow\Repositories;
 
+use Closure;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
@@ -20,6 +23,10 @@ use Laraflow\Workflow\WorkflowExecution;
  */
 class EloquentExecutionRepository implements ExecutionRepository
 {
+    /**
+     * @param  array<string, mixed>  $input
+     * @param  list<string>  $steps
+     */
     public function create(
         string $workflow,
         array $input = [],
@@ -33,7 +40,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
             ]);
 
-            foreach (array_values($steps) as $position => $stepClass) {
+            foreach ($steps as $position => $stepClass) {
                 $model->steps()->create([
                     'step' => $stepClass,
                     'position' => $position,
@@ -196,7 +203,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         throw ExecutionNotRunnableException::forStatus($id, $status);
     }
 
-    protected function transaction(callable $callback): mixed
+    protected function transaction(Closure $callback): mixed
     {
         return WorkflowExecutionModel::query()
             ->getConnection()
