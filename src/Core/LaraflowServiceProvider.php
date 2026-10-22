@@ -9,6 +9,10 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\ServiceProvider;
 use Laraflow\Auth\GithubTokenAuthenticator;
+use Laraflow\Console\DemoCommand;
+use Laraflow\Console\ExecuteCommand;
+use Laraflow\Console\ListCommand;
+use Laraflow\Console\ShowCommand;
 use Laraflow\Integration\ConnectorFactory;
 use Laraflow\Integration\ConnectorManager;
 use Laraflow\Integration\Github\GithubConnector;
@@ -48,6 +52,7 @@ class LaraflowServiceProvider extends ServiceProvider
     {
         $this->registerPublishing();
         $this->registerMigrations();
+        $this->registerCommands();
         $this->registerConnectors();
     }
 
@@ -64,6 +69,20 @@ class LaraflowServiceProvider extends ServiceProvider
         }
 
         $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+    }
+
+    protected function registerCommands(): void
+    {
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
+        $this->commands([
+            DemoCommand::class,
+            ExecuteCommand::class,
+            ListCommand::class,
+            ShowCommand::class,
+        ]);
     }
 
     protected function registerPublishing(): void

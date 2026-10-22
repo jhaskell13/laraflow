@@ -53,6 +53,11 @@
             "@lint",
             "@analyse",
             "@test"
+        ],
+        "playground": [
+            "@php vendor/bin/testbench package:create-sqlite-db",
+            "@php vendor/bin/testbench migrate",
+            "@php -r \"echo PHP_EOL.'Playground ready. Try:'.PHP_EOL.'  vendor/bin/testbench laraflow:demo --fail'.PHP_EOL.'  vendor/bin/testbench laraflow:list'.PHP_EOL.'  vendor/bin/testbench laraflow:execute 1'.PHP_EOL.'  vendor/bin/testbench laraflow:show 1'.PHP_EOL;\""
         ]
     },
     "extra": {

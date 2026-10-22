@@ -85,6 +85,19 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `integrations.github.token` | Public | |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 
+## Console commands
+
+All experimental: names, signatures, and output format may change while the operational tooling (roadmap Milestones 2 and 4) takes shape.
+
+| Command | Level | Notes |
+|---------|-------|-------|
+| `laraflow:demo {--fail}` | Experimental | Runs the bundled `Laraflow\Demo\DemoWorkflow`. `--fail` makes the payment step fail on attempt 1 so recovery can be demonstrated. |
+| `laraflow:list {--status=} {--limit=20}` | Experimental | Lists executions, newest first. |
+| `laraflow:show {execution}` | Experimental | One execution in detail: steps, attempts, outputs, errors, context, claim. |
+| `laraflow:execute {execution}` | Experimental | Executes or recovers an execution using the workflow class stored on it; refuses if that class no longer exists or is not a `Workflow`. |
+
+The `Laraflow\Demo` classes exist for the demo command and are experimental; do not build applications on them.
+
 ## Runner method naming
 
 The roadmap asked for a decision on `run`, `start`, `execute`, and `resume` before applications depend on the synchronous API. The decision, implemented in Milestone 1:

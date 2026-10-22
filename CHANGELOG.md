@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Console tooling and local playground
+
+#### Added
+
+- Experimental Artisan commands, auto-registered in console contexts: `laraflow:demo {--fail}` (runs a bundled demo workflow; `--fail` leaves a recoverable failed execution), `laraflow:list {--status=} {--limit=}`, `laraflow:show {execution}`, and `laraflow:execute {execution}` (executes or recovers an execution using its stored workflow class, refusing clearly when that class is gone).
+- `Laraflow\Demo\DemoWorkflow` (experimental): reserve inventory → charge payment → send receipt, exercising context passing, checkpointed outputs, attempt metadata, and idempotency keys.
+- Local playground: `composer playground` prepares a SQLite database via Testbench (`testbench.yaml`), after which the commands run from the repository with `vendor/bin/testbench` — documented in the README's "Try it locally" section.
+- Command test suite (asserting on the full captured output buffer; `tests/Support/RunsArtisanCommands.php` documents why `expectsOutputToContain` is avoided: its per-line Mockery matchers silently miss when two expected substrings share one output line).
+
 ### Code audit — quality, tooling, and test depth
 
 #### Added

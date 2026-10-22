@@ -12,6 +12,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Try it locally](#try-it-locally)
 - [Configuration](#configuration)
 - [Your first workflow](#your-first-workflow)
 - [Inspecting executions](#inspecting-executions)
@@ -66,6 +67,30 @@ php artisan vendor:publish --tag=laraflow-migrations
 ```dotenv
 LARAFLOW_LOAD_MIGRATIONS=false
 ```
+
+## Try it locally
+
+The repository ships a playground (via Orchestra Testbench) and a set of experimental Artisan commands, so you can watch the durable runtime work without creating a Laravel application:
+
+```bash
+git clone https://github.com/jhaskell13/laraflow.git
+cd laraflow
+composer install
+composer playground     # creates a SQLite database and runs the migrations
+```
+
+Then, from the repository root:
+
+```bash
+vendor/bin/testbench laraflow:demo --fail   # the demo payment step fails on attempt 1
+vendor/bin/testbench laraflow:list          # the failed execution, 1/3 steps completed
+vendor/bin/testbench laraflow:execute 1     # recovery: step 1 skipped, step 2 succeeds on attempt 2
+vendor/bin/testbench laraflow:show 1        # full record: steps, attempts, outputs, context
+```
+
+The demo workflow simulates an order: reserve inventory → charge payment → send receipt. With `--fail`, the payment step throws on its first attempt, leaving a persisted failed execution; `laraflow:execute` then recovers it from the checkpoint — the completed step is skipped, its context restored, and the retry reports the same idempotency key the first attempt used. Run `laraflow:demo` without the flag for the happy path.
+
+The same four commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
 
 ## Configuration
 

@@ -1,0 +1,60 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Laraflow\Tests\Feature\Console;
+
+use Laraflow\Demo\DemoWorkflow;
+use Laraflow\Tests\Support\RunsArtisanCommands;
+use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\StepExecutionModel;
+use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\StepStatus;
+use Symfony\Component\Console\Command\Command as CommandStatus;
+
+class DemoCommandTest extends TestCase
+{
+    use RunsArtisanCommands;
+
+    public function test_it_runs_the_demo_workflow_to_completion(): void
+    {
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:demo');
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString(DemoWorkflow::class, $output);
+        $this->assertStringContainsString('ReserveInventory', $output);
+        $this->assertStringContainsString('SendReceipt', $output);
+        $this->assertStringContainsString('laraflow:show 1', $output);
+
+        $execution = WorkflowExecutionModel::query()->firstOrFail();
+
+        $this->assertSame(ExecutionStatus::Completed->value, $execution->status);
+        $this->assertSame('RES-1-SKU-1001', $execution->context['reservation_id'] ?? null);
+        $this->assertArrayHasKey('receipt', $execution->context);
+        $this->assertSame(3, StepExecutionModel::query()->where('status', StepStatus::Completed->value)->count());
+    }
+
+    public function test_the_fail_flag_leaves_a_recoverable_failed_execution(): void
+    {
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:demo', ['--fail' => true]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('Simulated payment gateway timeout', $output);
+        $this->assertStringContainsString('laraflow:execute 1', $output);
+
+        $execution = WorkflowExecutionModel::query()->firstOrFail();
+
+        $this->assertSame(ExecutionStatus::Failed->value, $execution->status);
+        $this->assertNull($execution->claim_token, 'The claim must be released so recovery can take over.');
+
+        $steps = StepExecutionModel::query()->orderBy('position')->get();
+
+        $this->assertSame(StepStatus::Completed->value, $steps[0]->status);
+        $this->assertSame(StepStatus::Failed->value, $steps[1]->status);
+        $this->assertSame(StepStatus::Pending->value, $steps[2]->status);
+
+        // The checkpointed first step's result survives for the retry.
+        $this->assertSame('RES-1-SKU-1001', $execution->context['reservation_id'] ?? null);
+    }
+}

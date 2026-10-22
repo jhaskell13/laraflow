@@ -1,0 +1,8 @@
+# Configuration for the local playground (`vendor/bin/testbench`).
+# See the "Try it locally" section of the README.
+
+providers:
+  - Laraflow\Core\LaraflowServiceProvider
+
+env:
+  - DB_CONNECTION=sqlite
