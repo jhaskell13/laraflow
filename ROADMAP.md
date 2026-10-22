@@ -15,7 +15,7 @@ Milestone 0 is complete (October 2026). The repository has:
 - Documentation: README with installation, configuration, first workflow, first connector, and current limitations; `docs/public-api.md` with stability levels and the decided runner API; `docs/compatibility.md`; `CHANGELOG.md`; `CONTRIBUTING.md`; `SECURITY.md`.
 - Declared support for PHP 8.2–8.4 and Laravel 12 (Testbench 10); SQLite tested, MySQL/MariaDB/PostgreSQL expected to work pending CI.
 
-The runner still executes synchronously. It persists execution/step state and exposes an experimental `resume()`, but this is not yet a safe durable runtime: step records are created lazily so a crash mid-run leaves later steps unrecorded, completed step outputs are not restored into context, resume does not validate the workflow against persisted steps, worker ownership/concurrency is not coordinated, and no queue/recovery scheduler exists. A process death can leave records running. Milestone 1 addresses this.
+Milestone 1 is complete (October 2026). The runner executes synchronously but is now a safe durable runtime: the full step plan is persisted before execution, executions are claimed by compare-and-set with stale-claim takeover, step outputs and the context snapshot are checkpointed transactionally and restored on recovery, the workflow definition is validated against the persisted plan, failure persistence is robust, and the at-least-once contract plus idempotency hooks are documented in `docs/execution-lifecycle.md`. Recovery still happens only when something calls `execute()`: there is no queue dispatch, no scheduler that finds stale executions, and no automatic retry policy. Milestone 2 addresses that.
 
 ## Product principles
 
@@ -45,9 +45,9 @@ Completed October 2026. Kept for the record.
 - Public versus internal classes are identified; experimental behavior is labeled.
 - Version support is deliberate rather than an incidental Composer constraint.
 
-## Milestone 1 — Correct execution lifecycle and recovery semantics
+## Milestone 1 — Correct execution lifecycle and recovery semantics ✅
 
-**This is the current milestone.** It also implements the runner API decided in Milestone 0.
+Completed October 2026, including the runner API decided in Milestone 0 (`start`/`execute`/`run`, `resume` removed). The lifecycle contract lives in `docs/execution-lifecycle.md`; the recovery suite in `tests/Feature/Workflow/WorkflowRecoveryTest.php` covers the exit criteria. Two Milestone 1 items were deliberately narrowed: step-level `input` persistence exists in the schema but workflows feed steps through the context, and per-attempt history is deferred to Milestone 3 where retry policy gives it meaning.
 
 ### Work
 
@@ -69,7 +69,7 @@ Completed October 2026. Kept for the record.
 
 ## Milestone 2 — Queue execution and operational recovery
 
-Build on the lifecycle contract, rather than embedding queue assumptions in workflow definitions.
+This is the next engineering priority. Build on the lifecycle contract, rather than embedding queue assumptions in workflow definitions.
 
 ### Work
 
@@ -176,10 +176,10 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 ## Suggested immediate order
 
 1. ~~Replace the README placeholder and write down the public API and compatibility policy.~~ Done.
-2. Specify execution/step transitions and recovery guarantees.
-3. Correct resume semantics, including restoring completed outputs/context and validating the stored plan.
-4. Add execution claiming/concurrency protection and crash-boundary recovery coverage.
-5. Separate execution creation from execution and then add Laravel queue dispatch.
+2. ~~Specify execution/step transitions and recovery guarantees.~~ Done.
+3. ~~Correct resume semantics, including restoring completed outputs/context and validating the stored plan.~~ Done.
+4. ~~Add execution claiming/concurrency protection and crash-boundary recovery coverage.~~ Done.
+5. ~~Separate execution creation from execution~~ (done) and then add Laravel queue dispatch.
 6. Add bounded retry and stale-execution recovery policies.
 7. Stabilize inspection/observability APIs, connector contracts, and release automation.
 

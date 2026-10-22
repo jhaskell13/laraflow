@@ -2,8 +2,8 @@
 
 namespace Laraflow\Tests\Unit\Workflow;
 
-use PHPUnit\Framework\TestCase;
 use Laraflow\Workflow\WorkflowContext;
+use PHPUnit\Framework\TestCase;
 
 class WorkflowContextTest extends TestCase
 {
@@ -14,10 +14,7 @@ class WorkflowContextTest extends TestCase
         $context->set('name', 'laraflow');
 
         $this->assertTrue($context->has('name'));
-        $this->assertSame(
-            'laraflow',
-            $context->get('name')
-        );
+        $this->assertSame('laraflow', $context->get('name'));
     }
 
     public function test_it_returns_default_for_missing_values(): void
@@ -25,10 +22,47 @@ class WorkflowContextTest extends TestCase
         $context = new WorkflowContext();
 
         $this->assertFalse($context->has('missing'));
+        $this->assertSame('default', $context->get('missing', 'default'));
+    }
+
+    public function test_it_can_be_seeded_and_dumped(): void
+    {
+        $context = new WorkflowContext(['customer_id' => 42]);
+
+        $context->set('email', 'test@example.com');
 
         $this->assertSame(
-            'default',
-            $context->get('missing', 'default')
+            ['customer_id' => 42, 'email' => 'test@example.com'],
+            $context->all()
         );
+    }
+
+    public function test_it_exposes_execution_metadata(): void
+    {
+        $context = new WorkflowContext([], executionId: 17);
+
+        $context->enterStep(position: 2, attempt: 3);
+
+        $this->assertSame(17, $context->executionId());
+        $this->assertSame(2, $context->stepPosition());
+        $this->assertSame(3, $context->attempt());
+    }
+
+    public function test_idempotency_key_identifies_execution_and_step_but_not_attempt(): void
+    {
+        $context = new WorkflowContext([], executionId: 17);
+
+        $context->enterStep(position: 2, attempt: 1);
+        $firstAttemptKey = $context->idempotencyKey();
+
+        $context->enterStep(position: 2, attempt: 2);
+        $secondAttemptKey = $context->idempotencyKey();
+
+        $this->assertSame('laraflow:17:2', $firstAttemptKey);
+        $this->assertSame($firstAttemptKey, $secondAttemptKey);
+
+        $context->enterStep(position: 3, attempt: 1);
+
+        $this->assertNotSame($firstAttemptKey, $context->idempotencyKey());
     }
 }

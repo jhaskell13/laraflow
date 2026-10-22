@@ -47,7 +47,9 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(
             WorkflowRunner::class,
             fn ($app) => new WorkflowRunner(
-                $app->make(ExecutionRepository::class)
+                repository: $app->make(ExecutionRepository::class),
+                staleAfterSeconds: (int) config('laraflow.execution.stale_after', 300),
+                maxErrorLength: (int) config('laraflow.execution.max_error_length', 65535),
             )
         );
     }

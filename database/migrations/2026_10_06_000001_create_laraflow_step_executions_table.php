@@ -22,6 +22,7 @@ return new class extends Migration
             $table->json('input')->nullable();
             $table->json('output')->nullable();
             $table->text('error')->nullable();
+            $table->string('error_class')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamp('next_retry_at')->nullable();

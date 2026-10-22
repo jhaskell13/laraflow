@@ -22,6 +22,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Execution
+    |--------------------------------------------------------------------------
+    |
+    | stale_after: seconds after which a running execution's claim is
+    | considered abandoned (worker death) and may be reclaimed by another
+    | worker via execute(). Set it comfortably above your longest step.
+    |
+    | max_error_length: step/execution error messages are truncated to this
+    | many characters before persisting.
+    |
+    */
+
+    'execution' => [
+        'stale_after' => env('LARAFLOW_STALE_AFTER', 300),
+        'max_error_length' => env('LARAFLOW_MAX_ERROR_LENGTH', 65535),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Integrations
     |--------------------------------------------------------------------------
     |

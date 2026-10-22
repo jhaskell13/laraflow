@@ -165,30 +165,55 @@ class SyncWithCrm implements Step
 
 ### Running it
 
-Resolve the `WorkflowRunner` from the container and call `run()`. Execution is synchronous: the call returns once every step has completed, or throws the step's exception after persisting the failure.
+Resolve the `WorkflowRunner` from the container and call `run()` with optional input. Execution is synchronous: the call returns a `WorkflowExecution` handle once every step has completed, or throws the step's exception after persisting the failure. Input values seed the context, so steps read them with `$context->get('customer_id')`.
 
 ```php
 use Laraflow\Workflow\WorkflowRunner;
 
 $runner = app(WorkflowRunner::class);
 
-$context = $runner->run(new SyncCustomerWorkflow());
+$execution = $runner->run(new SyncCustomerWorkflow(), ['customer_id' => 42]);
+
+$execution->id;            // store or display it
+$execution->isCompleted(); // true
+$execution->context;       // everything the steps stored
 ```
 
-> **API change ahead.** `run()` currently returns the `WorkflowContext`. The next milestone changes it to return a `WorkflowExecution` handle, adds `start()` and `execute()`, and lets you pass workflow input. The reasoning is recorded in [docs/public-api.md](docs/public-api.md#runner-method-naming).
+Creation and execution are separate when you need them to be:
 
-Right now there is no way to pass input into `run()`, so steps must obtain their starting data themselves (for example from the container or configuration). Input handling arrives with the lifecycle work in Milestone 1.
+```php
+$execution = $runner->start(new SyncCustomerWorkflow(), ['customer_id' => 42]);
+// ...persisted as pending with its full step plan; nothing has run...
+$execution = $runner->execute($execution->id, new SyncCustomerWorkflow());
+```
+
+### Failure and recovery
+
+If a step throws, the failure (message and exception class) is persisted on both the step and the execution, and the exception is rethrown. Calling `execute()` again on a failed execution **resumes it**: completed steps are skipped, their results are restored into the context from durable state, and the failed step runs again.
+
+```php
+try {
+    $runner->run(new SyncCustomerWorkflow(), ['customer_id' => 42]);
+} catch (\Throwable $e) {
+    // Later — after fixing the cause — continue where it stopped:
+    $runner->execute($executionId, new SyncCustomerWorkflow());
+}
+```
+
+The same call recovers executions whose worker died mid-run: a `running` execution whose claim is older than `laraflow.execution.stale_after` (default 300 seconds) can be reclaimed, and the interrupted step runs again. Two workers can never both hold a live execution — claiming is an atomic compare-and-set, and a worker that loses its claim can no longer write durable state.
+
+A step that repeats this way may re-perform external side effects — that is the **at-least-once contract**. Steps can deduplicate using `$context->idempotencyKey()`, which is stable across crashes and retries of the same step. The full contract, state machines, and crash-boundary behaviour are specified in [docs/execution-lifecycle.md](docs/execution-lifecycle.md).
 
 ### What gets persisted
 
-Every call to `run()` creates one row in `laraflow_workflow_executions` and one row per step in `laraflow_step_executions`:
+`start()` (and therefore `run()`) creates one row in `laraflow_workflow_executions` and — up front, before anything runs — one row per step in `laraflow_step_executions`:
 
 | Record | Fields |
 |--------|--------|
-| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`), input, started/completed/failed timestamps |
-| Step execution | step class, position, status, attempts, input, output, error message, started/completed timestamps, next retry time |
+| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps |
+| Step execution | step class, position, status, attempts, output, error message and class, started/completed timestamps, next retry time |
 
-Step status transitions are written before and after each step runs, so a failure records which step failed and why.
+After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
 
 ## Inspecting executions
 
@@ -203,6 +228,8 @@ $execution = $repository->find($executionId);
 
 $execution->status;      // ExecutionStatus enum
 $execution->isFailed();  // bool
+$execution->error;       // message of the failing step, if any
+$execution->context;     // persisted context snapshot
 $execution->startedAt;   // ?DateTimeImmutable
 
 foreach ($repository->steps($execution) as $step) {
@@ -300,17 +327,15 @@ Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 0; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 1; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
 
-- **Execution is synchronous only.** There is no queue integration. `run()` blocks until the workflow finishes.
-- **Recovery is not yet safe.** A `resume()` method exists but is experimental and incomplete: it does not restore earlier step results into the context, does not create records for steps that never started, does not validate the workflow definition against the persisted plan, and does not protect against two workers resuming the same execution. Do not rely on it.
-- **A crashed worker leaves records in `running`.** Nothing detects or recovers stale executions yet.
-- **No retries.** A failing step fails the workflow. `attempts` and `next_retry_at` are recorded but not acted on.
-- **No workflow input.** `run()` does not accept input; context starts empty.
-- **Outputs must be JSON-friendly.** Step outputs are stored in a JSON column cast to an array. Returning objects or non-array scalars is unsupported and may be mangled or rejected by your database.
-- **Context is not persisted.** Only step outputs are stored; the in-memory context is lost when the process ends.
-- **Side effects are at-least-once.** If a step performs an external call and the process dies before the result is recorded, a future resume may run that step again. The package will provide idempotency tools; it cannot make arbitrary side effects exactly-once.
-- **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet.
+- **Execution is synchronous only.** There is no queue integration yet. `run()` and `execute()` block until the workflow finishes (Milestone 2).
+- **Recovery is manual.** A stale or failed execution is recovered by calling `execute()`; nothing scans for stale executions or re-dispatches them automatically (Milestone 2).
+- **No automatic retries.** A failing step fails the workflow until something calls `execute()` again. `next_retry_at` is recorded but not acted on; backoff and retry policies are Milestone 3.
+- **Attempt history is overwritten.** Each retry updates the step row in place; per-attempt history arrives with the retry work (Milestone 3).
+- **Side effects are at-least-once.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
+- **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
+- **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet (Milestone 5).
 - **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots.
 
 ## Design principles

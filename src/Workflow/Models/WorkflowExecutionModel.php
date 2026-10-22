@@ -16,6 +16,8 @@ class WorkflowExecutionModel extends Model
 
     protected $casts = [
         'input' => 'array',
+        'context' => 'array',
+        'claimed_at' => 'datetime',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
         'failed_at' => 'datetime',

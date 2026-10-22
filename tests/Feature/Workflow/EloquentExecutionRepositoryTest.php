@@ -2,143 +2,233 @@
 
 namespace Laraflow\Tests\Feature\Workflow;
 
+use Laraflow\Exceptions\Workflow\ClaimLostException;
+use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
+use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Tests\TestCase;
-use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\StepExecutionModel;
+use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\StepStatus;
 
 class EloquentExecutionRepositoryTest extends TestCase
 {
-    public function test_it_creates_and_retrieves_a_workflow_execution(): void
+    protected function repository(): ExecutionRepository
     {
-        $repository = app(ExecutionRepository::class);
+        return app(ExecutionRepository::class);
+    }
 
-        $execution = $repository->create(
+    public function test_it_creates_an_execution_with_its_full_step_plan_atomically(): void
+    {
+        $execution = $this->repository()->create(
             workflow: 'SyncCustomerWorkflow',
             input: ['customer_id' => 123],
+            steps: ['LoadCustomer', 'SyncWithCrm'],
         );
 
         $this->assertNotNull($execution->id);
-        $this->assertSame(
-            'SyncCustomerWorkflow',
-            $execution->workflow
-        );
-        $this->assertSame(
-            ['customer_id' => 123],
-            $execution->input
-        );
-        $this->assertSame(
-            ExecutionStatus::Pending,
-            $execution->status
-        );
+        $this->assertSame('SyncCustomerWorkflow', $execution->workflow);
+        $this->assertSame(['customer_id' => 123], $execution->input);
+        $this->assertSame(ExecutionStatus::Pending, $execution->status);
+        $this->assertSame([], $execution->context);
 
-        $retrieved = $repository->find($execution->id);
+        $steps = $this->repository()->steps($execution);
 
-        $this->assertSame($execution->id, $retrieved->id);
-        $this->assertSame(
-            $execution->workflow,
-            $retrieved->workflow
-        );
-        $this->assertSame(
-            $execution->input,
-            $retrieved->input
-        );
-        $this->assertSame(
-            ExecutionStatus::Pending,
-            $retrieved->status
-        );
+        $this->assertCount(2, $steps);
+        $this->assertSame('LoadCustomer', $steps[0]->step);
+        $this->assertSame(0, $steps[0]->position);
+        $this->assertSame('SyncWithCrm', $steps[1]->step);
+        $this->assertSame(1, $steps[1]->position);
+        $this->assertSame(StepStatus::Pending, $steps[0]->status);
+        $this->assertSame(0, $steps[0]->attempts);
     }
 
-    public function test_it_persists_workflow_execution_changes(): void
+    public function test_find_throws_a_package_exception_for_unknown_executions(): void
     {
-        $repository = app(ExecutionRepository::class);
+        $this->expectException(ExecutionNotFoundException::class);
 
-        $execution = $repository->create(
-            workflow: 'SyncCustomerWorkflow'
-        );
-
-        $execution->status = ExecutionStatus::Running;
-        $execution->startedAt = new \DateTimeImmutable();
-
-        $repository->save($execution);
-
-        $retrieved = $repository->find($execution->id);
-
-        $this->assertSame(
-            ExecutionStatus::Running,
-            $retrieved->status
-        );
-        $this->assertNotNull($retrieved->startedAt);
+        $this->repository()->find(42);
     }
 
-    public function test_it_creates_and_retrieves_steps(): void
+    public function test_claiming_a_pending_execution_marks_it_running_and_owned(): void
     {
-        $repository = app(ExecutionRepository::class);
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
 
-        $execution = $repository->create(
-            workflow: 'SyncCustomerWorkflow'
-        );
+        $claimed = $this->repository()->claim($execution->id, 'worker-a', 300);
 
-        $step = $repository->createStep(
-            execution: $execution,
-            step: 'CreateCustomer',
-            position: 0,
-            input: ['email' => 'test@example.com']
-        );
+        $this->assertSame(ExecutionStatus::Running, $claimed->status);
+        $this->assertSame('worker-a', $claimed->claimToken);
+        $this->assertNotNull($claimed->claimedAt);
+        $this->assertNotNull($claimed->startedAt);
+    }
 
-        $this->assertNotNull($step->id);
-        $this->assertSame($execution->id, $step->executionId);
-        $this->assertSame('CreateCustomer', $step->step);
-        $this->assertSame(0, $step->position);
-        $this->assertSame(
-            StepStatus::Pending,
-            $step->status
-        );
-        $this->assertSame(
-            ['email' => 'test@example.com'],
-            $step->input
-        );
+    public function test_only_one_worker_can_claim_an_execution(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
 
-        $steps = $repository->steps($execution);
+        $this->repository()->claim($execution->id, 'worker-a', 300);
 
-        $this->assertCount(1, $steps);
-        $this->assertSame($step->id, $steps[0]->id);
+        $this->expectException(ExecutionAlreadyClaimedException::class);
+
+        $this->repository()->claim($execution->id, 'worker-b', 300);
+    }
+
+    public function test_a_stale_claim_can_be_taken_over_and_keeps_the_original_started_at(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+        $first = $this->repository()->claim($execution->id, 'worker-a', 300);
+
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['claimed_at' => now()->subMinutes(30)]);
+
+        $reclaimed = $this->repository()->claim($execution->id, 'worker-b', 300);
+
+        $this->assertSame('worker-b', $reclaimed->claimToken);
+        $this->assertEquals($first->startedAt, $reclaimed->startedAt);
+    }
+
+    public function test_a_failed_execution_can_be_claimed_again(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['status' => ExecutionStatus::Failed->value]);
+
+        $claimed = $this->repository()->claim($execution->id, 'worker-a', 300);
+
+        $this->assertSame(ExecutionStatus::Running, $claimed->status);
+    }
+
+    public function test_a_completed_execution_cannot_be_claimed(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['status' => ExecutionStatus::Completed->value]);
+
+        $this->expectException(ExecutionNotRunnableException::class);
+
+        $this->repository()->claim($execution->id, 'worker-a', 300);
+    }
+
+    public function test_claiming_an_unknown_execution_throws_not_found(): void
+    {
+        $this->expectException(ExecutionNotFoundException::class);
+
+        $this->repository()->claim(42, 'worker-a', 300);
     }
 
     public function test_it_persists_step_changes(): void
     {
-        $repository = app(ExecutionRepository::class);
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        [$step] = $this->repository()->steps($execution);
 
-        $execution = $repository->create(
-            workflow: 'SyncCustomerWorkflow'
-        );
+        $step->markRunning(new \DateTimeImmutable());
+        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
 
-        $step = $repository->createStep(
-            execution: $execution,
-            step: 'CreateCustomer',
-            position: 0,
-        );
+        $this->repository()->saveStep($step);
 
-        $step->status = StepStatus::Completed;
-        $step->attempts = 1;
-        $step->output = ['customer_id' => 456];
-        $step->completedAt = new \DateTimeImmutable();
+        [$retrieved] = $this->repository()->steps($execution);
 
-        $repository->saveStep($step);
-
-        $steps = $repository->steps($execution);
-
-        $retrieved = $steps[0];
-
-        $this->assertSame(
-            StepStatus::Completed,
-            $retrieved->status
-        );
+        $this->assertSame(StepStatus::Completed, $retrieved->status);
         $this->assertSame(1, $retrieved->attempts);
+        $this->assertSame(['customer_id' => 456], $retrieved->output);
+        $this->assertNotNull($retrieved->completedAt);
+    }
+
+    public function test_checkpoint_persists_step_and_context_together(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        [$step] = $this->repository()->steps($execution);
+
+        $step->markRunning(new \DateTimeImmutable());
+        $this->repository()->saveStep($step);
+
+        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
+        $execution->context = ['customer_id' => 456];
+
+        $this->repository()->checkpoint($execution, $step);
+
         $this->assertSame(
             ['customer_id' => 456],
-            $retrieved->output
+            WorkflowExecutionModel::query()->first()->context
         );
-        $this->assertNotNull($retrieved->completedAt);
+        $this->assertSame(
+            StepStatus::Completed->value,
+            StepExecutionModel::query()->first()->status
+        );
+    }
+
+    public function test_checkpoint_without_the_claim_persists_nothing(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        [$step] = $this->repository()->steps($execution);
+
+        $step->markRunning(new \DateTimeImmutable());
+        $this->repository()->saveStep($step);
+
+        // Another worker reclaims the execution while worker-a is mid-step.
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['claim_token' => 'worker-b']);
+
+        $step->markCompleted(['customer_id' => 456], new \DateTimeImmutable());
+        $execution->context = ['customer_id' => 456];
+
+        try {
+            $this->repository()->checkpoint($execution, $step);
+            $this->fail('Expected ClaimLostException.');
+        } catch (ClaimLostException) {
+            // Expected.
+        }
+
+        // The whole checkpoint rolled back: not even the step row changed.
+        $this->assertSame(
+            StepStatus::Running->value,
+            StepExecutionModel::query()->first()->status
+        );
+        $this->assertSame([], WorkflowExecutionModel::query()->first()->context);
+    }
+
+    public function test_release_persists_the_terminal_state_and_clears_the_claim(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+
+        $execution->markRunning(new \DateTimeImmutable());
+        $execution->markCompleted(new \DateTimeImmutable());
+
+        $this->repository()->release($execution);
+
+        $model = WorkflowExecutionModel::query()->first();
+
+        $this->assertSame(ExecutionStatus::Completed->value, $model->status);
+        $this->assertNotNull($model->completed_at);
+        $this->assertNull($model->claim_token);
+        $this->assertNull($model->claimed_at);
+    }
+
+    public function test_release_without_the_claim_throws(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['claim_token' => 'worker-b']);
+
+        $execution->markRunning(new \DateTimeImmutable());
+        $execution->markCompleted(new \DateTimeImmutable());
+
+        $this->expectException(ClaimLostException::class);
+
+        $this->repository()->release($execution);
     }
 }
