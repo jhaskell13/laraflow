@@ -19,7 +19,9 @@ Milestone 1 is complete (October 2026). The runner is a safe durable runtime: th
 
 Milestone 2 is complete (October 2026). Executions can run on a Laravel queue (`WorkflowDispatcher` + `ExecuteWorkflowJob`, payload carrying only the execution id), duplicate deliveries resolve safely through the existing claim, the queue is given no retry authority by default so the two retry systems cannot multiply, `laraflow:recover` finds and retries interrupted work under explicit bounds, and eight lifecycle events fire after each durable write without carrying input, output, or context. The contract lives in `docs/queue-and-recovery.md`; `tests/Feature/Queue/QueueRecoveryTest.php` proves the exit criteria against a real queue driver and worker. No migration was required.
 
-What remains unaddressed is retry *policy*: a failed execution is never retried automatically, there is no backoff, no timeout handling distinct from worker loss, no attempt history, and no cancellation. Milestone 3 addresses that.
+Milestone 3 is complete (October 2026). Steps can declare retry policy — attempts, capped exponential backoff with deterministic jitter, retryable-exception rules, and a per-attempt deadline — off by default. A retryable failure becomes durable `retrying` state with `next_retry_at` rather than an exception, delivered when due by a delayed queue job and, contractually, by `laraflow:recover`. Attempt history is append-only, timeouts are classified at the recovery boundary distinctly from worker loss, cancellation exists with cooperative semantics for running work, and an optional redactor governs every error message the package retains. The contract lives in `docs/retry-and-failure-policy.md`.
+
+What remains for operability is a stable querying and observability surface, and retention: listing and filtering without reaching for the internal models, pruning (the new attempt history grows unbounded), metrics hooks, and correlation identifiers. Milestone 4 addresses that.
 
 ## Product principles
 
@@ -93,7 +95,15 @@ Two items were resolved more conservatively than the original wording implies. R
 - Duplicate queue deliveries are safe under the stated at-least-once contract.
 - Recovery actions are visible and bounded; no automatic infinite retry loop.
 
-## Milestone 3 — Retry, timeout, and failure policy
+## Milestone 3 — Retry, timeout, and failure policy ✅
+
+Completed October 2026. Three items were deliberately narrowed.
+
+**Timeouts are deadlines, not preemption.** Laraflow records each attempt's deadline, exposes it to the step, and classifies an overrun attempt as a timeout charged to the retry budget — but it does not interrupt running PHP. A hung step on a live claim is reported and left alone until the claim ages out; bounding the process itself remains the queue worker's job.
+
+**`FailurePolicy::Continue` is scoped to independent steps.** Later steps see earlier checkpoints but nothing from the failed step, and retry policy takes precedence over continuing. Compensation remains Milestone 7.
+
+**The two attempt bounds stay independent.** `recovery.max_attempts` was renamed `recovery.abandon_after_attempts` and governs *interruption* recovery only; due retries answer to their step's own policy budget. Merging them would either strand long retry budgets or weaken crash-loop protection.
 
 ### Work
 
@@ -186,8 +196,9 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 3. ~~Correct resume semantics, including restoring completed outputs/context and validating the stored plan.~~ Done.
 4. ~~Add execution claiming/concurrency protection and crash-boundary recovery coverage.~~ Done.
 5. ~~Separate execution creation from execution, then add Laravel queue dispatch.~~ Done.
-6. ~~Add stale-execution recovery with explicit bounds.~~ Done. Bounded *retry policy* for failed work — attempts, backoff, timeouts, cancellation — is Milestone 3 and is the next priority.
-7. Stabilize inspection/observability APIs, connector contracts, and release automation.
+6. ~~Add stale-execution recovery with explicit bounds.~~ Done.
+7. ~~Add bounded retry policy for failed work — attempts, backoff, timeouts, cancellation.~~ Done.
+8. Stabilize inspection/observability APIs, including retention for the attempt history, then connector contracts and release automation. Milestone 4 is the next priority.
 
 ## Out of scope until the core is proven
 

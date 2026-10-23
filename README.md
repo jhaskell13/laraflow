@@ -15,6 +15,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Try it locally](#try-it-locally)
 - [Configuration](#configuration)
 - [Your first workflow](#your-first-workflow)
+- [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting executions](#inspecting-executions)
 - [Your first connector](#your-first-connector)
@@ -102,7 +103,7 @@ The playground has no queue connection configured, so Laravel's default `sync` d
 
 The demo workflow simulates an order: reserve inventory → charge payment → send receipt. With `--fail`, the payment step throws on its first attempt, leaving a persisted failed execution; `laraflow:execute` then recovers it from the checkpoint — the completed step is skipped, its context restored, and the retry reports the same idempotency key the first attempt used. Run `laraflow:demo` without the flag for the happy path.
 
-The same five commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`, `laraflow:recover`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
+The same commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`, `laraflow:cancel`, `laraflow:recover`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
 
 ## Configuration
 
@@ -128,6 +129,30 @@ return [
         'max_error_length' => env('LARAFLOW_MAX_ERROR_LENGTH', 65535),
     ],
 
+    'retry' => [
+        // Default step retry policy. 1 counts the first attempt, so the
+        // shipped value means nothing is retried until you opt in.
+        'max_attempts' => env('LARAFLOW_RETRY_MAX_ATTEMPTS', 1),
+        'base_delay' => env('LARAFLOW_RETRY_BASE_DELAY', 5),
+        'multiplier' => env('LARAFLOW_RETRY_MULTIPLIER', 2.0),
+        'max_delay' => env('LARAFLOW_RETRY_MAX_DELAY', 300),
+        'jitter' => env('LARAFLOW_RETRY_JITTER', 0.2),
+        // Deliver due retries via a delayed queue job; laraflow:recover
+        // remains the safety net either way.
+        'dispatch_delayed' => env('LARAFLOW_RETRY_DISPATCH_DELAYED', true),
+    ],
+
+    'timeout' => [
+        // Default per-attempt step deadline in seconds; null = none.
+        'step' => env('LARAFLOW_STEP_TIMEOUT'),
+    ],
+
+    'errors' => [
+        // Optional ErrorRedactor class applied to every exception message
+        // Laraflow persists, logs, or emits.
+        'redactor' => env('LARAFLOW_ERROR_REDACTOR'),
+    ],
+
     'queue' => [
         // null uses your application's default connection and queue.
         'connection' => env('LARAFLOW_QUEUE_CONNECTION'),
@@ -142,9 +167,9 @@ return [
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
-        // Executions whose steps reach this many attempts are abandoned
-        // by recovery rather than retried forever.
-        'max_attempts' => env('LARAFLOW_RECOVERY_MAX_ATTEMPTS', 3),
+        // Interrupted executions whose steps reach this many attempts are
+        // abandoned by recovery rather than retried forever.
+        'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         // null disables recovery of never-dispatched pending executions.
         'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
     ],
@@ -286,6 +311,44 @@ A step that repeats this way may re-perform external side effects — that is th
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
 
+## Retries, timeouts, and cancellation
+
+A failed step is never retried unless you ask. A step — or a whole workflow — can declare a retry policy: attempts, exponential backoff with deterministic jitter, which exceptions qualify, and a per-attempt deadline.
+
+```php
+use Laraflow\Workflow\Policy\HasStepPolicy;
+use Laraflow\Workflow\Policy\StepPolicy;
+
+class SyncWithCrm implements Step, HasStepPolicy
+{
+    public function stepPolicy(): StepPolicy
+    {
+        return new StepPolicy(
+            maxAttempts: 5,
+            baseDelaySeconds: 10,
+            retryOn: [TransportException::class],
+            timeoutSeconds: 30,
+        );
+    }
+
+    // handle() as before...
+}
+```
+
+When a retryable failure happens, **nothing is thrown and nothing lands in `failed_jobs`**: the failed attempt is recorded in a per-attempt history table, the execution enters a `retrying` state with a durable `next_retry_at`, and the retry is delivered when due — by a delayed queue job, with `laraflow:recover` as the always-on safety net. An execution that will heal itself does not page anyone, so alerting on `WorkflowExecutionFailed` stays meaningful.
+
+Operators can see why a step will retry and when, run it early, or call it off:
+
+```bash
+php artisan laraflow:show 42 --attempts   # every attempt: outcome, duration, scheduled retry
+php artisan laraflow:execute 42 --now     # don't wait for the backoff
+php artisan laraflow:cancel 42 --reason="customer withdrew the order"
+```
+
+Cancellation is immediate for work that is waiting and **cooperative** for work that is running — the worker stops at its next step boundary, and the step in flight finishes and checkpoints first.
+
+Timeouts are deadlines, not preemption: Laraflow does not interrupt running PHP. A step reads its own deadline from the context (`$context->remainingSeconds()`) and bounds its own work; an attempt whose worker died *past* its deadline is charged to the retry budget as a timeout, while one that died before it re-runs for free. The full contract — schedules, the three-way timeout distinction, the two attempt bounds, cancellation semantics, and error redaction — is in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md).
+
 ## Running on a queue
 
 `WorkflowDispatcher` is the asynchronous counterpart of `run()`. It persists the execution and its step plan, queues a job carrying only the execution id, and returns immediately:
@@ -327,11 +390,11 @@ php artisan laraflow:recover             # re-dispatch interrupted executions
 php artisan laraflow:recover --sync      # run them here instead of queueing
 ```
 
-Recovery is bounded: at most `--limit` executions per run; an execution whose steps have reached `--max-attempts` (default 3) is reported as **abandoned** rather than retried, so a crash-looping workflow can never be re-dispatched forever; and an execution whose workflow class no longer exists is reported as **unrecoverable** rather than queued into guaranteed failure. The command exits non-zero when anything was abandoned, unrecoverable, or failed, so a scheduled run surfaces stuck work through your existing alerts. Overriding the attempt bound deliberately is `php artisan laraflow:execute <id>`.
+The same command also delivers scheduled retries that have come due, making it the safety net behind the queue fast path — and the only delivery path if you have no queue worker. Recovery is bounded: at most `--limit` executions per run; an *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** rather than retried, so a crash-looping workflow can never be re-dispatched forever; and an execution whose workflow class no longer exists is reported as **unrecoverable** rather than queued into guaranteed failure. The command exits non-zero when anything was abandoned, unrecoverable, or failed, so a scheduled run surfaces stuck work through your existing alerts. Overriding the attempt bound deliberately is `php artisan laraflow:execute <id>`.
 
 ### Lifecycle events
 
-Laraflow fires events for dispatch, execution start, each step's start/completion/failure, execution completion/failure, and scheduled retries. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
+Laraflow fires events for dispatch, execution start, each step's start/completion/failure, scheduled retries, and execution completion/failure/cancellation. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
 
 ```php
 use Laraflow\Events\WorkflowExecutionFailed;
@@ -459,12 +522,12 @@ Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 2; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 3; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
 
-- **No automatic retries.** A *failed* execution is never retried on its own: the queue does not retry it (by design) and `laraflow:recover` only picks up *interrupted* work, not failures. Retrying a failure is an explicit act until per-step retry policy, backoff, and `next_retry_at` land in Milestone 3.
-- **No timeouts or cancellation.** A step that hangs is bounded only by the queue worker's timeout, and there is no way to cancel a running execution (Milestone 3).
-- **Attempt history is overwritten.** Each retry updates the step row in place; per-attempt history arrives with the retry work (Milestone 3).
-- **Side effects are at-least-once.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
+- **Retries are off by default.** `retry.max_attempts` ships as 1; nothing is retried until you opt in per step, per workflow, or globally.
+- **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
+- **Attempt history grows unpruned.** Every finished attempt is kept in `laraflow_step_attempts`; retention and pruning tooling is Milestone 4.
+- **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
 - **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
 - **No stable querying or pruning API.** Listing and filtering executions means the internal Eloquent models or `laraflow:list`; there is no retention or pruning command yet (Milestone 4).
 - **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet (Milestone 5).

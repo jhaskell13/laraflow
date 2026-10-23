@@ -9,10 +9,11 @@ All three run the workflow in the calling process. To run one on a queue worker 
 | Method | Behaviour |
 |--------|-----------|
 | `start(Workflow $workflow, array $input = []): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. |
-| `execute(int\|string $executionId, Workflow $workflow): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` in position order, checkpoints after each, and marks the execution terminal. Used for first execution *and* for recovery — there is one code path. |
+| `execute(int\|string $executionId, Workflow $workflow, bool $ignoreRetrySchedule = false): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` in position order, checkpoints after each, and marks the execution terminal. Used for first execution *and* for recovery — there is one code path. `$ignoreRetrySchedule` claims a `retrying` execution before its due time (the operator override behind `laraflow:execute --now`). |
 | `run(Workflow $workflow, array $input = []): WorkflowExecution` | `start()` followed by `execute()` in the same process. |
+| `cancel(int\|string $executionId, ?string $reason = null): WorkflowExecution` | Cancels an execution, or requests cooperative cancellation from the worker that owns it. See [retry-and-failure-policy.md](retry-and-failure-policy.md#cancellation). |
 
-On step failure, `execute()`/`run()` persist the failure and rethrow the step's original exception unchanged.
+On a step failure the step's retry policy decides ([retry-and-failure-policy.md](retry-and-failure-policy.md)). If a retry is allowed, the failed attempt and its schedule are persisted and the `retrying` handle is **returned** — nothing is thrown, because nothing has terminally failed. When the policy refuses, or no policy enables retries (the shipped default), `execute()`/`run()` persist the failure and rethrow the step's original exception unchanged.
 
 ## State machines
 
@@ -24,7 +25,10 @@ pending ──→ running ──→ completed   (terminal)
               ▼ │
             failed                  (re-executable)
 
+running ──→ retrying ──→ running    (scheduled retry, once next_retry_at is due)
 running ──→ running                 (stale reclaim by another worker)
+
+pending | running | failed | retrying ──→ cancelled   (terminal)
 ```
 
 ### Step
@@ -35,12 +39,17 @@ pending ──→ running ──→ completed   (terminal)
               ▼ │
             failed                  (re-run on execute)
 
+running ──→ retrying ──→ running    (scheduled retry)
 running ──→ running                 (interrupted step re-run)
 ```
 
 Transitions are enforced by `WorkflowExecution::mark*()` and `StepExecution::mark*()`; anything else throws `InvalidStateTransitionException`. `attempts` increments on every step `running` transition. The *execution's* `started_at` records the first start and is preserved across re-executions; a *step's* `started_at` is rewritten on each attempt, so together with `attempts` it describes the most recent run. Completing clears a previous `error`/`error_class`.
 
+Entering `running` and `cancelled` both clear any scheduled `next_retry_at`: a row that is running or terminal must never advertise a due time the recovery scan could act on. Every finished attempt — including the ones a retry replaces — is preserved in `laraflow_step_attempts`; the step row itself always shows only the latest.
+
 **A step found in `running` state during recovery is treated as interrupted**: the worker that owned it died somewhere between marking it running and checkpointing it. Its side effects may or may not have happened. Recovery runs it again. This is the at-least-once boundary (see below).
+
+One exception: if that step had a deadline (`timeout_at`) which has also passed, the attempt is classified as a **timeout** rather than plain worker loss and is charged against the step's retry budget instead of re-running for free. The three-way distinction is specified in [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts).
 
 ## The plan snapshot
 
@@ -56,9 +65,11 @@ There is no workflow-version migration mechanism yet. If a workflow definition m
 
 `execute()` claims the execution with a single compare-and-set `UPDATE`:
 
-- Claimable: status `pending`, `failed`, or `running` with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds).
-- The update sets `status = running`, a random 32-hex-char `claim_token`, and `claimed_at = now`.
-- Zero affected rows means the claim failed; the repository then reports *why*: `ExecutionNotFoundException`, `ExecutionAlreadyClaimedException` (fresh claim held elsewhere), or `ExecutionNotRunnableException` (terminal status).
+- Claimable: status `pending`, `failed`, `retrying` whose `next_retry_at` is due (or with the `ignoreRetrySchedule` override), or `running` with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds). `completed` and `cancelled` are terminal and never claimable.
+- The update sets `status = running`, a random 32-hex-char `claim_token`, `claimed_at = now`, and clears `next_retry_at`.
+- Zero affected rows means the claim failed; the repository then reports *why*: `ExecutionNotFoundException`, `ExecutionAlreadyClaimedException` (fresh claim held elsewhere), `RetryNotDueException` (retrying, but not yet due), or `ExecutionNotRunnableException` (terminal status).
+
+Cancellation of an unclaimed execution uses the same compare-and-set predicate, so cancelling cannot race a worker claiming it: whichever `UPDATE` lands first, the other is refused.
 
 Because claiming is one guarded `UPDATE`, exactly one of any number of concurrent claimants succeeds on every supported engine, including SQLite (single writer) and MySQL/PostgreSQL/MariaDB (row-locked atomic update). No advisory locks or `SELECT ... FOR UPDATE` are required.
 
@@ -70,7 +81,7 @@ Because claiming is one guarded `UPDATE`, exactly one of any number of concurren
 
 The context is seeded from the workflow input (`array_merge(input, persisted context)`), handed to each step, and persisted at every checkpoint:
 
-1. Step completes → in one database transaction: the step row is updated to `completed` with its output, and the execution row's `context` column is updated to the full context snapshot, guarded by the claim token.
+1. Step completes → in one database transaction: the step row is updated to `completed` with its output, the attempt is appended to `laraflow_step_attempts`, and the execution row's `context` column is updated to the full context snapshot, guarded by the claim token.
 2. On recovery, the context is rebuilt from `input` + the persisted `context` column — not by re-running steps. Completed steps are skipped and their contribution to the context is exactly what the checkpoint recorded.
 
 Because the step output and context snapshot commit atomically, there is no reachable state where a step is `completed` but its context contribution is missing.
@@ -120,9 +131,12 @@ If persisting the failure *itself* fails (storage down), the storage exception i
 |---|---|
 | `pending` execution | Runs from the first step. |
 | `failed` execution | Claims it, skips `completed` steps, re-runs the failed step (attempts accumulate). |
+| `retrying`, due | Claims it and runs the scheduled retry. |
+| `retrying`, before `next_retry_at` | `RetryNotDueException` (override with `ignoreRetrySchedule` / `--now`). |
 | `running`, fresh claim | `ExecutionAlreadyClaimedException`. |
-| `running`, stale claim | Reclaims and continues from durable state. |
-| `completed` execution | `ExecutionNotRunnableException`. |
+| `running`, stale claim | Reclaims and continues from durable state. An interrupted step past its deadline is charged as a timeout rather than re-run free; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts). |
+| `completed` or `cancelled` execution | `ExecutionNotRunnableException`. |
+| Cancellation requested mid-run | The step in flight finishes and checkpoints; the execution is marked `cancelled` at the next step boundary. |
 | Unknown id | `ExecutionNotFoundException`. |
 | Any of the above, delivered as a duplicate queue job | The job treats the refusal as a no-op and succeeds; see [queue-and-recovery.md](queue-and-recovery.md#duplicate-deliveries). |
 | Workflow class or step list differs from the plan | `WorkflowDefinitionMismatchException`. |

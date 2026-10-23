@@ -67,9 +67,9 @@ This works correctly in tests that use `RefreshDatabase`: Laravel treats the wra
 
 Laravel retries failed jobs. Laraflow counts step attempts. If both were active, a failure would be retried `queue tries × Laraflow attempts` times, on two unrelated schedules.
 
-**Laraflow resolves this by giving the queue no retry authority by default:** `laraflow.queue.tries` is `1`. One delivery means one execution attempt. A failing step is persisted as `failed`, the exception propagates, Laravel records the job in `failed_jobs`, and nothing is retried automatically. Re-running is then an explicit, visible act — `laraflow:execute`, `laraflow:recover`, or `WorkflowRunner::execute()`.
+**Laraflow resolves this by giving the queue no retry authority:** `laraflow.queue.tries` is `1`. One delivery means one execution attempt. Without a retry policy, a failing step is persisted as `failed`, the exception propagates, Laravel records the job in `failed_jobs`, and nothing is retried automatically; re-running is then an explicit, visible act — `laraflow:execute`, `laraflow:recover`, or `WorkflowRunner::execute()`.
 
-Per-step retry policy with backoff, retryable-exception rules, and `next_retry_at` is Milestone 3. Until it lands, there is deliberately no automatic retry of a *failed* step anywhere in the package.
+Per-step retry policy — attempts, backoff, retryable-exception rules, `next_retry_at` — is **Laraflow's, not the queue's**: see [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). When a policy schedules a retry, the job *succeeds* (nothing reaches `failed_jobs`) and the retry is delivered either by a delayed job (`retry.dispatch_delayed`, skipped on the `sync` driver) or by the `laraflow:recover` scan, which is the contractual pickup. The two systems still cannot multiply: queue tries stay at 1, and Laraflow's schedule is the only schedule.
 
 If you raise `tries` above 1, understand what you are buying: each queue retry re-enters `execute()`, which skips completed steps and re-runs the failed one, so step `attempts` accumulate across queue retries. That is coherent, but the retry schedule is Laravel's and Laraflow cannot reason about it.
 
@@ -126,21 +126,29 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 | Reason | Criteria | Default |
 |---|---|---|
 | `stale claim` | `running`, with `claimed_at` older than `stale_after` (or null) | Always scanned |
+| `step timeout` | A stale claim whose interrupted step had also passed its deadline; the recovering worker charges that attempt to the step's retry policy | Always scanned |
+| `retry due` | `retrying`, with `next_retry_at` at or before now | Scanned unless `--skip-retries` |
 | `never dispatched` | `pending`, created more than `pending_after` ago | **Off** — opt in |
+
+Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight.
 
 The pending scan is off by default on purpose. `pending` is not only the state of a lost dispatch; it is also the state of an execution created with `start()` and deliberately not yet run. Recovery must never start work the application was intentionally holding. Enable it — with `--pending-after=300` or `laraflow.recovery.pending_after` — only if every pending execution in your application is meant to run immediately.
 
 ### Options
 
 ```
---stale-after=   Seconds before a running claim counts as stale  (laraflow.execution.stale_after)
---pending-after= Also recover pending executions older than this (laraflow.recovery.pending_after)
---limit=         Maximum executions handled in one run           (laraflow.recovery.limit, 100)
---max-attempts=  Attempt bound before an execution is abandoned  (laraflow.recovery.max_attempts, 3)
---workflow=      Only executions created from this workflow class
---dry-run        Report what would happen; change nothing
---sync           Run recovered executions in this process instead of queueing them
+--stale-after=    Seconds before a running claim counts as stale  (laraflow.execution.stale_after)
+--pending-after=  Also recover pending executions older than this (laraflow.recovery.pending_after)
+--limit=          Maximum executions handled in one run           (laraflow.recovery.limit, 100)
+--abandon-after=  Attempt bound before an *interrupted* execution is abandoned
+                  (laraflow.recovery.abandon_after_attempts, 3)
+--skip-retries    Do not deliver scheduled retries that have come due
+--workflow=       Only executions created from this workflow class
+--dry-run         Report what would happen; change nothing
+--sync            Run recovered executions in this process instead of queueing them
 ```
+
+> `--max-attempts` was renamed `--abandon-after` in Milestone 3 (and `recovery.max_attempts` to `recovery.abandon_after_attempts`), because `retry.max_attempts` now exists with a different meaning. See [the two bounds](retry-and-failure-policy.md#two-bounds-two-jobs).
 
 `--dry-run` takes no claim, queues nothing, and writes nothing — safe to run against production to see what recovery *would* do. `--sync` is useful for one-off operator work and for applications with no queue worker running.
 
@@ -149,7 +157,7 @@ The pending scan is off by default on purpose. `pending` is not only the state o
 Scheduled recovery that blindly re-dispatches would retry a crash-looping workflow until something gives. Three bounds prevent that:
 
 1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across both scans (stale work first, pending work fills the remainder).
-2. **Attempt bound.** An execution whose steps have reached `--max-attempts` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable — recovery needs no extra state to be bounded.
+2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable — recovery needs no extra state to be bounded. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
 3. **Missing-class bound.** An execution whose recorded workflow class no longer exists is reported as **unrecoverable** and is never dispatched. This bound exists because such a retry fails *before* any step runs — attempts never increment, so the attempt bound alone could never stop the scheduler from re-queueing it (and filling `failed_jobs`) forever. Restore or redeploy the class, or handle the execution manually.
 
 Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned or any recovery action failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried.
@@ -191,9 +199,11 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowStepStarted` | A step was marked running. |
 | `WorkflowStepCompleted` | A step's checkpoint committed. |
 | `WorkflowStepFailed` | A step's failure was persisted. |
+| `WorkflowStepRetryScheduled` | A step's retry policy durably scheduled another attempt — with why and when. |
 | `WorkflowExecutionCompleted` | The execution was marked completed. Fires once. |
-| `WorkflowExecutionFailed` | The execution was marked failed. |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution for retry. |
+| `WorkflowExecutionFailed` | The execution was marked failed. **Terminal only** — never for a scheduled retry. |
+| `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `never_dispatched`). |
 
 Two properties hold for all of them:
 
@@ -236,7 +246,7 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 ## Operational checklist
 
 - Run workers for the queue you configured: `php artisan queue:work --queue=workflows`.
-- Schedule `laraflow:recover` with `withoutOverlapping()`.
+- Schedule `laraflow:recover` with `withoutOverlapping()`. With retries enabled it is not only a repair tool — it is the contractual delivery path for due retries.
 - Keep `queue.timeout` below `execution.stale_after`.
 - Alert on a non-zero exit from `laraflow:recover` — it means work was abandoned or a recovery action failed.
 - Watch `failed_jobs` for step failures and definition mismatches; `laraflow:list --status=failed` shows the same from Laraflow's side.

@@ -25,7 +25,8 @@ Milestone 6 of the roadmap promotes every "expected to work" entry to "tested" b
 ## Database requirements
 
 - A `json` column type. On MySQL/MariaDB/PostgreSQL this maps to native JSON; on SQLite to `TEXT`.
-- Foreign keys with cascading deletes (`laraflow_step_executions.workflow_execution_id`).
+- Foreign keys with cascading deletes (`laraflow_step_executions.workflow_execution_id`, and both foreign keys on `laraflow_step_attempts`). SQLite enforces these only when `foreign_key_constraints` is enabled on the connection.
+- Milestone 3 adds `laraflow_step_attempts`, one append-only row per finished step attempt. It is bounded only by your retry budgets and has no pruning yet; plan capacity accordingly until retention lands in Milestone 4.
 - Milestone 1 adds row-level compare-and-set updates for execution claiming. These use standard `UPDATE ... WHERE` semantics and do not require advisory locks or `SELECT ... FOR UPDATE`, so they work on every engine above, including SQLite's single-writer model.
 
 ## Dropping support
