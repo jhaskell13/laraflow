@@ -183,6 +183,8 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'error_class' => $step->errorClass,
                 'started_at' => $step->startedAt,
                 'completed_at' => $step->completedAt,
+                'failed_at' => $step->failedAt,
+                'timeout_at' => $step->timeoutAt,
                 'next_retry_at' => $step->nextRetryAt,
             ]);
     }
@@ -222,6 +224,10 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'error_class' => $execution->errorClass,
                 'completed_at' => $execution->completedAt,
                 'failed_at' => $execution->failedAt,
+                'next_retry_at' => $execution->nextRetryAt,
+                'cancel_requested_at' => $execution->cancelRequestedAt,
+                'cancelled_at' => $execution->cancelledAt,
+                'cancel_reason' => $execution->cancelReason,
                 'claim_token' => null,
                 'claimed_at' => null,
             ]);
@@ -272,6 +278,10 @@ class EloquentExecutionRepository implements ExecutionRepository
             startedAt: $model->started_at?->toImmutable(),
             completedAt: $model->completed_at?->toImmutable(),
             failedAt: $model->failed_at?->toImmutable(),
+            nextRetryAt: $model->next_retry_at?->toImmutable(),
+            cancelRequestedAt: $model->cancel_requested_at?->toImmutable(),
+            cancelledAt: $model->cancelled_at?->toImmutable(),
+            cancelReason: $model->cancel_reason,
         );
     }
 
@@ -291,6 +301,8 @@ class EloquentExecutionRepository implements ExecutionRepository
             errorClass: $model->error_class,
             startedAt: $model->started_at?->toImmutable(),
             completedAt: $model->completed_at?->toImmutable(),
+            failedAt: $model->failed_at?->toImmutable(),
+            timeoutAt: $model->timeout_at?->toImmutable(),
             nextRetryAt: $model->next_retry_at?->toImmutable(),
         );
     }

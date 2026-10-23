@@ -92,6 +92,78 @@ class WorkflowExecutionTest extends TestCase
         $this->assertNull($execution->errorClass);
     }
 
+    public function test_a_running_execution_can_schedule_a_retry(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable);
+        $nextRetryAt = new DateTimeImmutable('+30 seconds');
+
+        $execution->markRetrying('boom', RuntimeException::class, $nextRetryAt);
+
+        $this->assertTrue($execution->isRetrying());
+        $this->assertSame($nextRetryAt, $execution->nextRetryAt);
+        $this->assertSame('boom', $execution->error);
+        $this->assertSame(RuntimeException::class, $execution->errorClass);
+        $this->assertNull($execution->failedAt, 'A scheduled retry is not a terminal failure.');
+    }
+
+    public function test_a_retrying_execution_runs_again_and_clears_its_schedule(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markRetrying('boom', RuntimeException::class, new DateTimeImmutable('+30 seconds'));
+
+        $execution->markRunning(new DateTimeImmutable);
+
+        $this->assertTrue($execution->isRunning());
+        $this->assertNull(
+            $execution->nextRetryAt,
+            'A stale due time would make the scan pick up a running execution.',
+        );
+    }
+
+    public function test_a_retry_cannot_be_scheduled_unless_running(): void
+    {
+        $this->expectException(InvalidStateTransitionException::class);
+
+        $this->execution()->markRetrying('boom', RuntimeException::class, new DateTimeImmutable);
+    }
+
+    public function test_every_non_terminal_state_can_be_cancelled(): void
+    {
+        foreach (['pending', 'running', 'failed', 'retrying'] as $state) {
+            $execution = $this->executionIn($state);
+
+            $execution->markCancelled(new DateTimeImmutable, 'operator request');
+
+            $this->assertTrue($execution->isCancelled(), "Cancelling from [{$state}] must be allowed.");
+            $this->assertNotNull($execution->cancelledAt);
+            $this->assertSame('operator request', $execution->cancelReason);
+            $this->assertNull($execution->nextRetryAt, 'Cancelling voids any scheduled retry.');
+        }
+    }
+
+    public function test_a_completed_execution_cannot_be_cancelled(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markCompleted(new DateTimeImmutable);
+
+        $this->expectException(InvalidStateTransitionException::class);
+
+        $execution->markCancelled(new DateTimeImmutable);
+    }
+
+    public function test_a_cancelled_execution_is_terminal(): void
+    {
+        $execution = $this->execution();
+        $execution->markCancelled(new DateTimeImmutable);
+
+        $this->expectException(InvalidStateTransitionException::class);
+
+        $execution->markRunning(new DateTimeImmutable);
+    }
+
     public function test_it_cannot_complete_without_running(): void
     {
         $this->expectException(InvalidStateTransitionException::class);
@@ -123,5 +195,24 @@ class WorkflowExecutionTest extends TestCase
             id: 1,
             workflow: 'SyncCustomerWorkflow',
         );
+    }
+
+    protected function executionIn(string $state): WorkflowExecution
+    {
+        $execution = $this->execution();
+
+        if ($state === 'pending') {
+            return $execution;
+        }
+
+        $execution->markRunning(new DateTimeImmutable);
+
+        match ($state) {
+            'running' => null,
+            'failed' => $execution->markFailed('boom', RuntimeException::class, new DateTimeImmutable),
+            'retrying' => $execution->markRetrying('boom', RuntimeException::class, new DateTimeImmutable),
+        };
+
+        return $execution;
     }
 }

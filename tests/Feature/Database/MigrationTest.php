@@ -31,6 +31,10 @@ class MigrationTest extends TestCase
         $this->assertTrue(
             Schema::hasTable('laraflow_step_executions')
         );
+
+        $this->assertTrue(
+            Schema::hasTable('laraflow_step_attempts')
+        );
     }
 
     public function test_workflow_executions_table_has_expected_columns(): void
@@ -51,6 +55,10 @@ class MigrationTest extends TestCase
                     'started_at',
                     'completed_at',
                     'failed_at',
+                    'next_retry_at',
+                    'cancel_requested_at',
+                    'cancelled_at',
+                    'cancel_reason',
                     'created_at',
                     'updated_at',
                 ]
@@ -76,11 +84,66 @@ class MigrationTest extends TestCase
                     'error_class',
                     'started_at',
                     'completed_at',
+                    'failed_at',
+                    'timeout_at',
                     'next_retry_at',
                     'created_at',
                     'updated_at',
                 ]
             )
         );
+    }
+
+    public function test_step_attempts_table_has_expected_columns(): void
+    {
+        $this->assertTrue(
+            Schema::hasColumns(
+                'laraflow_step_attempts',
+                [
+                    'id',
+                    'workflow_execution_id',
+                    'step_execution_id',
+                    'attempt',
+                    'status',
+                    'error',
+                    'error_class',
+                    'started_at',
+                    'ended_at',
+                    'duration_ms',
+                    'next_retry_at',
+                    'created_at',
+                    'updated_at',
+                ]
+            )
+        );
+    }
+
+    public function test_executions_are_indexed_for_both_recovery_scans(): void
+    {
+        $indexed = array_map(
+            fn (array $index): array => $index['columns'],
+            Schema::getIndexes('laraflow_workflow_executions'),
+        );
+
+        // Stale-claim recovery (Milestone 2) and the due-retry scan
+        // (Milestone 3) must each be an indexed single-table query.
+        $this->assertContains(['status', 'claimed_at'], $indexed);
+        $this->assertContains(['status', 'next_retry_at'], $indexed);
+    }
+
+    public function test_one_attempt_number_per_step_is_enforced_by_the_database(): void
+    {
+        $indexed = collect(Schema::getIndexes('laraflow_step_attempts'))
+            ->firstWhere('columns', ['step_execution_id', 'attempt']);
+
+        $this->assertNotNull($indexed, 'Expected a (step_execution_id, attempt) index.');
+        $this->assertTrue($indexed['unique'], 'An attempt number must be unique per step.');
+    }
+
+    public function test_rolling_back_drops_the_attempt_history_table(): void
+    {
+        $this->artisan('migrate:rollback')->assertSuccessful();
+
+        $this->assertFalse(Schema::hasTable('laraflow_step_attempts'));
     }
 }

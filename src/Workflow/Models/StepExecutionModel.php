@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -23,10 +25,13 @@ use Illuminate\Support\Carbon;
  * @property string|null $error_class
  * @property Carbon|null $started_at
  * @property Carbon|null $completed_at
+ * @property Carbon|null $failed_at
+ * @property Carbon|null $timeout_at
  * @property Carbon|null $next_retry_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read WorkflowExecutionModel $workflowExecution
+ * @property-read Collection<int, StepAttemptModel> $attemptHistory
  */
 class StepExecutionModel extends Model
 {
@@ -47,6 +52,8 @@ class StepExecutionModel extends Model
         'error_class',
         'started_at',
         'completed_at',
+        'failed_at',
+        'timeout_at',
         'next_retry_at',
     ];
 
@@ -56,6 +63,14 @@ class StepExecutionModel extends Model
     public function workflowExecution(): BelongsTo
     {
         return $this->belongsTo(WorkflowExecutionModel::class, 'workflow_execution_id');
+    }
+
+    /**
+     * @return HasMany<StepAttemptModel, $this>
+     */
+    public function attemptHistory(): HasMany
+    {
+        return $this->hasMany(StepAttemptModel::class, 'step_execution_id');
     }
 
     /**
@@ -70,6 +85,8 @@ class StepExecutionModel extends Model
             'output' => 'array',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'failed_at' => 'datetime',
+            'timeout_at' => 'datetime',
             'next_retry_at' => 'datetime',
         ];
     }

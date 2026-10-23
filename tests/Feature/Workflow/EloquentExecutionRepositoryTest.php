@@ -354,6 +354,77 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->assertCount(1, $this->repository()->pendingBefore($this->secondsAgo(300), workflow: 'WorkflowB'));
     }
 
+    // ------------------------------------------------------------------
+    // Retry and cancellation fields round-trip
+    // ------------------------------------------------------------------
+
+    public function test_a_scheduled_retry_round_trips_through_the_database(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $failedAt = new DateTimeImmutable('2026-10-23 10:00:00');
+        $nextRetryAt = new DateTimeImmutable('2026-10-23 10:00:30');
+
+        $step = $repository->steps($execution)[0];
+        $step->markRunning($failedAt, new DateTimeImmutable('2026-10-23 10:00:10'));
+        $step->markRetrying('boom', 'RuntimeException', $failedAt, $nextRetryAt);
+        $repository->saveStep($step);
+
+        $execution->markRetrying('boom', 'RuntimeException', $nextRetryAt);
+        $repository->release($execution);
+
+        $reloaded = $repository->find($execution->id);
+
+        $this->assertTrue($reloaded->isRetrying());
+        $this->assertSame('2026-10-23 10:00:30', $reloaded->nextRetryAt?->format('Y-m-d H:i:s'));
+        $this->assertSame('boom', $reloaded->error);
+        $this->assertNull($reloaded->failedAt);
+        $this->assertNull($reloaded->claimToken, 'A retrying execution waits unclaimed.');
+
+        $reloadedStep = $repository->steps($reloaded)[0];
+
+        $this->assertTrue($reloadedStep->isRetrying());
+        $this->assertSame('2026-10-23 10:00:00', $reloadedStep->failedAt?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-23 10:00:10', $reloadedStep->timeoutAt?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-23 10:00:30', $reloadedStep->nextRetryAt?->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_cancellation_round_trips_through_the_database(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $execution->markCancelled(new DateTimeImmutable('2026-10-23 11:00:00'), 'operator request');
+        $repository->release($execution);
+
+        $reloaded = $repository->find($execution->id);
+
+        $this->assertTrue($reloaded->isCancelled());
+        $this->assertSame('2026-10-23 11:00:00', $reloaded->cancelledAt?->format('Y-m-d H:i:s'));
+        $this->assertSame('operator request', $reloaded->cancelReason);
+        $this->assertNull($reloaded->claimToken);
+    }
+
+    public function test_a_failed_step_records_when_it_failed(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $step = $repository->steps($execution)[0];
+        $step->markRunning(new DateTimeImmutable('2026-10-23 12:00:00'));
+        $step->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-23 12:00:05'));
+        $repository->saveStep($step);
+
+        $this->assertSame(
+            '2026-10-23 12:00:05',
+            StepExecutionModel::query()->sole()->failed_at?->format('Y-m-d H:i:s'),
+        );
+    }
+
     protected function secondsAgo(int $seconds): DateTimeImmutable
     {
         return Date::now()->subSeconds($seconds)->toImmutable();

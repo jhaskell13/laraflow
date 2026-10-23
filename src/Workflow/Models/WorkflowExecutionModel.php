@@ -24,6 +24,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $started_at
  * @property Carbon|null $completed_at
  * @property Carbon|null $failed_at
+ * @property Carbon|null $next_retry_at
+ * @property Carbon|null $cancel_requested_at
+ * @property Carbon|null $cancelled_at
+ * @property string|null $cancel_reason
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
@@ -47,6 +51,10 @@ class WorkflowExecutionModel extends Model
         'started_at',
         'completed_at',
         'failed_at',
+        'next_retry_at',
+        'cancel_requested_at',
+        'cancelled_at',
+        'cancel_reason',
     ];
 
     /**
@@ -69,6 +77,9 @@ class WorkflowExecutionModel extends Model
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'failed_at' => 'datetime',
+            'next_retry_at' => 'datetime',
+            'cancel_requested_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 }

@@ -15,6 +15,7 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  *
  *   pending → running → completed
  *   pending → running → failed → running (retry on re-execute)
+ *   running → retrying → running (scheduled retry, once due)
  *   running → running (interrupted step re-run after worker loss)
  *
  * A step found in `running` during recovery is treated as interrupted:
@@ -36,20 +37,31 @@ class StepExecution
         public ?string $errorClass = null,
         public ?DateTimeImmutable $startedAt = null,
         public ?DateTimeImmutable $completedAt = null,
+        public ?DateTimeImmutable $failedAt = null,
+        public ?DateTimeImmutable $timeoutAt = null,
         public ?DateTimeImmutable $nextRetryAt = null,
     ) {}
 
-    public function markRunning(DateTimeImmutable $at): void
+    /**
+     * @param  DateTimeImmutable|null  $timeoutAt  Deadline for this attempt
+     *                                             (started_at plus the step's timeout), or null when the step
+     *                                             declares none. Recorded before the step runs so a worker that
+     *                                             dies can still be judged against it.
+     */
+    public function markRunning(DateTimeImmutable $at, ?DateTimeImmutable $timeoutAt = null): void
     {
         $this->assertTransition(StepStatus::Running, [
             StepStatus::Pending,
             StepStatus::Failed,
+            StepStatus::Retrying,
             StepStatus::Running,
         ]);
 
         $this->status = StepStatus::Running;
         $this->attempts++;
         $this->startedAt = $at;
+        $this->timeoutAt = $timeoutAt;
+        $this->nextRetryAt = null;
     }
 
     public function markCompleted(mixed $output, DateTimeImmutable $at): void
@@ -63,6 +75,7 @@ class StepExecution
         $this->completedAt = $at;
         $this->error = null;
         $this->errorClass = null;
+        $this->failedAt = null;
     }
 
     public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void
@@ -74,6 +87,27 @@ class StepExecution
         $this->status = StepStatus::Failed;
         $this->error = $error;
         $this->errorClass = $errorClass;
+        $this->failedAt = $at;
+    }
+
+    /**
+     * This attempt failed and the step's retry policy scheduled another.
+     */
+    public function markRetrying(
+        string $error,
+        string $errorClass,
+        DateTimeImmutable $at,
+        DateTimeImmutable $nextRetryAt
+    ): void {
+        $this->assertTransition(StepStatus::Retrying, [
+            StepStatus::Running,
+        ]);
+
+        $this->status = StepStatus::Retrying;
+        $this->error = $error;
+        $this->errorClass = $errorClass;
+        $this->failedAt = $at;
+        $this->nextRetryAt = $nextRetryAt;
     }
 
     public function isPending(): bool
@@ -94,6 +128,11 @@ class StepExecution
     public function isFailed(): bool
     {
         return $this->status === StepStatus::Failed;
+    }
+
+    public function isRetrying(): bool
+    {
+        return $this->status === StepStatus::Retrying;
     }
 
     /**
