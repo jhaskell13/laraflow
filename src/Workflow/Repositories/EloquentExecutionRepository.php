@@ -106,6 +106,11 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'status' => ExecutionStatus::Running->value,
                 'claim_token' => $claimToken,
                 'claimed_at' => $now,
+                // Claiming means this is running now, so any previously
+                // scheduled retry is spent. Mirrors the same invariant
+                // in WorkflowExecution::markRunning(); without it a
+                // running row would keep advertising a past due time.
+                'next_retry_at' => null,
             ]);
 
         if ($claimed === 0) {

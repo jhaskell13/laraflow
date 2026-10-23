@@ -27,8 +27,8 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 | `Laraflow\Workflow\WorkflowRunner` | Public | Entry point for running workflows: `start()`, `execute()`, `run()`. Resolve it from the container; its constructor (repository, container, PSR-3 logger, stale/error settings) is internal wiring. Behaviour is specified in [docs/execution-lifecycle.md](execution-lifecycle.md). |
 | `Laraflow\Workflow\WorkflowExecution` | Public | Read-only handle describing one execution: id, workflow class, input, context, status, error, timestamps. State changes go through `mark*()` transition methods that enforce the state machine. |
 | `Laraflow\Workflow\StepExecution` | Public | Read-only handle describing one step within an execution, with the same transition-method rule. |
-| `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`. More cases (e.g. `cancelled`) may be added; applications should handle unknown cases defensively. |
-| `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`. Same caveat. |
+| `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`. More cases may be added; applications should handle unknown cases defensively. |
+| `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`. Same caveat. |
 
 ## Queue execution
 

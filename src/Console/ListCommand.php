@@ -21,10 +21,25 @@ class ListCommand extends Command
     use DisplaysExecutions;
 
     protected $signature = 'laraflow:list
-        {--status= : Only show executions with this status (pending, running, completed, failed)}
+        {--status= : Only show executions with this status}
         {--limit=20 : Maximum number of executions to show, newest first}';
 
     protected $description = 'List workflow executions';
+
+    /**
+     * The valid statuses are listed from the enum rather than written
+     * out, so help text cannot drift from the cases that actually exist.
+     */
+    public function __construct()
+    {
+        $this->signature = str_replace(
+            'Only show executions with this status',
+            'Only show executions with this status ('.$this->statusList().')',
+            $this->signature,
+        );
+
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -34,7 +49,7 @@ class ListCommand extends Command
             $this->components->error(sprintf(
                 'Unknown status [%s]. Valid: %s.',
                 $status,
-                implode(', ', array_column(ExecutionStatus::cases(), 'value')),
+                $this->statusList(),
             ));
 
             return self::FAILURE;
@@ -71,5 +86,10 @@ class ListCommand extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    protected function statusList(): string
+    {
+        return implode(', ', array_column(ExecutionStatus::cases(), 'value'));
     }
 }

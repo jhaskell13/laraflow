@@ -56,14 +56,14 @@ class LaraflowServiceProvider extends ServiceProvider
             /** @var Config $config */
             $config = $app->make(Config::class);
 
-            $timeout = $config->get('laraflow.timeout.step');
+            $timeout = $this->setting($config, 'laraflow.timeout.step');
 
             return new PolicyResolver(new StepPolicy(
-                maxAttempts: (int) $config->get('laraflow.retry.max_attempts', 1),
-                baseDelaySeconds: (int) $config->get('laraflow.retry.base_delay', 5),
-                multiplier: (float) $config->get('laraflow.retry.multiplier', 2.0),
-                maxDelaySeconds: (int) $config->get('laraflow.retry.max_delay', 300),
-                jitter: (float) $config->get('laraflow.retry.jitter', 0.2),
+                maxAttempts: (int) ($this->setting($config, 'laraflow.retry.max_attempts') ?? 1),
+                baseDelaySeconds: (int) ($this->setting($config, 'laraflow.retry.base_delay') ?? 5),
+                multiplier: (float) ($this->setting($config, 'laraflow.retry.multiplier') ?? 2.0),
+                maxDelaySeconds: (int) ($this->setting($config, 'laraflow.retry.max_delay') ?? 300),
+                jitter: (float) ($this->setting($config, 'laraflow.retry.jitter') ?? 0.2),
                 timeoutSeconds: $timeout === null ? null : (int) $timeout,
             ));
         });
@@ -180,5 +180,22 @@ class LaraflowServiceProvider extends ServiceProvider
     protected function config(): Config
     {
         return $this->app->make(Config::class);
+    }
+
+    /**
+     * Read a configuration value, treating an empty string as absent.
+     *
+     * A declared-but-blank environment variable (`LARAFLOW_RETRY_MAX_ATTEMPTS=`)
+     * reaches the config repository as `''`, which casts to 0 or 0.0 and
+     * would be rejected by StepPolicy's validation — turning a stray
+     * blank line in .env into a container resolution failure, and so
+     * into an application that cannot run any workflow at all. An
+     * unset value means "use the documented default".
+     */
+    protected function setting(Config $config, string $key): mixed
+    {
+        $value = $config->get($key);
+
+        return $value === '' ? null : $value;
     }
 }

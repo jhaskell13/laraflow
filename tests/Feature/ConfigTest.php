@@ -82,6 +82,34 @@ class ConfigTest extends TestCase
         $this->assertSame(33, $policy->delaySeconds(2), '11 * 3^1, no jitter.');
     }
 
+    public function test_blank_environment_variables_fall_back_to_the_documented_defaults(): void
+    {
+        // A declared-but-empty variable (`LARAFLOW_RETRY_MAX_ATTEMPTS=`,
+        // i.e. a stray blank line in .env) arrives as ''. Casting that
+        // would yield 0, which StepPolicy rightly rejects — turning a
+        // typo into an application that cannot resolve the runner at
+        // all. Absent means "use the default".
+        config([
+            'laraflow.retry.max_attempts' => '',
+            'laraflow.retry.base_delay' => '',
+            'laraflow.retry.multiplier' => '',
+            'laraflow.retry.max_delay' => '',
+            'laraflow.retry.jitter' => '',
+            'laraflow.timeout.step' => '',
+        ]);
+
+        $this->app->forgetInstance(PolicyResolver::class);
+
+        $policy = $this->app->make(PolicyResolver::class)->forStep(new StepOne, new TwoStepWorkflow);
+
+        $this->assertSame(1, $policy->maxAttempts);
+        $this->assertSame(5, $policy->baseDelaySeconds);
+        $this->assertSame(2.0, $policy->multiplier);
+        $this->assertSame(300, $policy->maxDelaySeconds);
+        $this->assertSame(0.2, $policy->jitter);
+        $this->assertNull($policy->timeoutSeconds);
+    }
+
     public function test_the_shipped_defaults_order_step_deadline_below_worker_timeout_below_stale_after(): void
     {
         // A step deadline above the worker timeout could never be

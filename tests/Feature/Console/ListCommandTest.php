@@ -6,6 +6,8 @@ namespace Laraflow\Tests\Feature\Console;
 
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Symfony\Component\Console\Command\Command as CommandStatus;
 
 class ListCommandTest extends TestCase
@@ -54,7 +56,40 @@ class ListCommandTest extends TestCase
 
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('Unknown status [exploded]', $output);
-        $this->assertStringContainsString('pending, running, completed, failed', $output);
+
+        // Asserted case by case rather than as one joined string: a
+        // prefix match would silently keep passing as cases are added.
+        foreach (ExecutionStatus::cases() as $case) {
+            $this->assertStringContainsString($case->value, $output);
+        }
+    }
+
+    public function test_the_status_help_text_lists_every_status_that_exists(): void
+    {
+        ['output' => $output] = $this->callCommand('laraflow:list', ['--help' => true]);
+
+        foreach (ExecutionStatus::cases() as $case) {
+            $this->assertStringContainsString(
+                $case->value,
+                $output,
+                "Help text omits the [{$case->value}] status.",
+            );
+        }
+    }
+
+    public function test_executions_can_be_listed_by_a_newly_added_status(): void
+    {
+        $this->callCommand('laraflow:demo');
+
+        WorkflowExecutionModel::query()->update(['status' => ExecutionStatus::Retrying->value]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:list',
+            ['--status' => 'retrying'],
+        );
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('retrying', $output);
     }
 
     public function test_the_limit_option_bounds_the_table(): void
