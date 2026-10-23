@@ -143,14 +143,23 @@ return [
     |
     | Defaults for the laraflow:recover command, which finds interrupted
     | work (running executions with a stale claim, and pending executions
-    | whose dispatch was lost) and re-dispatches it.
+    | whose dispatch was lost), re-dispatches it, and delivers scheduled
+    | retries that have come due — the contractual pickup behind
+    | retry.dispatch_delayed, and the only delivery path for in-process
+    | and sync-driver runs.
     |
-    | limit: maximum executions handled per run, oldest first.
+    | limit: maximum executions handled per run, most urgent first.
     |
-    | max_attempts: an execution where any step has already been attempted
-    | this many times is reported as abandoned instead of re-dispatched, so
-    | a crash-looping workflow cannot be retried forever by the scheduler.
-    | Abandoned executions can still be re-run manually via laraflow:execute.
+    | abandon_after_attempts: an *interrupted* execution where any step
+    | has already been attempted this many times is reported as abandoned
+    | instead of re-dispatched, so a crash-looping workflow cannot be
+    | retried forever by the scheduler. This bound is crash-loop
+    | protection and deliberately independent of step retry policies,
+    | which govern *failures* through the retrying state and carry their
+    | own budget; due retries are exempt from it. If your retry budgets
+    | exceed this value and your steps also risk crashing workers, raise
+    | it to match. Abandoned executions can still be re-run manually via
+    | laraflow:execute.
     |
     | pending_after: seconds after which a still-pending execution is
     | treated as having lost its queue dispatch and is re-dispatched.
@@ -164,7 +173,7 @@ return [
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
-        'max_attempts' => env('LARAFLOW_RECOVERY_MAX_ATTEMPTS', 3),
+        'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
     ],
 

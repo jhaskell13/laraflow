@@ -12,6 +12,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryService;
 use Throwable;
@@ -19,18 +20,20 @@ use Throwable;
 /**
  * @experimental Console tooling is still evolving; see docs/public-api.md.
  *
- * Finds interrupted executions (stale running claims and, optionally, lost
- * pending dispatches) and re-dispatches them. Designed to run from the
- * scheduler:
+ * Finds recoverable executions — stale running claims (reported as step
+ * timeouts when the interrupted step overran its deadline), scheduled
+ * retries that have come due, and optionally lost pending dispatches —
+ * and re-dispatches them. Designed to run from the scheduler:
  *
  *   Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
  *
  * Every action is bounded: at most --limit executions per run, and an
- * execution whose steps have reached --max-attempts is reported as
- * abandoned instead of retried, so a crash-looping workflow cannot be
- * re-dispatched forever. Exit code 1 signals that human attention is
- * needed (work was abandoned or a recovery action failed), including under
- * --dry-run.
+ * *interrupted* execution whose steps have reached --abandon-after is
+ * reported as abandoned instead of retried, so a crash-looping workflow
+ * cannot be re-dispatched forever. Due retries are exempt from that
+ * bound; theirs is the step's own policy budget, enforced by the runner.
+ * Exit code 1 signals that human attention is needed (work was abandoned
+ * or a recovery action failed), including under --dry-run.
  */
 class RecoverCommand extends Command
 {
@@ -40,7 +43,8 @@ class RecoverCommand extends Command
         {--stale-after= : Seconds after which a running claim counts as stale (default: laraflow.execution.stale_after)}
         {--pending-after= : Also recover pending executions older than this many seconds (default: laraflow.recovery.pending_after; scan disabled when unset)}
         {--limit= : Maximum executions handled in one run (default: laraflow.recovery.limit)}
-        {--max-attempts= : Report executions whose steps reached this many attempts as abandoned (default: laraflow.recovery.max_attempts)}
+        {--abandon-after= : Report interrupted executions whose steps reached this many attempts as abandoned (default: laraflow.recovery.abandon_after_attempts)}
+        {--skip-retries : Do not deliver scheduled retries that have come due}
         {--workflow= : Only consider executions created from this workflow class}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
         {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
@@ -58,9 +62,9 @@ class RecoverCommand extends Command
                 'limit',
                 (int) $config->get('laraflow.recovery.limit', 100),
             );
-            $maxAttempts = $this->positiveIntOption(
-                'max-attempts',
-                (int) $config->get('laraflow.recovery.max_attempts', 3),
+            $abandonAfter = $this->positiveIntOption(
+                'abandon-after',
+                (int) $config->get('laraflow.recovery.abandon_after_attempts', 3),
             );
             $pendingAfter = $this->pendingAfterOption($config);
         } catch (InvalidArgumentException $exception) {
@@ -76,8 +80,9 @@ class RecoverCommand extends Command
             staleAfterSeconds: $staleAfter,
             pendingAfterSeconds: $pendingAfter,
             limit: $limit,
-            maxAttempts: $maxAttempts,
+            abandonAfterAttempts: $abandonAfter,
             workflow: $workflow,
+            includeDueRetries: ! (bool) $this->option('skip-retries'),
         );
 
         if ($candidates === []) {
@@ -151,10 +156,14 @@ class RecoverCommand extends Command
 
         try {
             if ($sync) {
-                $service->runInline($candidate);
+                $result = $service->runInline($candidate);
                 $counts['ran']++;
 
-                return '<fg=green>completed</>';
+                // An inline run can itself end in another scheduled
+                // retry; reporting that as completion would lie.
+                return $result->isRetrying()
+                    ? '<fg=cyan>ran; next retry scheduled</>'
+                    : '<fg=green>completed</>';
             }
 
             $service->dispatch($candidate);
@@ -171,6 +180,12 @@ class RecoverCommand extends Command
             $counts['skipped']++;
 
             return 'claimed by another worker';
+        } catch (RetryNotDueException) {
+            // Someone ran the retry between scan and action and it
+            // rescheduled itself into the future. The new schedule stands.
+            $counts['skipped']++;
+
+            return 'rescheduled meanwhile';
         } catch (Throwable $exception) {
             $counts['failed']++;
 
@@ -223,9 +238,12 @@ class RecoverCommand extends Command
 
     protected function interruptedSince(RecoveryCandidate $candidate): ?DateTimeImmutable
     {
-        return $candidate->reason === WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM
-            ? $candidate->execution->claimedAt
-            : $candidate->execution->createdAt;
+        return match ($candidate->reason) {
+            WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
+            WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT => $candidate->execution->claimedAt,
+            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE => $candidate->execution->nextRetryAt,
+            default => $candidate->execution->createdAt,
+        };
     }
 
     /**

@@ -33,7 +33,7 @@ class ConfigTest extends TestCase
     public function test_recovery_configuration_defaults(): void
     {
         $this->assertSame(100, (int) config('laraflow.recovery.limit'));
-        $this->assertSame(3, (int) config('laraflow.recovery.max_attempts'));
+        $this->assertSame(3, (int) config('laraflow.recovery.abandon_after_attempts'));
 
         // Pending recovery is opt-in: `pending` is also the state of work
         // deliberately created-but-not-started via start().

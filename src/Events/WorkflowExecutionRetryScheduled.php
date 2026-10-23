@@ -19,6 +19,16 @@ readonly class WorkflowExecutionRetryScheduled
 
     public const REASON_NEVER_DISPATCHED = 'never_dispatched';
 
+    /** A policy-scheduled retry whose next_retry_at has arrived. */
+    public const REASON_RETRY_DUE = 'retry_due';
+
+    /**
+     * A stale claim whose interrupted step had also passed its deadline:
+     * the recovering worker will charge the attempt to the step's retry
+     * policy as a timeout rather than re-run it for free.
+     */
+    public const REASON_STEP_TIMEOUT = 'step_timeout';
+
     /**
      * @param  string  $workflow  Workflow class name.
      * @param  string  $reason  One of the REASON_* constants.

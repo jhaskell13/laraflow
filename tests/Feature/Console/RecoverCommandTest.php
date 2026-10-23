@@ -144,7 +144,7 @@ class RecoverCommandTest extends TestCase
             ->where('position', 0)
             ->update(['attempts' => 3]);
 
-        ['status' => $status] = $this->callCommand('laraflow:recover', ['--max-attempts' => '5']);
+        ['status' => $status] = $this->callCommand('laraflow:recover', ['--abandon-after' => '5']);
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
         Queue::assertPushed(ExecuteWorkflowJob::class);
@@ -270,7 +270,7 @@ class RecoverCommandTest extends TestCase
     {
         Queue::fake();
 
-        foreach (['--stale-after', '--limit', '--max-attempts', '--pending-after'] as $option) {
+        foreach (['--stale-after', '--limit', '--abandon-after', '--pending-after'] as $option) {
             ['status' => $status, 'output' => $output] = $this->callCommand(
                 'laraflow:recover',
                 [$option => '0'],

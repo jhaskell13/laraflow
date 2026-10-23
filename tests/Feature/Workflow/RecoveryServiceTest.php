@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
 use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\TwoStepWorkflow;
@@ -18,6 +19,7 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\WorkflowExecution;
@@ -38,7 +40,7 @@ class RecoveryServiceTest extends TestCase
             staleAfterSeconds: 300,
             pendingAfterSeconds: null,
             limit: 100,
-            maxAttempts: 3,
+            abandonAfterAttempts: 3,
         );
 
         $this->assertCount(1, $candidates);
@@ -88,7 +90,7 @@ class RecoveryServiceTest extends TestCase
             ->where('position', 0)
             ->update(['attempts' => 3]);
 
-        $candidates = $this->service()->scan(300, null, 100, maxAttempts: 3);
+        $candidates = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
 
         $this->assertCount(1, $candidates);
         $this->assertTrue($candidates[0]->abandoned);
@@ -99,7 +101,7 @@ class RecoveryServiceTest extends TestCase
             ->where('workflow_execution_id', $execution->id)
             ->update(['attempts' => 2]);
 
-        $candidates = $this->service()->scan(300, null, 100, maxAttempts: 3);
+        $candidates = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
 
         $this->assertFalse($candidates[0]->abandoned);
     }
@@ -114,7 +116,7 @@ class RecoveryServiceTest extends TestCase
 
         Date::setTestNow('2026-10-22 10:30:00');
 
-        $candidates = $this->service()->scan(300, 300, limit: 2, maxAttempts: 3);
+        $candidates = $this->service()->scan(300, 300, limit: 2, abandonAfterAttempts: 3);
 
         $this->assertCount(2, $candidates);
         $this->assertSame(
@@ -159,6 +161,142 @@ class RecoveryServiceTest extends TestCase
             // step runs (so attempts never grow) must never be queued.
             Queue::assertNothingPushed();
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Due retries
+    // ------------------------------------------------------------------
+
+    public function test_scan_finds_a_due_retry_and_exempts_it_from_the_abandonment_bound(): void
+    {
+        $execution = $this->makeDueRetryExecution(dueInSeconds: 300);
+
+        // Push the durable attempt count far past the interruption bound:
+        // the policy budget, not recovery, owns a scheduled retry.
+        StepExecutionModel::query()
+            ->where('workflow_execution_id', $execution->id)
+            ->update(['attempts' => 5]);
+
+        Date::setTestNow('2026-10-22 10:06:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
+
+        $this->assertSame($execution->id, $candidate->execution->id);
+        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_RETRY_DUE, $candidate->reason);
+        $this->assertSame(5, $candidate->attempts);
+        $this->assertFalse($candidate->abandoned, 'Abandoning a policy-live retry would strand every budget above the bound.');
+        $this->assertTrue($candidate->retryable());
+    }
+
+    public function test_scan_leaves_retries_that_are_not_yet_due_alone(): void
+    {
+        $this->makeDueRetryExecution(dueInSeconds: 3600);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $this->assertSame([], $this->service()->scan(300, null, 100, 3));
+    }
+
+    public function test_the_due_retry_scan_can_be_skipped(): void
+    {
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $this->assertSame(
+            [],
+            $this->service()->scan(300, null, 100, 3, includeDueRetries: false),
+        );
+    }
+
+    public function test_a_stale_claim_whose_step_overran_its_deadline_is_reported_as_a_timeout(): void
+    {
+        $execution = $this->makeStaleExecution();
+
+        // The interrupted running step had a deadline that passed long
+        // before the scan (claimed 10:00, scanned 10:30).
+        StepExecutionModel::query()
+            ->where('workflow_execution_id', $execution->id)
+            ->where('position', 0)
+            ->update(['timeout_at' => '2026-10-22 10:00:30']);
+
+        [$candidate] = $this->service()->scan(300, null, 100, 3);
+
+        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT, $candidate->reason);
+    }
+
+    public function test_the_limit_is_shared_across_all_three_scans_in_urgency_order(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+        $this->makeStaleExecution(freezeTime: false);
+        $this->makeStaleExecution(freezeTime: false);
+
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $candidates = $this->service()->scan(300, null, limit: 2, abandonAfterAttempts: 3);
+
+        $this->assertSame(
+            [
+                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
+                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
+            ],
+            array_map(fn (RecoveryCandidate $candidate) => $candidate->reason, $candidates),
+            'Lost work outranks scheduled work under a shared limit.',
+        );
+
+        $candidates = $this->service()->scan(300, null, limit: 3, abandonAfterAttempts: 3);
+
+        $this->assertSame(
+            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+            $candidates[2]->reason,
+        );
+    }
+
+    public function test_dispatching_a_due_retry_queues_it_and_says_why(): void
+    {
+        Queue::fake();
+        Event::fake([WorkflowExecutionRetryScheduled::class]);
+
+        $execution = $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, 3);
+
+        $this->service()->dispatch($candidate);
+
+        Queue::assertPushed(
+            ExecuteWorkflowJob::class,
+            fn (ExecuteWorkflowJob $job): bool => $job->executionId === $execution->id,
+        );
+
+        Event::assertDispatched(
+            WorkflowExecutionRetryScheduled::class,
+            fn (WorkflowExecutionRetryScheduled $event): bool => $event->executionId === $execution->id
+                && $event->reason === WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+        );
+    }
+
+    public function test_run_inline_delivers_a_due_retry_to_completion(): void
+    {
+        // The queueless/sync-driver delivery path, end to end: the step
+        // failed once, its retry came due, and recovery runs it here.
+        $execution = $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, 3);
+
+        $recovered = $this->service()->runInline($candidate);
+
+        $this->assertTrue($recovered->isCompleted());
+        $this->assertSame(2, StepTwo::$runs, 'Attempt 2 ran and succeeded.');
+        $this->assertSame(
+            ExecutionStatus::Completed->value,
+            WorkflowExecutionModel::query()->whereKey($execution->id)->value('status'),
+        );
     }
 
     // ------------------------------------------------------------------
@@ -309,6 +447,31 @@ class RecoveryServiceTest extends TestCase
         if ($freezeTime) {
             Date::setTestNow('2026-10-22 10:30:00');
         }
+
+        return $execution;
+    }
+
+    /**
+     * An execution whose second step failed retryably at 10:00:00 under a
+     * policy with the given delay, built through the real failure path:
+     * it is `retrying`, due at 10:00:00 + $dueInSeconds.
+     */
+    protected function makeDueRetryExecution(int $dueInSeconds): WorkflowExecution
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        PolicyWorkflow::$steps = [StepOne::class, StepTwo::class];
+        PolicyWorkflow::$policy = new StepPolicy(
+            maxAttempts: 3,
+            baseDelaySeconds: $dueInSeconds,
+            maxDelaySeconds: max(300, $dueInSeconds),
+            jitter: 0.0,
+        );
+        StepTwo::$failTimes = 1;
+
+        $execution = $this->app->make(WorkflowRunner::class)->run(new PolicyWorkflow);
+
+        assert($execution->isRetrying());
 
         return $execution;
     }

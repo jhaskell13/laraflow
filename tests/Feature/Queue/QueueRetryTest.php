@@ -6,11 +6,13 @@ namespace Laraflow\Tests\Feature\Queue;
 
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Tests\Support\PolicyWorkflow;
+use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\TestCase;
@@ -27,6 +29,8 @@ use Laraflow\Workflow\WorkflowRunner;
  */
 class QueueRetryTest extends TestCase
 {
+    use RunsArtisanCommands;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -140,6 +144,40 @@ class QueueRetryTest extends TestCase
         );
         $this->assertSame(0, DB::table('jobs')->count(), 'The scan, not the queue, owns delivery.');
         $this->assertSame(0, DB::table('failed_jobs')->count());
+    }
+
+    public function test_laraflow_recover_delivers_a_due_retry_without_the_fast_path(): void
+    {
+        // The contractual delivery promise: the fast path is off, so no
+        // delayed job exists anywhere — only the durable schedule. The
+        // scan must honour it, and only once it is due.
+        config(['laraflow.retry.dispatch_delayed' => false]);
+
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 60, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+
+        Date::setTestNow('2026-10-23 12:00:00');
+
+        $execution = $this->app->make(WorkflowRunner::class)->run(new PolicyWorkflow);
+        $this->assertTrue($execution->isRetrying());
+
+        // Thirty seconds early: the schedule is respected.
+        Date::setTestNow('2026-10-23 12:00:30');
+        ['output' => $output] = $this->callCommand('laraflow:recover');
+        $this->assertStringContainsString('Nothing to recover', $output);
+
+        // Once due, the scan reports it as a due retry and runs it.
+        Date::setTestNow('2026-10-23 12:01:00');
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--sync' => true]);
+
+        $this->assertSame(0, $status);
+        $this->assertStringContainsString('retry due', $output);
+        $this->assertStringContainsString('1 ran', $output);
+        $this->assertSame(2, StepTwo::$runs);
+        $this->assertSame(
+            ExecutionStatus::Completed->value,
+            WorkflowExecutionModel::query()->sole()->status,
+        );
     }
 
     public function test_a_terminal_failure_on_the_worker_still_reaches_failed_jobs(): void
