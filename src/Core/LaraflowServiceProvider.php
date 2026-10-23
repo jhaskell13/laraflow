@@ -86,6 +86,7 @@ class LaraflowServiceProvider extends ServiceProvider
                 events: $app->make(EventEmitter::class),
                 includeErrorMessages: (bool) $config->get('laraflow.events.include_error_messages', true),
                 clock: $app->make(ClockInterface::class),
+                policies: $app->make(PolicyResolver::class),
             );
         });
 

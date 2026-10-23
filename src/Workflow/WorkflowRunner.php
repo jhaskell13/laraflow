@@ -12,6 +12,7 @@ use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepCompleted;
 use Laraflow\Events\WorkflowStepFailed;
+use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
@@ -19,6 +20,8 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
+use Laraflow\Workflow\Policy\PolicyResolver;
+use Laraflow\Workflow\Policy\StepPolicy;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -36,6 +39,8 @@ class WorkflowRunner
 {
     protected ClockInterface $clock;
 
+    protected PolicyResolver $policies;
+
     public function __construct(
         protected ExecutionRepository $repository,
         protected Container $container,
@@ -45,8 +50,14 @@ class WorkflowRunner
         protected ?EventEmitter $events = null,
         protected bool $includeErrorMessages = true,
         ?ClockInterface $clock = null,
+        ?PolicyResolver $policies = null,
     ) {
         $this->clock = $clock ?? new Clock;
+
+        // The bare resolver's default policy disables retries, so a
+        // runner constructed without one behaves exactly as it did
+        // before retry policy existed.
+        $this->policies = $policies ?? new PolicyResolver;
     }
 
     /**
@@ -78,8 +89,15 @@ class WorkflowRunner
      * the restored context. Steps found in `running` state are treated
      * as interrupted and run again (the at-least-once boundary).
      *
-     * On step failure the failure is persisted and the step's exception
-     * is rethrown unchanged.
+     * On a step failure the step's policy decides: if a retry is
+     * allowed, the failed attempt and its schedule are persisted and the
+     * `retrying` handle is returned — nothing is thrown, because nothing
+     * has terminally failed. When the policy refuses, or no policy
+     * enables retries (the shipped default), the failure is persisted
+     * and the step's exception rethrown unchanged. Synchronous callers
+     * relying on "failure throws" should check isRetrying() on the
+     * returned handle, or keep retries disabled for workflows they run
+     * in-process.
      */
     public function execute(int|string $executionId, Workflow $workflow): WorkflowExecution
     {
@@ -127,8 +145,13 @@ class WorkflowRunner
 
             $context->enterStep($stepExecution->position, $stepExecution->attempts);
 
+            // Null until the step class resolves: a failure before that
+            // point is a definition problem, which no policy may retry.
+            $policy = null;
+
             try {
                 $step = $this->makeStep($stepExecution->step);
+                $policy = $this->policies->forStep($step, $workflow);
 
                 $output = $step->handle($context);
 
@@ -139,7 +162,14 @@ class WorkflowRunner
                 $stepExecution->markCompleted($output, $completedAt);
                 $execution->context = $context->all();
 
-                $this->repository->checkpoint($execution, $stepExecution);
+                $this->repository->checkpoint($execution, $stepExecution, new StepAttempt(
+                    executionId: $execution->id,
+                    stepExecutionId: $stepExecution->id,
+                    attempt: $stepExecution->attempts,
+                    status: StepAttemptStatus::Completed,
+                    startedAt: $stepExecution->startedAt,
+                    endedAt: $completedAt,
+                ));
 
                 $this->event(new WorkflowStepCompleted(
                     executionId: $execution->id,
@@ -154,6 +184,15 @@ class WorkflowRunner
                 // persist would be trustworthy, including a failure.
                 throw $exception;
             } catch (Throwable $exception) {
+                if ($policy !== null && $this->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
+                    // The retry is durably scheduled: step and execution
+                    // are `retrying` with the claim released. Nothing has
+                    // terminally failed, so nothing is thrown — a caller
+                    // alerting on exceptions must not page for an
+                    // execution that will heal itself.
+                    return $execution;
+                }
+
                 $this->persistFailure($execution, $stepExecution, $exception);
 
                 throw $exception;
@@ -276,6 +315,97 @@ class WorkflowRunner
     }
 
     /**
+     * If the policy allows another attempt after this failure, persist
+     * step and execution as `retrying` with next_retry_at, append the
+     * failed attempt to history, and release the claim. Returns false
+     * when the policy refuses, leaving the terminal path to the caller.
+     *
+     * If the retry state itself cannot be persisted, this logs the
+     * storage failure and rethrows the *original* step exception — it
+     * must not fall through to persistFailure(), because the step may
+     * already be durably `retrying` and marking it failed from there
+     * would replace a real diagnosis with a state-machine error. The
+     * claim stays held, so stale-claim recovery picks the execution up,
+     * the same contract persistFailure() has for its own storage
+     * failures.
+     */
+    protected function scheduleRetry(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        StepPolicy $policy,
+        Throwable $exception
+    ): bool {
+        $attempt = $stepExecution->attempts;
+
+        if (! $policy->shouldRetry($exception, $attempt)) {
+            return false;
+        }
+
+        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $failedAt = $this->now();
+
+        // Seeded by execution and position: one logical retry always
+        // lands on the same instant, different executions spread apart.
+        $delay = $policy->delaySeconds($attempt, "{$execution->id}:{$stepExecution->position}");
+        $nextRetryAt = $failedAt->modify("+{$delay} seconds");
+
+        try {
+            $stepExecution->markRetrying($error, $exception::class, $failedAt, $nextRetryAt);
+            $this->repository->saveStep($stepExecution, new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $stepExecution->id,
+                attempt: $attempt,
+                status: StepAttemptStatus::Failed,
+                error: $error,
+                errorClass: $exception::class,
+                startedAt: $stepExecution->startedAt,
+                endedAt: $failedAt,
+                nextRetryAt: $nextRetryAt,
+            ));
+
+            $execution->markRetrying($error, $exception::class, $nextRetryAt);
+            $this->repository->release($execution);
+        } catch (Throwable $storageFailure) {
+            $this->logger->error('Laraflow could not persist a scheduled retry.', [
+                'execution_id' => $execution->id,
+                'step' => $stepExecution->step,
+                'position' => $stepExecution->position,
+                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
+            ]);
+
+            throw $exception;
+        }
+
+        $eventError = $this->includeErrorMessages ? $error : null;
+
+        $this->event(new WorkflowStepFailed(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $attempt,
+            errorClass: $exception::class,
+            error: $eventError,
+        ));
+
+        $this->event(new WorkflowStepRetryScheduled(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $attempt,
+            maxAttempts: $policy->maxAttempts,
+            errorClass: $exception::class,
+            error: $eventError,
+            nextRetryAt: $nextRetryAt,
+            delaySeconds: $delay,
+        ));
+
+        return true;
+    }
+
+    /**
      * Persist a step failure and the execution's failed state. If the
      * persistence itself fails, the original step exception still
      * propagates; the storage failure is logged instead of replacing it.
@@ -290,7 +420,16 @@ class WorkflowRunner
 
         try {
             $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution);
+            $this->repository->saveStep($stepExecution, new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $stepExecution->id,
+                attempt: $stepExecution->attempts,
+                status: StepAttemptStatus::Failed,
+                error: $error,
+                errorClass: $exception::class,
+                startedAt: $stepExecution->startedAt,
+                endedAt: $failedAt,
+            ));
 
             $execution->markFailed($error, $exception::class, $failedAt);
             $this->repository->release($execution);

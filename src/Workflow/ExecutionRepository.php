@@ -135,8 +135,9 @@ interface ExecutionRepository
     ): array;
 
     /**
-     * Persist a terminal transition (completed or failed) and release the
-     * claim, verifying this worker still holds it.
+     * Persist a claim-ending transition — completed, failed, or retrying
+     * (which waits unclaimed until its due time) — and release the claim,
+     * verifying this worker still holds it.
      *
      * @throws ClaimLostException
      */
