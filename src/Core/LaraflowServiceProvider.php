@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\ServiceProvider;
+use InvalidArgumentException;
 use Laraflow\Auth\GithubTokenAuthenticator;
 use Laraflow\Console\CancelCommand;
 use Laraflow\Console\DemoCommand;
@@ -23,6 +24,8 @@ use Laraflow\Integration\ConnectorManager;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
+use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -50,6 +53,28 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ClockInterface::class, Clock::class);
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+
+        $this->app->singleton(ErrorRedactor::class, function (Container $app): ErrorRedactor {
+            $class = $this->setting($app->make(Config::class), 'laraflow.errors.redactor');
+
+            if ($class === null) {
+                return new PassthroughRedactor;
+            }
+
+            // A redactor that silently fails to load would silently leak
+            // the data it was configured to strip; misconfiguration must
+            // be loud.
+            if (! is_string($class) || ! class_exists($class) || ! is_subclass_of($class, ErrorRedactor::class)) {
+                throw new InvalidArgumentException(
+                    'laraflow.errors.redactor must name a class implementing '.ErrorRedactor::class.'.'
+                );
+            }
+
+            $redactor = $app->make($class);
+            assert($redactor instanceof ErrorRedactor);
+
+            return $redactor;
+        });
 
         // The configured policy is only a fallback: a step's own policy,
         // then its workflow's, take precedence (see PolicyResolver).
@@ -88,6 +113,7 @@ class LaraflowServiceProvider extends ServiceProvider
                 includeErrorMessages: (bool) $config->get('laraflow.events.include_error_messages', true),
                 clock: $app->make(ClockInterface::class),
                 policies: $app->make(PolicyResolver::class),
+                redactor: $app->make(ErrorRedactor::class),
             );
         });
 

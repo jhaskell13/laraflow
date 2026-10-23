@@ -179,6 +179,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Errors
+    |--------------------------------------------------------------------------
+    |
+    | redactor: class name of a Laraflow\Support\ErrorRedactor
+    | implementation applied to every exception message before Laraflow
+    | retains it — persisted error columns, attempt history, log records,
+    | and failure events all receive the redacted form. Null disables
+    | redaction. The exception your application catches is untouched, and
+    | console command output (operator-facing) is not redacted.
+    |
+    */
+
+    'errors' => [
+        'redactor' => env('LARAFLOW_ERROR_REDACTOR'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Events
     |--------------------------------------------------------------------------
     |

@@ -136,6 +136,11 @@ class ConfigTest extends TestCase
         $this->assertTrue((bool) config('laraflow.events.include_error_messages'));
     }
 
+    public function test_error_redaction_is_off_by_default(): void
+    {
+        $this->assertNull(config('laraflow.errors.redactor'));
+    }
+
     public function test_default_queue_timeout_is_below_the_stale_claim_threshold(): void
     {
         // A worker timeout at or above stale_after would let a live job's

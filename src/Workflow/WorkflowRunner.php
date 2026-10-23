@@ -24,6 +24,8 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
+use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -46,6 +48,8 @@ class WorkflowRunner
 
     protected PolicyResolver $policies;
 
+    protected ErrorRedactor $redactor;
+
     public function __construct(
         protected ExecutionRepository $repository,
         protected Container $container,
@@ -56,6 +60,7 @@ class WorkflowRunner
         protected bool $includeErrorMessages = true,
         ?ClockInterface $clock = null,
         ?PolicyResolver $policies = null,
+        ?ErrorRedactor $redactor = null,
     ) {
         $this->clock = $clock ?? new Clock;
 
@@ -63,6 +68,7 @@ class WorkflowRunner
         // runner constructed without one behaves exactly as it did
         // before retry policy existed.
         $this->policies = $policies ?? new PolicyResolver;
+        $this->redactor = $redactor ?? new PassthroughRedactor;
     }
 
     /**
@@ -530,7 +536,7 @@ class WorkflowRunner
             return false;
         }
 
-        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
         // Seeded by execution and position: one logical retry always
@@ -559,7 +565,7 @@ class WorkflowRunner
                 'execution_id' => $execution->id,
                 'step' => $stepExecution->step,
                 'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
                 'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
             ]);
 
@@ -607,7 +613,7 @@ class WorkflowRunner
         Throwable $exception,
         StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
     ): void {
-        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
         try {
@@ -627,7 +633,7 @@ class WorkflowRunner
                 'execution_id' => $execution->id,
                 'step' => $stepExecution->step,
                 'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
                 'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
             ]);
 
@@ -653,7 +659,7 @@ class WorkflowRunner
      */
     protected function failExecution(WorkflowExecution $execution, Throwable $exception): void
     {
-        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
         try {
@@ -662,7 +668,7 @@ class WorkflowRunner
         } catch (Throwable $storageFailure) {
             $this->logger->error('Laraflow could not persist a workflow failure.', [
                 'execution_id' => $execution->id,
-                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
                 'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
             ]);
 
@@ -689,7 +695,7 @@ class WorkflowRunner
         Throwable $exception,
         StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
     ): void {
-        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
         try {
@@ -712,7 +718,7 @@ class WorkflowRunner
                 'execution_id' => $execution->id,
                 'step' => $stepExecution->step,
                 'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
                 'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
             ]);
 
@@ -739,6 +745,22 @@ class WorkflowRunner
             error: $eventError,
             failedAt: $failedAt,
         ));
+    }
+
+    /**
+     * The one place an exception becomes text Laraflow retains: redacted
+     * first (laraflow.errors.redactor), then truncated. Every persisted
+     * error column, attempt-history row, log record, and failure event
+     * goes through here, so nothing the redactor strips can leak out a
+     * side door. The thrown exception itself is untouched.
+     */
+    protected function errorMessage(Throwable $exception): string
+    {
+        return mb_substr(
+            $this->redactor->redact($exception, $exception->getMessage()),
+            0,
+            $this->maxErrorLength,
+        );
     }
 
     /**

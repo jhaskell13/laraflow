@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowResolver;
@@ -137,11 +138,24 @@ class ExecuteWorkflowJob implements ShouldQueue
 
         $logger = $container->make(LoggerInterface::class);
 
+        $message = null;
+
+        if ($exception !== null) {
+            $message = $exception->getMessage();
+
+            // The configured redactor governs every sink Laraflow writes
+            // to; this log line is no exception. The job may fail with a
+            // step's exception, and step exceptions can carry secrets.
+            if ($container->bound(ErrorRedactor::class)) {
+                $message = $container->make(ErrorRedactor::class)->redact($exception, $message);
+            }
+
+            $message = $exception::class.': '.$message;
+        }
+
         $logger->error('A Laraflow execution job failed.', [
             'execution_id' => $this->executionId,
-            'exception' => $exception === null
-                ? null
-                : $exception::class.': '.$exception->getMessage(),
+            'exception' => $message,
         ]);
     }
 
