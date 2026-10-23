@@ -17,7 +17,8 @@ class ShowCommand extends Command
     use DisplaysExecutions;
 
     protected $signature = 'laraflow:show
-        {execution : The id of the execution to inspect}';
+        {execution : The id of the execution to inspect}
+        {--attempts : Also show the per-attempt history of every step}';
 
     protected $description = 'Inspect a workflow execution and its steps';
 
@@ -31,7 +32,9 @@ class ShowCommand extends Command
             return self::FAILURE;
         }
 
-        $this->displayExecution($execution, $repository->steps($execution));
+        $steps = $repository->steps($execution);
+
+        $this->displayExecution($execution, $steps);
 
         if ($execution->claimToken !== null) {
             $this->components->twoColumnDetail(
@@ -41,6 +44,47 @@ class ShowCommand extends Command
             $this->newLine();
         }
 
+        if ((bool) $this->option('attempts')) {
+            $this->displayAttemptHistory($repository, $steps);
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * The append-only attempt history: why each attempt ended, how long
+     * it took, and which failures scheduled retries — the step table
+     * alone only ever shows the latest attempt.
+     *
+     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     */
+    protected function displayAttemptHistory(ExecutionRepository $repository, array $steps): void
+    {
+        $rows = [];
+
+        foreach ($steps as $step) {
+            foreach ($repository->attempts($step) as $attempt) {
+                $rows[] = [
+                    class_basename($step->step),
+                    $attempt->attempt,
+                    $this->coloredStatus($attempt->status->value),
+                    $this->formatDate($attempt->startedAt),
+                    $attempt->durationMs() !== null ? $attempt->durationMs().' ms' : '—',
+                    $attempt->nextRetryAt !== null ? $this->formatDate($attempt->nextRetryAt) : '',
+                    $attempt->error ?? '',
+                ];
+            }
+        }
+
+        if ($rows === []) {
+            $this->components->info('No finished attempts recorded yet.');
+
+            return;
+        }
+
+        $this->table(
+            ['Step', 'Attempt', 'Outcome', 'Started', 'Duration', 'Scheduled retry', 'Error'],
+            $rows,
+        );
     }
 }

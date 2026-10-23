@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Console\Concerns;
 
 use DateTimeInterface;
+use Illuminate\Support\Facades\Date;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
@@ -32,6 +33,27 @@ trait DisplaysExecutions
             $this->formatDate($execution->completedAt ?? $execution->failedAt)
         );
 
+        if ($execution->isRetrying() && $execution->nextRetryAt !== null) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Next retry</>',
+                '<fg=cyan>'.$this->formatDate($execution->nextRetryAt).'</>'
+            );
+        }
+
+        if ($execution->isCancelled()) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Cancelled</>',
+                $this->formatDate($execution->cancelledAt)
+                    .($execution->cancelReason !== null ? " — {$execution->cancelReason}" : '')
+            );
+        } elseif ($execution->cancelRequestedAt !== null && $execution->isRunning()) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Cancellation requested</>',
+                $this->formatDate($execution->cancelRequestedAt)
+                    .' (the worker stops at its next step boundary)'
+            );
+        }
+
         if ($execution->error !== null) {
             $this->components->twoColumnDetail('<fg=gray>Error</>', "<fg=red>{$execution->error}</>");
         }
@@ -54,13 +76,22 @@ trait DisplaysExecutions
      */
     protected function displaySteps(array $steps): void
     {
+        $now = Date::now()->toImmutable();
+
         $this->table(
-            ['#', 'Step', 'Status', 'Attempts', 'Output', 'Error'],
+            ['#', 'Step', 'Status', 'Attempts', 'Next retry', 'Output', 'Error'],
             array_map(fn (StepExecution $step): array => [
                 $step->position,
                 class_basename($step->step),
-                $this->coloredStatus($step->status->value),
+                $this->coloredStatus($step->status->value)
+                    // A running step past its deadline is hung, not dead:
+                    // its claim may still be live, so nothing acts on it,
+                    // but an operator deserves to see it.
+                    .($step->isRunning() && $step->timeoutAt !== null && $step->timeoutAt <= $now
+                        ? ' <fg=red>(overdue)</>'
+                        : ''),
                 $step->attempts,
+                $step->nextRetryAt !== null ? $this->formatDate($step->nextRetryAt) : '',
                 $this->formatValue($step->output, 60),
                 $step->error ?? '',
             ], $steps),
@@ -73,6 +104,8 @@ trait DisplaysExecutions
             ExecutionStatus::Completed->value, StepStatus::Completed->value => "<fg=green>{$status}</>",
             ExecutionStatus::Failed->value, StepStatus::Failed->value => "<fg=red>{$status}</>",
             ExecutionStatus::Running->value, StepStatus::Running->value => "<fg=yellow>{$status}</>",
+            ExecutionStatus::Retrying->value => "<fg=cyan>{$status}</>",
+            ExecutionStatus::Cancelled->value => "<fg=magenta>{$status}</>",
             default => "<fg=gray>{$status}</>",
         };
     }

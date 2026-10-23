@@ -28,7 +28,8 @@ class ExecuteCommand extends Command
 
     protected $signature = 'laraflow:execute
         {execution : The id of the execution to run or recover}
-        {--queue : Dispatch the execution to the queue instead of running it in this process}';
+        {--queue : Dispatch the execution to the queue instead of running it in this process}
+        {--now : Run a retrying execution immediately, ignoring its next_retry_at schedule}';
 
     protected $description = 'Execute or recover a persisted workflow execution';
 
@@ -86,7 +87,11 @@ class ExecuteCommand extends Command
         );
 
         try {
-            $execution = $runner->execute($execution->id, $workflow);
+            $execution = $runner->execute(
+                $execution->id,
+                $workflow,
+                ignoreRetrySchedule: (bool) $this->option('now'),
+            );
         } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
@@ -102,6 +107,24 @@ class ExecuteCommand extends Command
         }
 
         $this->displayExecution($execution, $repository->steps($execution));
+
+        if ($execution->isRetrying()) {
+            // Not an operator failure: the step's policy owns what
+            // happens next, so the command succeeds and says when.
+            $this->components->warn(
+                'A step failed and its retry policy scheduled another attempt for '
+                .$this->formatDate($execution->nextRetryAt)
+                .". Run it early with: laraflow:execute {$id} --now"
+            );
+
+            return self::SUCCESS;
+        }
+
+        if ($execution->isCancelled()) {
+            $this->components->info('Execution was cancelled during the run; completed steps are kept.');
+
+            return self::SUCCESS;
+        }
 
         $this->components->info('Execution completed.');
 
