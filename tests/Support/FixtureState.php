@@ -21,6 +21,8 @@ class FixtureState
         StepTwo::$beforeReturn = null;
         StepTwo::$seenIdempotencyKeys = [];
         StepTwo::$seenContextValue = null;
+        StepThree::$runs = 0;
+        StepThree::$seenContextValueFromStepTwo = null;
         MutableWorkflow::$steps = [];
     }
 }

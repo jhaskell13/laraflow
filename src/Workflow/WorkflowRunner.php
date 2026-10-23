@@ -24,6 +24,7 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
+use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Psr\Clock\ClockInterface;
@@ -140,6 +141,11 @@ class WorkflowRunner
             executionId: $execution->id,
         );
 
+        $failurePolicy = $workflow->failurePolicy();
+
+        /** @var Throwable|null $firstFailure */
+        $firstFailure = null;
+
         foreach ($steps as $stepExecution) {
             if ($stepExecution->isCompleted()) {
                 continue;
@@ -189,6 +195,13 @@ class WorkflowRunner
 
                 if ($this->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
                     return $execution;
+                }
+
+                if ($failurePolicy === FailurePolicy::Continue) {
+                    $this->persistStepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+                    $firstFailure ??= $timeout;
+
+                    continue;
                 }
 
                 $this->persistFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
@@ -255,10 +268,26 @@ class WorkflowRunner
                     return $execution;
                 }
 
+                if ($failurePolicy === FailurePolicy::Continue) {
+                    // The workflow declared its steps independent: record
+                    // this failure, keep going, and fail the execution —
+                    // with this first exception — once everything ran.
+                    $this->persistStepFailure($execution, $stepExecution, $exception);
+                    $firstFailure ??= $exception;
+
+                    continue;
+                }
+
                 $this->persistFailure($execution, $stepExecution, $exception);
 
                 throw $exception;
             }
+        }
+
+        if ($firstFailure !== null) {
+            $this->failExecution($execution, $firstFailure);
+
+            throw $firstFailure;
         }
 
         $completedAt = $this->now();
@@ -563,6 +592,90 @@ class WorkflowRunner
         ));
 
         return true;
+    }
+
+    /**
+     * Persist one step's terminal failure (with its attempt history) and
+     * announce it, leaving the execution running — the continue-on-failure
+     * path. If the persistence itself fails, the storage failure is
+     * logged and the step's exception thrown: with storage down there is
+     * nothing trustworthy to continue with.
+     */
+    protected function persistStepFailure(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        Throwable $exception,
+        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
+    ): void {
+        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $failedAt = $this->now();
+
+        try {
+            $stepExecution->markFailed($error, $exception::class, $failedAt);
+            $this->repository->saveStep($stepExecution, new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $stepExecution->id,
+                attempt: $stepExecution->attempts,
+                status: $attemptStatus,
+                error: $error,
+                errorClass: $exception::class,
+                startedAt: $stepExecution->startedAt,
+                endedAt: $failedAt,
+            ));
+        } catch (Throwable $storageFailure) {
+            $this->logger->error('Laraflow could not persist a workflow failure.', [
+                'execution_id' => $execution->id,
+                'step' => $stepExecution->step,
+                'position' => $stepExecution->position,
+                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
+            ]);
+
+            throw $exception;
+        }
+
+        $this->event(new WorkflowStepFailed(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $stepExecution->attempts,
+            errorClass: $exception::class,
+            error: $this->includeErrorMessages ? $error : null,
+        ));
+    }
+
+    /**
+     * Terminal execution failure at the end of a continue-on-failure
+     * run: the first step failure is what the execution records and what
+     * the caller is thrown. Storage-failure semantics match
+     * persistFailure(): log, keep the claim, let recovery own it.
+     */
+    protected function failExecution(WorkflowExecution $execution, Throwable $exception): void
+    {
+        $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $failedAt = $this->now();
+
+        try {
+            $execution->markFailed($error, $exception::class, $failedAt);
+            $this->repository->release($execution);
+        } catch (Throwable $storageFailure) {
+            $this->logger->error('Laraflow could not persist a workflow failure.', [
+                'execution_id' => $execution->id,
+                'original_exception' => $exception::class.': '.$exception->getMessage(),
+                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
+            ]);
+
+            return;
+        }
+
+        $this->event(new WorkflowExecutionFailed(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            errorClass: $exception::class,
+            error: $this->includeErrorMessages ? $error : null,
+            failedAt: $failedAt,
+        ));
     }
 
     /**
