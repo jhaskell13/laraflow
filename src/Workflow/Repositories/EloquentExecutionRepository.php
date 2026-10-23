@@ -6,11 +6,11 @@ namespace Laraflow\Workflow\Repositories;
 
 use Closure;
 use DateTimeImmutable;
-use Illuminate\Support\Facades\Date;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
@@ -18,12 +18,20 @@ use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
+use Psr\Clock\ClockInterface;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
  */
 class EloquentExecutionRepository implements ExecutionRepository
 {
+    protected ClockInterface $clock;
+
+    public function __construct(?ClockInterface $clock = null)
+    {
+        $this->clock = $clock ?? new Clock;
+    }
+
     /**
      * @param  array<string, mixed>  $input
      * @param  list<string>  $steps
@@ -73,8 +81,8 @@ class EloquentExecutionRepository implements ExecutionRepository
         string $claimToken,
         int $staleAfterSeconds
     ): WorkflowExecution {
-        $now = Date::now();
-        $staleBefore = $now->copy()->subSeconds($staleAfterSeconds);
+        $now = $this->clock->now();
+        $staleBefore = $now->modify("-{$staleAfterSeconds} seconds");
 
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)

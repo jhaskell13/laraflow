@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
-use Illuminate\Support\Facades\Date;
 use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionRetryScheduled;
@@ -12,6 +11,8 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Clock;
+use Psr\Clock\ClockInterface;
 
 /**
  * @internal Use the laraflow:recover command; this class is its engine and
@@ -31,13 +32,18 @@ use Laraflow\Queue\WorkflowDispatcher;
  */
 class RecoveryService
 {
+    protected ClockInterface $clock;
+
     public function __construct(
         protected ExecutionRepository $repository,
         protected WorkflowDispatcher $dispatcher,
         protected WorkflowRunner $runner,
         protected WorkflowResolver $resolver,
         protected ?EventEmitter $events = null,
-    ) {}
+        ?ClockInterface $clock = null,
+    ) {
+        $this->clock = $clock ?? new Clock;
+    }
 
     /**
      * Find interrupted executions, oldest first, bounded by $limit across
@@ -54,11 +60,11 @@ class RecoveryService
         int $maxAttempts,
         ?string $workflow = null,
     ): array {
-        $now = Date::now();
+        $now = $this->clock->now();
         $candidates = [];
 
         $stale = $this->repository->stale(
-            $now->copy()->subSeconds($staleAfterSeconds)->toImmutable(),
+            $now->modify("-{$staleAfterSeconds} seconds"),
             $limit,
             $workflow,
         );
@@ -75,7 +81,7 @@ class RecoveryService
 
         if ($pendingAfterSeconds !== null && $remaining > 0) {
             $pending = $this->repository->pendingBefore(
-                $now->copy()->subSeconds($pendingAfterSeconds)->toImmutable(),
+                $now->modify("-{$pendingAfterSeconds} seconds"),
                 $remaining,
                 $workflow,
             );

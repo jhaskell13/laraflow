@@ -6,7 +6,6 @@ namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Support\Facades\Date;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCompleted;
 use Laraflow\Events\WorkflowExecutionFailed;
@@ -18,7 +17,9 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
+use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -33,6 +34,8 @@ use Throwable;
  */
 class WorkflowRunner
 {
+    protected ClockInterface $clock;
+
     public function __construct(
         protected ExecutionRepository $repository,
         protected Container $container,
@@ -41,7 +44,10 @@ class WorkflowRunner
         protected int $maxErrorLength = 65535,
         protected ?EventEmitter $events = null,
         protected bool $includeErrorMessages = true,
-    ) {}
+        ?ClockInterface $clock = null,
+    ) {
+        $this->clock = $clock ?? new Clock;
+    }
 
     /**
      * Create a pending execution and its complete step plan without
@@ -332,11 +338,13 @@ class WorkflowRunner
     }
 
     /**
-     * Uses Laravel's Date facade so Date::setTestNow() controls every
-     * timestamp the runner writes.
+     * Every timestamp the runner writes comes from here. The default
+     * clock reads Laravel's Date facade, so `Date::setTestNow()` still
+     * controls it; tests that need an explicit schedule inject a fixed
+     * PSR-20 clock instead.
      */
     protected function now(): DateTimeImmutable
     {
-        return Date::now()->toImmutable();
+        return $this->clock->now();
     }
 }

@@ -21,11 +21,13 @@ use Laraflow\Integration\ConnectorFactory;
 use Laraflow\Integration\ConnectorManager;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
 class LaraflowServiceProvider extends ServiceProvider
@@ -39,6 +41,10 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ConnectorManager::class);
         $this->app->singleton(LaraflowManager::class);
         $this->app->singleton(WorkflowResolver::class);
+
+        // Bound by interface so an application (or a test) can replace the
+        // package's source of time wholesale.
+        $this->app->singleton(ClockInterface::class, Clock::class);
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
 
@@ -59,6 +65,7 @@ class LaraflowServiceProvider extends ServiceProvider
                 maxErrorLength: (int) $config->get('laraflow.execution.max_error_length', 65535),
                 events: $app->make(EventEmitter::class),
                 includeErrorMessages: (bool) $config->get('laraflow.events.include_error_messages', true),
+                clock: $app->make(ClockInterface::class),
             );
         });
 
@@ -76,6 +83,7 @@ class LaraflowServiceProvider extends ServiceProvider
             runner: $app->make(WorkflowRunner::class),
             resolver: $app->make(WorkflowResolver::class),
             events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
         ));
     }
 
