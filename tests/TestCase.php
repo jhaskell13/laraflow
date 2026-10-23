@@ -38,6 +38,10 @@ abstract class TestCase extends Orchestra
             'driver' => 'sqlite',
             'database' => ':memory:',
             'prefix' => '',
+            // The schema has always declared cascading foreign keys, but
+            // SQLite only enforces them when asked — without this, tests
+            // asserting on cascade behaviour pass vacuously.
+            'foreign_key_constraints' => true,
         ]);
     }
 }

@@ -100,21 +100,39 @@ interface ExecutionRepository
         ?string $workflow = null
     ): array;
 
+    /**
+     * Persist the step row and, when provided, append $attempt to the
+     * history in the same transaction. Pairing the writes is the point:
+     * history that could commit without its step state (or vice versa)
+     * would be history that can lie.
+     */
     public function saveStep(
-        StepExecution $step
+        StepExecution $step,
+        ?StepAttempt $attempt = null
     ): void;
 
     /**
      * Persist a completed step together with the execution's context
-     * snapshot in one transaction, verifying this worker still holds the
-     * claim. On claim loss nothing is written.
+     * snapshot — and, when provided, the attempt history row — in one
+     * transaction, verifying this worker still holds the claim. On claim
+     * loss nothing is written, the history row included.
      *
      * @throws ClaimLostException
      */
     public function checkpoint(
         WorkflowExecution $execution,
-        StepExecution $step
+        StepExecution $step,
+        ?StepAttempt $attempt = null
     ): void;
+
+    /**
+     * Attempt history for one step, ordered by attempt number ascending.
+     *
+     * @return StepAttempt[]
+     */
+    public function attempts(
+        StepExecution $step
+    ): array;
 
     /**
      * Persist a terminal transition (completed or failed) and release the

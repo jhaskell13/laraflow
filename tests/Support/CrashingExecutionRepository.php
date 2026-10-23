@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Support;
 
 use DateTimeImmutable;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -59,18 +60,23 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow));
     }
 
-    public function saveStep(StepExecution $step): void
+    public function saveStep(StepExecution $step, ?StepAttempt $attempt = null): void
     {
-        $this->call(__FUNCTION__, function () use ($step) {
-            $this->inner->saveStep($step);
+        $this->call(__FUNCTION__, function () use ($step, $attempt) {
+            $this->inner->saveStep($step, $attempt);
         });
     }
 
-    public function checkpoint(WorkflowExecution $execution, StepExecution $step): void
+    public function checkpoint(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void
     {
-        $this->call(__FUNCTION__, function () use ($execution, $step) {
-            $this->inner->checkpoint($execution, $step);
+        $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {
+            $this->inner->checkpoint($execution, $step, $attempt);
         });
+    }
+
+    public function attempts(StepExecution $step): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->attempts($step));
     }
 
     public function release(WorkflowExecution $execution): void

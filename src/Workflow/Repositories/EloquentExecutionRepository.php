@@ -13,8 +13,11 @@ use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\StepAttempt;
+use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
@@ -176,30 +179,32 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function saveStep(
-        StepExecution $step
+        StepExecution $step,
+        ?StepAttempt $attempt = null
     ): void {
-        StepExecutionModel::query()
-            ->whereKey($step->id)
-            ->update([
-                'status' => $step->status->value,
-                'attempts' => $step->attempts,
-                'output' => $step->output,
-                'error' => $step->error,
-                'error_class' => $step->errorClass,
-                'started_at' => $step->startedAt,
-                'completed_at' => $step->completedAt,
-                'failed_at' => $step->failedAt,
-                'timeout_at' => $step->timeoutAt,
-                'next_retry_at' => $step->nextRetryAt,
-            ]);
+        if ($attempt !== null) {
+            $this->transaction(function () use ($step, $attempt) {
+                $this->writeStep($step);
+                $this->appendAttempt($attempt);
+            });
+
+            return;
+        }
+
+        $this->writeStep($step);
     }
 
     public function checkpoint(
         WorkflowExecution $execution,
-        StepExecution $step
+        StepExecution $step,
+        ?StepAttempt $attempt = null
     ): void {
-        $this->transaction(function () use ($execution, $step) {
-            $this->saveStep($step);
+        $this->transaction(function () use ($execution, $step, $attempt) {
+            $this->writeStep($step);
+
+            if ($attempt !== null) {
+                $this->appendAttempt($attempt);
+            }
 
             $updated = WorkflowExecutionModel::query()
                 ->whereKey($execution->id)
@@ -209,11 +214,32 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ]);
 
             if ($updated === 0) {
-                // Rolls back the step write: a worker without the claim
-                // must not persist anything.
+                // Rolls back the step write and the attempt row with it:
+                // a worker without the claim must not persist anything.
                 throw ClaimLostException::forId($execution->id);
             }
         });
+    }
+
+    public function attempts(
+        StepExecution $step
+    ): array {
+        return StepAttemptModel::query()
+            ->where('step_execution_id', $step->id)
+            ->orderBy('attempt')
+            ->get()
+            ->map(fn (StepAttemptModel $model): StepAttempt => new StepAttempt(
+                executionId: $model->workflow_execution_id,
+                stepExecutionId: $model->step_execution_id,
+                attempt: $model->attempt,
+                status: StepAttemptStatus::from($model->status),
+                error: $model->error,
+                errorClass: $model->error_class,
+                startedAt: $model->started_at?->toImmutable(),
+                endedAt: $model->ended_at?->toImmutable(),
+                nextRetryAt: $model->next_retry_at?->toImmutable(),
+            ))
+            ->all();
     }
 
     public function release(
@@ -240,6 +266,40 @@ class EloquentExecutionRepository implements ExecutionRepository
         if ($updated === 0) {
             throw ClaimLostException::forId($execution->id);
         }
+    }
+
+    protected function writeStep(StepExecution $step): void
+    {
+        StepExecutionModel::query()
+            ->whereKey($step->id)
+            ->update([
+                'status' => $step->status->value,
+                'attempts' => $step->attempts,
+                'output' => $step->output,
+                'error' => $step->error,
+                'error_class' => $step->errorClass,
+                'started_at' => $step->startedAt,
+                'completed_at' => $step->completedAt,
+                'failed_at' => $step->failedAt,
+                'timeout_at' => $step->timeoutAt,
+                'next_retry_at' => $step->nextRetryAt,
+            ]);
+    }
+
+    protected function appendAttempt(StepAttempt $attempt): void
+    {
+        StepAttemptModel::query()->create([
+            'workflow_execution_id' => $attempt->executionId,
+            'step_execution_id' => $attempt->stepExecutionId,
+            'attempt' => $attempt->attempt,
+            'status' => $attempt->status->value,
+            'error' => $attempt->error,
+            'error_class' => $attempt->errorClass,
+            'started_at' => $attempt->startedAt,
+            'ended_at' => $attempt->endedAt,
+            'duration_ms' => $attempt->durationMs(),
+            'next_retry_at' => $attempt->nextRetryAt,
+        ]);
     }
 
     protected function explainFailedClaim(int|string $id): never
