@@ -77,8 +77,10 @@ The repository ships a playground (via Orchestra Testbench) and a set of experim
 git clone https://github.com/jhaskell13/laraflow.git
 cd laraflow
 composer install
-composer playground     # creates a SQLite database and runs the migrations
+composer playground     # creates a SQLite playground database and runs the migrations
 ```
+
+> Re-run `composer playground` after pulling changes. Until the schema is frozen (roadmap Milestone 6) Laraflow edits its migrations in place rather than adding new ones, so an existing database does **not** pick up schema changes — `migrate` considers those migrations already run. The playground database is disposable, so `composer playground` resets it.
 
 Then, from the repository root:
 
