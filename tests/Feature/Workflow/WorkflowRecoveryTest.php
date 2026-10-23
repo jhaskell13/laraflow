@@ -14,7 +14,6 @@ use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\BadOutputWorkflow;
 use Laraflow\Tests\Support\CrashingExecutionRepository;
-use Laraflow\Tests\Support\FixtureState;
 use Laraflow\Tests\Support\MutableWorkflow;
 use Laraflow\Tests\Support\SimulatedWorkerCrash;
 use Laraflow\Tests\Support\StepOne;
@@ -38,7 +37,6 @@ class WorkflowRecoveryTest extends TestCase
     {
         parent::setUp();
 
-        FixtureState::reset();
         $this->logger = new ArrayLogger;
     }
 

@@ -4,6 +4,8 @@ This document is the contract for how Laraflow persists, claims, runs, and recov
 
 ## Runner API
 
+All three run the workflow in the calling process. To run one on a queue worker instead, use `WorkflowDispatcher` ([docs/queue-and-recovery.md](queue-and-recovery.md)); it creates the execution the same way and the worker calls `execute()`, so everything below applies unchanged.
+
 | Method | Behaviour |
 |--------|-----------|
 | `start(Workflow $workflow, array $input = []): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. |
@@ -36,7 +38,7 @@ pending ──→ running ──→ completed   (terminal)
 running ──→ running                 (interrupted step re-run)
 ```
 
-Transitions are enforced by `WorkflowExecution::mark*()` and `StepExecution::mark*()`; anything else throws `InvalidStateTransitionException`. `attempts` increments on every step `running` transition. `started_at` records the *first* start and is preserved across re-executions. Completing clears a previous `error`/`error_class`.
+Transitions are enforced by `WorkflowExecution::mark*()` and `StepExecution::mark*()`; anything else throws `InvalidStateTransitionException`. `attempts` increments on every step `running` transition. The *execution's* `started_at` records the first start and is preserved across re-executions; a *step's* `started_at` is rewritten on each attempt, so together with `attempts` it describes the most recent run. Completing clears a previous `error`/`error_class`.
 
 **A step found in `running` state during recovery is treated as interrupted**: the worker that owned it died somewhere between marking it running and checkpointing it. Its side effects may or may not have happened. Recovery runs it again. This is the at-least-once boundary (see below).
 
@@ -62,7 +64,7 @@ Because claiming is one guarded `UPDATE`, exactly one of any number of concurren
 
 **Claim verification on writes.** Checkpoints and terminal transitions include `WHERE claim_token = <mine>`. If another worker has legitimately reclaimed a stale execution, the old worker's write matches zero rows and it receives `ClaimLostException`; the checkpoint transaction rolls back entirely, so a zombie worker cannot corrupt a reclaimed execution's durable state. Interim step-status writes (`running` markers) are not token-guarded; they are diagnostic and are rewritten by the active owner.
 
-**Worker death.** A dead worker leaves `status = running` with an aging `claimed_at`. After `stale_after` seconds the execution becomes claimable again and `execute()` recovers it. Set `stale_after` comfortably above your longest step; a too-short value makes two live workers fight, which the claim token turns from corruption into a `ClaimLostException` on the loser. (Automatic detection and scheduled re-dispatch of stale executions is Milestone 2; today recovery happens when something calls `execute()`.)
+**Worker death.** A dead worker leaves `status = running` with an aging `claimed_at`. After `stale_after` seconds the execution becomes claimable again and `execute()` recovers it. Set `stale_after` comfortably above your longest step; a too-short value makes two live workers fight, which the claim token turns from corruption into a `ClaimLostException` on the loser. Finding such executions automatically is the job of `laraflow:recover` — see [docs/queue-and-recovery.md](queue-and-recovery.md#recovering-interrupted-work).
 
 ## Checkpoints and context
 
@@ -79,7 +81,7 @@ The persistence boundaries in one step iteration, and what a crash at each one m
 
 | Crash point | Durable state afterwards | Recovery behaviour |
 |---|---|---|
-| After `start()`, before `execute()` | Execution `pending`, all steps `pending` | Everything runs normally. |
+| After `start()`/`dispatch()`, before a worker claims it | Execution `pending`, all steps `pending` | Everything runs normally. A lost queue dispatch is found only if the pending scan is enabled (see [queue-and-recovery.md](queue-and-recovery.md#what-it-looks-for)). |
 | After claim, before step marked running | Step `pending` | Step runs normally. |
 | After step marked running, before/during `handle()` | Step `running` | Step re-runs. Side effects may not have happened. |
 | **After `handle()`, before checkpoint commit** | Step `running` | **Step re-runs. Side effects happened once and will happen again.** |
@@ -122,5 +124,6 @@ If persisting the failure *itself* fails (storage down), the storage exception i
 | `running`, stale claim | Reclaims and continues from durable state. |
 | `completed` execution | `ExecutionNotRunnableException`. |
 | Unknown id | `ExecutionNotFoundException`. |
+| Any of the above, delivered as a duplicate queue job | The job treats the refusal as a no-op and succeeds; see [queue-and-recovery.md](queue-and-recovery.md#duplicate-deliveries). |
 | Workflow class or step list differs from the plan | `WorkflowDefinitionMismatchException`. |
 | Step class missing/not a `Step` | `WorkflowDefinitionMismatchException`, persisted as the step's failure. |
