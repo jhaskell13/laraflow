@@ -15,7 +15,11 @@ Milestone 0 is complete (October 2026). The repository has:
 - Documentation: README with installation, configuration, first workflow, first connector, and current limitations; `docs/public-api.md` with stability levels and the decided runner API; `docs/compatibility.md`; `CHANGELOG.md`; `CONTRIBUTING.md`; `SECURITY.md`.
 - Declared support for PHP 8.2–8.4 and Laravel 12 (Testbench 10); SQLite tested, MySQL/MariaDB/PostgreSQL expected to work pending CI.
 
-Milestone 1 is complete (October 2026). The runner executes synchronously but is now a safe durable runtime: the full step plan is persisted before execution, executions are claimed by compare-and-set with stale-claim takeover, step outputs and the context snapshot are checkpointed transactionally and restored on recovery, the workflow definition is validated against the persisted plan, failure persistence is robust, and the at-least-once contract plus idempotency hooks are documented in `docs/execution-lifecycle.md`. Recovery still happens only when something calls `execute()`: there is no queue dispatch, no scheduler that finds stale executions, and no automatic retry policy. Milestone 2 addresses that.
+Milestone 1 is complete (October 2026). The runner is a safe durable runtime: the full step plan is persisted before execution, executions are claimed by compare-and-set with stale-claim takeover, step outputs and the context snapshot are checkpointed transactionally and restored on recovery, the workflow definition is validated against the persisted plan, failure persistence is robust, and the at-least-once contract plus idempotency hooks are documented in `docs/execution-lifecycle.md`.
+
+Milestone 2 is complete (October 2026). Executions can run on a Laravel queue (`WorkflowDispatcher` + `ExecuteWorkflowJob`, payload carrying only the execution id), duplicate deliveries resolve safely through the existing claim, the queue is given no retry authority by default so the two retry systems cannot multiply, `laraflow:recover` finds and retries interrupted work under explicit bounds, and eight lifecycle events fire after each durable write without carrying input, output, or context. The contract lives in `docs/queue-and-recovery.md`; `tests/Feature/Queue/QueueRecoveryTest.php` proves the exit criteria against a real queue driver and worker. No migration was required.
+
+What remains unaddressed is retry *policy*: a failed execution is never retried automatically, there is no backoff, no timeout handling distinct from worker loss, no attempt history, and no cancellation. Milestone 3 addresses that.
 
 ## Product principles
 
@@ -67,9 +71,11 @@ Completed October 2026, including the runner API decided in Milestone 0 (`start`
 - The documented guarantee accurately describes when a step may run more than once.
 - Two workers cannot both successfully claim the same execution under supported database configurations.
 
-## Milestone 2 — Queue execution and operational recovery
+## Milestone 2 — Queue execution and operational recovery ✅
 
-This is the next engineering priority. Build on the lifecycle contract, rather than embedding queue assumptions in workflow definitions.
+Completed October 2026. Queue concerns live in `Laraflow\Queue` and the events in `Laraflow\Events`; `WorkflowRunner` gained no queue dependency, so the lifecycle contract stayed the boundary rather than absorbing queue assumptions.
+
+Two items were resolved more conservatively than the original wording implies. Recovery of never-dispatched `pending` executions ships **disabled by default**, because `pending` is also the state of work deliberately created-but-not-run via `start()`. And "retry eligible work" was scoped to *interrupted* work only: retrying genuinely **failed** executions needs the retry policy, backoff, and `next_retry_at` semantics of Milestone 3, so recovery deliberately does not touch them yet.
 
 ### Work
 
@@ -179,8 +185,8 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 2. ~~Specify execution/step transitions and recovery guarantees.~~ Done.
 3. ~~Correct resume semantics, including restoring completed outputs/context and validating the stored plan.~~ Done.
 4. ~~Add execution claiming/concurrency protection and crash-boundary recovery coverage.~~ Done.
-5. ~~Separate execution creation from execution~~ (done) and then add Laravel queue dispatch.
-6. Add bounded retry and stale-execution recovery policies.
+5. ~~Separate execution creation from execution, then add Laravel queue dispatch.~~ Done.
+6. ~~Add stale-execution recovery with explicit bounds.~~ Done. Bounded *retry policy* for failed work — attempts, backoff, timeouts, cancellation — is Milestone 3 and is the next priority.
 7. Stabilize inspection/observability APIs, connector contracts, and release automation.
 
 ## Out of scope until the core is proven

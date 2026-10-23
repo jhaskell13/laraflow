@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow\Repositories;
 
 use Closure;
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
@@ -122,6 +123,42 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->orderBy('position')
             ->get()
             ->map(fn (StepExecutionModel $model) => $this->stepToDomain($model))
+            ->all();
+    }
+
+    public function stale(
+        DateTimeImmutable $claimedBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Running->value)
+            ->where(function ($query) use ($claimedBefore) {
+                $query
+                    ->whereNull('claimed_at')
+                    ->orWhere('claimed_at', '<=', $claimedBefore);
+            })
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
+            ->all();
+    }
+
+    public function pendingBefore(
+        DateTimeImmutable $createdBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Pending->value)
+            ->where('created_at', '<=', $createdBefore)
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
             ->all();
     }
 

@@ -7,8 +7,9 @@ namespace Laraflow\Console;
 use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
+use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionRepository;
-use Laraflow\Workflow\Workflow;
+use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
 
@@ -18,43 +19,71 @@ use Throwable;
  * Executes (or re-executes) a persisted execution using the workflow class
  * recorded on it: pending executions run for the first time, failed ones
  * retry from their last checkpoint, stale running ones are reclaimed.
+ * With --queue the execution is handed to a queue worker instead of
+ * running in this process.
  */
 class ExecuteCommand extends Command
 {
     use DisplaysExecutions;
 
     protected $signature = 'laraflow:execute
-        {execution : The id of the execution to run or recover}';
+        {execution : The id of the execution to run or recover}
+        {--queue : Dispatch the execution to the queue instead of running it in this process}';
 
     protected $description = 'Execute or recover a persisted workflow execution';
 
-    public function handle(WorkflowRunner $runner, ExecutionRepository $repository): int
-    {
+    public function handle(
+        WorkflowRunner $runner,
+        ExecutionRepository $repository,
+        WorkflowResolver $resolver,
+        WorkflowDispatcher $dispatcher,
+    ): int {
         $id = (string) $this->argument('execution');
 
         try {
             $execution = $repository->find($id);
+            // Resolve up front in both modes: a missing workflow class
+            // should fail here, not minutes later on a queue worker.
+            $workflow = $resolver->resolve($execution->id, $execution->workflow);
         } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $class = $execution->workflow;
+        if ((bool) $this->option('queue')) {
+            try {
+                $dispatcher->dispatchExecution($execution->id);
+            } catch (WorkflowException $exception) {
+                $this->components->error($exception->getMessage());
 
-        if (! class_exists($class) || ! is_subclass_of($class, Workflow::class)) {
-            $this->components->error(
-                "Execution [{$id}] was created from [{$class}], which no longer exists "
-                .'or is not a workflow. It cannot be executed by this code base.'
+                return self::FAILURE;
+            } catch (Throwable $exception) {
+                // A sync queue connection runs the job inside the dispatch
+                // call, so a step failure surfaces here instead of on a worker.
+                $failed = $repository->find($id);
+
+                $this->displayExecution($failed, $repository->steps($failed));
+
+                $this->components->error(
+                    'The queue connection ran the job in this process (sync driver) '
+                    .'and a step failed: '.$exception->getMessage()
+                );
+
+                return self::FAILURE;
+            }
+
+            $this->components->info(
+                "Execution [{$id}] queued. A queue worker will pick it up; "
+                ."inspect progress with: laraflow:show {$id}"
             );
 
-            return self::FAILURE;
+            return self::SUCCESS;
         }
 
-        /** @var Workflow $workflow */
-        $workflow = $this->laravel->make($class);
-
-        $this->components->info("Executing [{$id}] with [{$class}]. Completed steps will be skipped.");
+        $this->components->info(
+            'Executing ['.$id.'] with ['.$execution->workflow.']. Completed steps will be skipped.'
+        );
 
         try {
             $execution = $runner->execute($execution->id, $workflow);

@@ -6,11 +6,22 @@ namespace Laraflow\Tests;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laraflow\Core\LaraflowServiceProvider;
+use Laraflow\Tests\Support\FixtureState;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Fixture steps keep static state (run counters, failure switches);
+        // resetting centrally means no test class can forget and leak state
+        // into another under randomized ordering.
+        FixtureState::reset();
+    }
 
     protected function getPackageProviders($app): array
     {

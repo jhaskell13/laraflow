@@ -7,6 +7,13 @@ namespace Laraflow\Workflow;
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Facades\Date;
+use Laraflow\Events\EventEmitter;
+use Laraflow\Events\WorkflowExecutionCompleted;
+use Laraflow\Events\WorkflowExecutionFailed;
+use Laraflow\Events\WorkflowExecutionStarted;
+use Laraflow\Events\WorkflowStepCompleted;
+use Laraflow\Events\WorkflowStepFailed;
+use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
@@ -32,6 +39,8 @@ class WorkflowRunner
         protected LoggerInterface $logger,
         protected int $staleAfterSeconds = 300,
         protected int $maxErrorLength = 65535,
+        protected ?EventEmitter $events = null,
+        protected bool $includeErrorMessages = true,
     ) {}
 
     /**
@@ -76,7 +85,14 @@ class WorkflowRunner
             $this->staleAfterSeconds
         );
 
-        $execution->markRunning($this->now());
+        $startedAt = $this->now();
+        $execution->markRunning($startedAt);
+
+        $this->event(new WorkflowExecutionStarted(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            startedAt: $execution->startedAt ?? $startedAt,
+        ));
 
         $steps = $this->repository->steps($execution);
 
@@ -95,6 +111,14 @@ class WorkflowRunner
             $stepExecution->markRunning($this->now());
             $this->repository->saveStep($stepExecution);
 
+            $this->event(new WorkflowStepStarted(
+                executionId: $execution->id,
+                workflow: $execution->workflow,
+                step: $stepExecution->step,
+                position: $stepExecution->position,
+                attempt: $stepExecution->attempts,
+            ));
+
             $context->enterStep($stepExecution->position, $stepExecution->attempts);
 
             try {
@@ -105,10 +129,20 @@ class WorkflowRunner
                 DurableValue::assert($output, 'output');
                 DurableValue::assert($context->all(), 'context');
 
-                $stepExecution->markCompleted($output, $this->now());
+                $completedAt = $this->now();
+                $stepExecution->markCompleted($output, $completedAt);
                 $execution->context = $context->all();
 
                 $this->repository->checkpoint($execution, $stepExecution);
+
+                $this->event(new WorkflowStepCompleted(
+                    executionId: $execution->id,
+                    workflow: $execution->workflow,
+                    step: $stepExecution->step,
+                    position: $stepExecution->position,
+                    attempt: $stepExecution->attempts,
+                    completedAt: $completedAt,
+                ));
             } catch (ClaimLostException $exception) {
                 // Another worker owns the execution now; nothing we
                 // persist would be trustworthy, including a failure.
@@ -120,8 +154,15 @@ class WorkflowRunner
             }
         }
 
-        $execution->markCompleted($this->now());
+        $completedAt = $this->now();
+        $execution->markCompleted($completedAt);
         $this->repository->release($execution);
+
+        $this->event(new WorkflowExecutionCompleted(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            completedAt: $completedAt,
+        ));
 
         return $execution;
     }
@@ -239,12 +280,13 @@ class WorkflowRunner
         Throwable $exception
     ): void {
         $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
+        $failedAt = $this->now();
 
         try {
-            $stepExecution->markFailed($error, $exception::class, $this->now());
+            $stepExecution->markFailed($error, $exception::class, $failedAt);
             $this->repository->saveStep($stepExecution);
 
-            $execution->markFailed($error, $exception::class, $this->now());
+            $execution->markFailed($error, $exception::class, $failedAt);
             $this->repository->release($execution);
         } catch (Throwable $storageFailure) {
             $this->logger->error('Laraflow could not persist a workflow failure.', [
@@ -254,7 +296,39 @@ class WorkflowRunner
                 'original_exception' => $exception::class.': '.$exception->getMessage(),
                 'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
             ]);
+
+            // Events describe durable state; none exists to describe.
+            return;
         }
+
+        $eventError = $this->includeErrorMessages ? $error : null;
+
+        $this->event(new WorkflowStepFailed(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $stepExecution->attempts,
+            errorClass: $exception::class,
+            error: $eventError,
+        ));
+
+        $this->event(new WorkflowExecutionFailed(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            errorClass: $exception::class,
+            error: $eventError,
+            failedAt: $failedAt,
+        ));
+    }
+
+    /**
+     * Fire a lifecycle event, if an emitter was provided. Emission is
+     * observational and never affects execution state; see EventEmitter.
+     */
+    protected function event(object $event): void
+    {
+        $this->events?->emit($event);
     }
 
     /**

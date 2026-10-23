@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -63,6 +64,40 @@ interface ExecutionRepository
      */
     public function steps(
         WorkflowExecution $execution
+    ): array;
+
+    /**
+     * Executions in `running` state whose claim is older than the cutoff
+     * (or missing entirely): the signature a worker leaves when it dies.
+     *
+     * The cutoff is passed in rather than computed here so implementations
+     * stay clock-free; it must use the same `claimed_at <= cutoff`
+     * comparison as claim(), so the two mechanisms agree on staleness.
+     *
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @return WorkflowExecution[] ordered by id ascending (oldest first), at most $limit.
+     */
+    public function stale(
+        DateTimeImmutable $claimedBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array;
+
+    /**
+     * Executions still in `pending` state created before the cutoff:
+     * candidates for a dispatch that was lost before reaching the queue.
+     *
+     * Pending is also the legitimate state of work created by start() and
+     * deliberately not yet executed, which is why callers treat this as
+     * opt-in (see laraflow.recovery.pending_after).
+     *
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @return WorkflowExecution[] ordered by id ascending (oldest first), at most $limit.
+     */
+    public function pendingBefore(
+        DateTimeImmutable $createdBefore,
+        int $limit = 100,
+        ?string $workflow = null
     ): array;
 
     public function saveStep(
