@@ -16,6 +16,7 @@ use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
@@ -141,27 +142,69 @@ class WorkflowRunner
                 continue;
             }
 
-            $stepExecution->markRunning($this->now());
-            $this->repository->saveStep($stepExecution);
+            $startedAt = $this->now();
 
-            $this->event(new WorkflowStepStarted(
-                executionId: $execution->id,
-                workflow: $execution->workflow,
-                step: $stepExecution->step,
-                position: $stepExecution->position,
-                attempt: $stepExecution->attempts,
-            ));
-
-            $context->enterStep($stepExecution->position, $stepExecution->attempts);
-
-            // Null until the step class resolves: a failure before that
-            // point is a definition problem, which no policy may retry.
-            $policy = null;
-
+            // The step and its policy resolve before anything is marked
+            // running, so the attempt's deadline is durable before
+            // handle() executes — a worker that dies writes nothing, so
+            // the deadline must already be on the row for a recovering
+            // worker to judge the attempt against it. A missing or
+            // invalid class is persisted as a step failure exactly as
+            // before; definition problems never consult a policy.
             try {
                 $step = $this->makeStep($stepExecution->step);
                 $policy = $this->policies->forStep($step, $workflow);
+            } catch (Throwable $exception) {
+                $this->startStep($execution, $stepExecution, $context, $startedAt, null);
+                $this->persistFailure($execution, $stepExecution, $exception);
 
+                throw $exception;
+            }
+
+            // A step found `running` was interrupted: its worker died
+            // between marking it running and checkpointing it. If its
+            // deadline had also passed, the attempt is classified as
+            // timed out and charged to the retry policy like any thrown
+            // failure. Interrupted *before* the deadline (or with none)
+            // stays a free re-run — worker loss is not the step's fault.
+            if ($stepExecution->isRunning()
+                && $stepExecution->timeoutAt !== null
+                && $stepExecution->timeoutAt <= $startedAt) {
+                $timeout = StepTimeoutException::forStep(
+                    $stepExecution->step,
+                    $stepExecution->position,
+                    $stepExecution->timeoutAt,
+                    $stepExecution->attempts,
+                );
+
+                if ($this->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
+                    return $execution;
+                }
+
+                $this->persistFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+
+                throw $timeout;
+            }
+
+            // An interrupted attempt that had not overrun is closed out
+            // in history before the re-run opens the next one.
+            $interrupted = $stepExecution->isRunning()
+                ? new StepAttempt(
+                    executionId: $execution->id,
+                    stepExecutionId: $stepExecution->id,
+                    attempt: $stepExecution->attempts,
+                    status: StepAttemptStatus::Interrupted,
+                    startedAt: $stepExecution->startedAt,
+                )
+                : null;
+
+            $timeoutAt = $policy->timeoutSeconds !== null
+                ? $startedAt->modify("+{$policy->timeoutSeconds} seconds")
+                : null;
+
+            $this->startStep($execution, $stepExecution, $context, $startedAt, $timeoutAt, $interrupted);
+
+            try {
                 $output = $step->handle($context);
 
                 DurableValue::assert($output, 'output');
@@ -193,7 +236,7 @@ class WorkflowRunner
                 // persist would be trustworthy, including a failure.
                 throw $exception;
             } catch (Throwable $exception) {
-                if ($policy !== null && $this->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
+                if ($this->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
                     // The retry is durably scheduled: step and execution
                     // are `retrying` with the claim released. Nothing has
                     // terminally failed, so nothing is thrown — a caller
@@ -324,6 +367,33 @@ class WorkflowRunner
     }
 
     /**
+     * Durably mark a step running (with this attempt's deadline), close
+     * out an interrupted predecessor in history when there is one,
+     * announce the start, and point the context at the step.
+     */
+    protected function startStep(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        DateTimeImmutable $startedAt,
+        ?DateTimeImmutable $timeoutAt,
+        ?StepAttempt $interrupted = null
+    ): void {
+        $stepExecution->markRunning($startedAt, $timeoutAt);
+        $this->repository->saveStep($stepExecution, $interrupted);
+
+        $this->event(new WorkflowStepStarted(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $stepExecution->attempts,
+        ));
+
+        $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt);
+    }
+
+    /**
      * If the policy allows another attempt after this failure, persist
      * step and execution as `retrying` with next_retry_at, append the
      * failed attempt to history, and release the claim. Returns false
@@ -342,7 +412,8 @@ class WorkflowRunner
         WorkflowExecution $execution,
         StepExecution $stepExecution,
         StepPolicy $policy,
-        Throwable $exception
+        Throwable $exception,
+        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
     ): bool {
         $attempt = $stepExecution->attempts;
 
@@ -364,7 +435,7 @@ class WorkflowRunner
                 executionId: $execution->id,
                 stepExecutionId: $stepExecution->id,
                 attempt: $attempt,
-                status: StepAttemptStatus::Failed,
+                status: $attemptStatus,
                 error: $error,
                 errorClass: $exception::class,
                 startedAt: $stepExecution->startedAt,
@@ -422,7 +493,8 @@ class WorkflowRunner
     protected function persistFailure(
         WorkflowExecution $execution,
         StepExecution $stepExecution,
-        Throwable $exception
+        Throwable $exception,
+        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
     ): void {
         $error = mb_substr($exception->getMessage(), 0, $this->maxErrorLength);
         $failedAt = $this->now();
@@ -433,7 +505,7 @@ class WorkflowRunner
                 executionId: $execution->id,
                 stepExecutionId: $stepExecution->id,
                 attempt: $stepExecution->attempts,
-                status: StepAttemptStatus::Failed,
+                status: $attemptStatus,
                 error: $error,
                 errorClass: $exception::class,
                 startedAt: $stepExecution->startedAt,

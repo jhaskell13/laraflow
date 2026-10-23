@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use DateTimeImmutable;
+
 /**
  * Key/value data shared between the steps of one execution.
  *
@@ -19,6 +21,8 @@ class WorkflowContext
     protected ?int $stepPosition = null;
 
     protected int $attempt = 0;
+
+    protected ?DateTimeImmutable $deadline = null;
 
     /**
      * @param  array<string, mixed>  $data
@@ -97,11 +101,43 @@ class WorkflowContext
     }
 
     /**
+     * Deadline of the current attempt (the step's persisted timeout_at),
+     * or null when the step declares no timeout.
+     *
+     * Laraflow does not interrupt a running step; this is how a step
+     * bounds itself. Pass it to your HTTP client or check it in a loop —
+     * a step that respects its own deadline never times out from
+     * Laraflow's point of view.
+     */
+    public function deadline(): ?DateTimeImmutable
+    {
+        return $this->deadline;
+    }
+
+    /**
+     * Whole seconds until the deadline, floored at zero, or null when
+     * the step has none. $now exists for tests; it defaults to the
+     * actual present because the remaining budget is inherently about
+     * real wall-clock time.
+     */
+    public function remainingSeconds(?DateTimeImmutable $now = null): ?int
+    {
+        if ($this->deadline === null) {
+            return null;
+        }
+
+        $now ??= new DateTimeImmutable;
+
+        return max(0, $this->deadline->getTimestamp() - $now->getTimestamp());
+    }
+
+    /**
      * @internal Called by the runner before each step is executed.
      */
-    public function enterStep(int $position, int $attempt): void
+    public function enterStep(int $position, int $attempt, ?DateTimeImmutable $deadline = null): void
     {
         $this->stepPosition = $position;
         $this->attempt = $attempt;
+        $this->deadline = $deadline;
     }
 }

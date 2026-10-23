@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Unit\Workflow;
 
+use DateTimeImmutable;
 use Laraflow\Workflow\WorkflowContext;
 use PHPUnit\Framework\TestCase;
 
@@ -86,5 +87,26 @@ class WorkflowContextTest extends TestCase
         $context->enterStep(position: 3, attempt: 1);
 
         $this->assertNotSame($firstAttemptKey, $context->idempotencyKey());
+    }
+
+    public function test_it_exposes_the_attempt_deadline(): void
+    {
+        $context = new WorkflowContext(executionId: 17);
+        $deadline = new DateTimeImmutable('2026-10-23 14:00:30');
+
+        $this->assertNull($context->deadline(), 'No step entered, no deadline.');
+        $this->assertNull($context->remainingSeconds());
+
+        $context->enterStep(position: 0, attempt: 1, deadline: $deadline);
+
+        $this->assertSame($deadline, $context->deadline());
+        $this->assertSame(25, $context->remainingSeconds(new DateTimeImmutable('2026-10-23 14:00:05')));
+        $this->assertSame(0, $context->remainingSeconds(new DateTimeImmutable('2026-10-23 14:01:00')), 'Never negative.');
+
+        // The next step starts fresh: a deadline must not leak forward.
+        $context->enterStep(position: 1, attempt: 1);
+
+        $this->assertNull($context->deadline());
+        $this->assertNull($context->remainingSeconds());
     }
 }

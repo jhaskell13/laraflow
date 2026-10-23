@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Support;
 
 use Closure;
+use DateTimeImmutable;
 use Laraflow\Workflow\Step;
 use Laraflow\Workflow\WorkflowContext;
 
 class StepOne implements Step
 {
     public static int $runs = 0;
+
+    /** The deadline the context exposed on the most recent run. */
+    public static ?DateTimeImmutable $seenDeadline = null;
 
     /**
      * Runs inside handle(), before the step returns and is checkpointed.
@@ -22,6 +26,7 @@ class StepOne implements Step
     public function handle(WorkflowContext $context): mixed
     {
         static::$runs++;
+        static::$seenDeadline = $context->deadline();
 
         $context->set('one', 'from-step-one');
 

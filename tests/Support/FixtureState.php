@@ -15,6 +15,7 @@ class FixtureState
         PolicyWorkflow::$failurePolicy = FailurePolicy::Stop;
         StepOne::$runs = 0;
         StepOne::$beforeReturn = null;
+        StepOne::$seenDeadline = null;
         StepTwo::$runs = 0;
         StepTwo::$failTimes = 0;
         StepTwo::$seenIdempotencyKeys = [];
