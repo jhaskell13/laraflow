@@ -173,7 +173,11 @@ History is append-only and currently **unpruned**; growth is bounded only by you
 | `cancelled` | Idempotent no-op — the original cancellation and its event stand. |
 | unknown id | `ExecutionNotFoundException`. |
 
-Laraflow never rewrites durable state underneath a live worker, and **cannot interrupt a step mid-flight** — bounding that belongs to the step's own deadline and the queue worker's timeout. Two honest consequences: a cancellation requested during the *final* step does not prevent completion (there is no later boundary), and a hung step keeps running until its worker is killed.
+Laraflow never rewrites durable state underneath a live worker, and **cannot interrupt a step mid-flight** — bounding that belongs to the step's own deadline and the queue worker's timeout. Three honest consequences:
+
+- A cancellation requested during the *final* step does not prevent completion: there is no later boundary at which to stop.
+- A hung step keeps running until its worker is killed.
+- **A request outlives the worker it was meant for.** Nothing clears `cancel_requested_at`, so if that worker dies before reaching a boundary, whichever worker recovers the execution honours the request instead — before running any step. A cancellation is not lost because a process was. There is no "uncancel": the request stands until some worker acts on it.
 
 `cancelled` is terminal: `claim()`, `execute()`, `dispatchExecution()`, and every recovery path refuse it. Step rows are left truthful — completed steps stay completed, pending steps stay pending; nothing is rewritten to pretend work didn't happen, and work completed before the cancellation is kept in the context.
 

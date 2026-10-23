@@ -83,25 +83,104 @@ composer playground     # creates a SQLite playground database and runs the migr
 
 > Re-run `composer playground` after pulling changes. Until the schema is frozen (roadmap Milestone 6) Laraflow edits its migrations in place rather than adding new ones, so an existing database does **not** pick up schema changes — `migrate` considers those migrations already run. The playground database is disposable, so `composer playground` resets it.
 
-Then, from the repository root:
+The demo workflow simulates an order: **reserve inventory → charge payment → send receipt**. With `--fail`, the payment step throws on its first attempt only, so every failure path below recovers on the next attempt.
+
+The playground runs a **real database queue**, not Laravel's `sync` driver, so dispatched executions genuinely wait for a worker.
+
+### A full walkthrough
+
+Each block stands alone; run them in order for the complete tour. Execution ids increment, so adjust them if you skip around (`laraflow:list` shows them).
+
+**1 · Durable execution, start to finish**
 
 ```bash
-vendor/bin/testbench laraflow:demo --fail   # the demo payment step fails on attempt 1
-vendor/bin/testbench laraflow:list          # the failed execution, 1/3 steps completed
-vendor/bin/testbench laraflow:execute 1     # recovery: step 1 skipped, step 2 succeeds on attempt 2
-vendor/bin/testbench laraflow:show 1        # full record: steps, attempts, outputs, context
+vendor/bin/testbench laraflow:demo          # inline: three steps, checkpointed
+vendor/bin/testbench laraflow:show 1        # steps, attempts, outputs, context
 ```
 
-The queue path uses the same commands:
+**2 · Asynchronous execution on a real queue**
 
 ```bash
-vendor/bin/testbench laraflow:demo --queue       # hands the execution to the queue
-vendor/bin/testbench laraflow:recover --dry-run  # what recovery would do right now
+vendor/bin/testbench laraflow:demo --queue  # returns immediately; nothing has run
+vendor/bin/testbench laraflow:list          # pending, 0/3 steps
+vendor/bin/testbench queue:work --stop-when-empty
+vendor/bin/testbench laraflow:list          # completed, 3/3
 ```
 
-The playground has no queue connection configured, so Laravel's default `sync` driver runs the dispatched job immediately in the same process — the execution is already complete when the command returns. Point `QUEUE_CONNECTION` at a real connection (and run `php artisan queue:work`) to see it execute out of process; see [docs/queue-and-recovery.md](docs/queue-and-recovery.md).
+**3 · Failure and recovery from a checkpoint**
 
-The demo workflow simulates an order: reserve inventory → charge payment → send receipt. With `--fail`, the payment step throws on its first attempt, leaving a persisted failed execution; `laraflow:execute` then recovers it from the checkpoint — the completed step is skipped, its context restored, and the retry reports the same idempotency key the first attempt used. Run `laraflow:demo` without the flag for the happy path.
+```bash
+vendor/bin/testbench laraflow:demo --fail   # payment fails; execution is failed, 1/3 done
+vendor/bin/testbench laraflow:execute 3     # resumes: step 1 skipped, payment succeeds on attempt 2
+```
+
+**4 · Retry policy: a failure that heals itself**
+
+Retries are off by default, so turn them on for the demo:
+
+```bash
+export LARAFLOW_RETRY_MAX_ATTEMPTS=3 LARAFLOW_RETRY_BASE_DELAY=5 LARAFLOW_RETRY_JITTER=0
+
+vendor/bin/testbench laraflow:demo --fail   # now `retrying`, not `failed` — note the due time
+vendor/bin/testbench laraflow:show 4 --attempts
+```
+
+The history shows both attempts and the retry the failure scheduled:
+
+```
+| Step             | Attempt | Outcome   | Started             | Duration | Scheduled retry     |
+| ReserveInventory | 1       | completed | 2026-10-23 23:29:24 | 11 ms    |                     |
+| ChargePayment    | 1       | failed    | 2026-10-23 23:29:24 | 3 ms     | 2026-10-23 23:29:29 |
+```
+
+The backoff is enforced, and overriding it is explicit:
+
+```bash
+vendor/bin/testbench laraflow:execute 4         # refused: "not due until 23:29:29"
+vendor/bin/testbench laraflow:execute 4 --now   # the deliberate override
+```
+
+**5 · Retries delivered by the queue**
+
+```bash
+vendor/bin/testbench laraflow:demo --fail --queue
+vendor/bin/testbench queue:work --stop-when-empty   # step fails, retry scheduled, job SUCCEEDS
+vendor/bin/testbench laraflow:list                  # retrying
+```
+
+A scheduled retry is not a failed job — `failed_jobs` stays empty — and a delayed job now waits for the due time. After the backoff elapses:
+
+```bash
+vendor/bin/testbench queue:work --stop-when-empty   # the retry runs and completes
+```
+
+**6 · Retries delivered without any queue**
+
+`laraflow:recover` is the contractual delivery path; the delayed job is only the fast path.
+
+```bash
+export LARAFLOW_RETRY_DISPATCH_DELAYED=false
+vendor/bin/testbench laraflow:demo --fail
+vendor/bin/testbench laraflow:recover          # "Nothing to recover" — not due yet
+# ...wait out the backoff...
+vendor/bin/testbench laraflow:recover --sync   # reason "retry due"; runs it here
+```
+
+**7 · Cancellation**
+
+```bash
+vendor/bin/testbench laraflow:demo --fail
+vendor/bin/testbench laraflow:cancel 7 --reason="customer withdrew the order"
+vendor/bin/testbench laraflow:execute 7        # refused: cancelled is terminal
+vendor/bin/testbench laraflow:recover          # and invisible to recovery
+```
+
+**8 · Operator views**
+
+```bash
+vendor/bin/testbench laraflow:list --status=retrying
+vendor/bin/testbench laraflow:recover --dry-run   # what recovery would do; changes nothing
+```
 
 The same commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`, `laraflow:cancel`, `laraflow:recover`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
 
@@ -262,6 +341,8 @@ class SyncWithCrm implements Step
 ### Running it
 
 Resolve the `WorkflowRunner` from the container and call `run()` with optional input. Execution is synchronous: the call returns a `WorkflowExecution` handle once every step has completed, or throws the step's exception after persisting the failure. Input values seed the context, so steps read them with `$context->get('customer_id')`.
+
+> Once you enable [retries](#retries-timeouts-and-cancellation), a retryable failure returns a non-terminal `retrying` handle instead of throwing. Check `$execution->isRetrying()`, or leave retries off for workflows you run in-process.
 
 ```php
 use Laraflow\Workflow\WorkflowRunner;

@@ -175,6 +175,26 @@ class CancellationTest extends TestCase
         );
     }
 
+    public function test_a_cancellation_request_outlives_the_worker_it_was_meant_for(): void
+    {
+        // Requested against a live worker that then dies before reaching
+        // a step boundary. Nothing clears the request, so the recovering
+        // worker is the one that honours it — a cancellation is not lost
+        // just because the process holding the claim was.
+        $repository = $this->app->make(ExecutionRepository::class);
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        $repository->claim($execution->id, 'doomed-worker', 300);
+        $repository->requestCancellation($execution->id, 'stop it', new DateTimeImmutable);
+
+        // That worker never comes back; its claim goes stale.
+        $recovered = $this->staleTolerantRunner()->execute($execution->id, new TwoStepWorkflow);
+
+        $this->assertTrue($recovered->isCancelled());
+        $this->assertSame('stop it', $recovered->cancelReason);
+        $this->assertSame(0, StepOne::$runs, 'The request is honoured before any step runs.');
+    }
+
     // ------------------------------------------------------------------
     // State validation
     // ------------------------------------------------------------------
@@ -293,5 +313,19 @@ class CancellationTest extends TestCase
         $this->assertTrue($requested->isRunning());
         $this->assertSame('worker', $requested->claimToken, 'The live claim must not be stolen.');
         $this->assertNotNull($requested->cancelRequestedAt);
+    }
+
+    /**
+     * A runner that will reclaim any stale claim immediately, standing
+     * in for the worker that picks up after a dead one.
+     */
+    protected function staleTolerantRunner(): WorkflowRunner
+    {
+        return new WorkflowRunner(
+            repository: $this->app->make(ExecutionRepository::class),
+            container: $this->app,
+            logger: new ArrayLogger,
+            staleAfterSeconds: 0,
+        );
     }
 }

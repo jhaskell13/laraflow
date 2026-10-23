@@ -96,10 +96,12 @@ The persistence boundaries in one step iteration, and what a crash at each one m
 | After claim, before step marked running | Step `pending` | Step runs normally. |
 | After step marked running, before/during `handle()` | Step `running` | Step re-runs. Side effects may not have happened. |
 | **After `handle()`, before checkpoint commit** | Step `running` | **Step re-runs. Side effects happened once and will happen again.** |
-| After checkpoint commit | Step `completed`, context updated | Step is skipped; later steps see its context. |
+| After checkpoint commit | Step `completed`, context and attempt history updated | Step is skipped; later steps see its context. |
 | After last checkpoint, before release | All steps `completed`, execution `running` | No steps re-run; execution is marked `completed`. |
 
-The bold row is the at-least-once contract: **Laraflow guarantees each step's checkpoint commits at most once, but the step's side effects can occur more than once** when a worker dies between performing them and checkpointing. No framework can remove this window for arbitrary external calls.
+The bold row is the at-least-once contract: **Laraflow guarantees each step's checkpoint commits at most once, but the step's side effects can occur more than once** when a worker dies between performing them and checkpointing. No framework can remove this window for arbitrary external calls. A retry policy widens it deliberately — re-running a failed step is the point — which is why idempotency matters more, not less, once retries are enabled.
+
+Each of the re-run rows above also closes out the dead attempt in history, as `interrupted` or — if its deadline had passed — as `timed_out`, which is charged to the retry budget; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts).
 
 To make repeated side effects safe, steps get an idempotency hook: `WorkflowContext::idempotencyKey()` returns `laraflow:{executionId}:{stepPosition}` — stable across crashes and retries of the same logical step, different for different steps and executions. `executionId()`, `stepPosition()`, and `attempt()` are also exposed for custom schemes. Pass the key to providers that support idempotency keys, or use it to deduplicate in your own tables.
 

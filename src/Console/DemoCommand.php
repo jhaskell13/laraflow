@@ -91,6 +91,26 @@ class DemoCommand extends Command
 
         $this->displayExecution($execution, $repository->steps($execution));
 
+        if ($execution->isRetrying()) {
+            // With a retry policy configured, a failing step schedules
+            // another attempt instead of failing: reporting that as
+            // "done" would misrepresent an execution still in flight.
+            $this->components->warn(sprintf(
+                'A step failed and its retry policy scheduled another attempt for %s. '
+                .'Deliver it with: laraflow:recover --sync — or skip the wait with: laraflow:execute %s --now',
+                $this->formatDate($execution->nextRetryAt),
+                $execution->id,
+            ));
+
+            return self::SUCCESS;
+        }
+
+        if ($execution->isCancelled()) {
+            $this->components->info('The execution was cancelled during the run; completed steps are kept.');
+
+            return self::SUCCESS;
+        }
+
         $this->components->info(
             "Done. Inspect it anytime with: laraflow:show {$execution->id}"
         );

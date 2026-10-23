@@ -160,10 +160,13 @@ class RecoverCommand extends Command
                 $counts['ran']++;
 
                 // An inline run can itself end in another scheduled
-                // retry; reporting that as completion would lie.
-                return $result->isRetrying()
-                    ? '<fg=cyan>ran; next retry scheduled</>'
-                    : '<fg=green>completed</>';
+                // retry, or honour a cancellation requested while it was
+                // waiting; reporting either as completion would lie.
+                return match (true) {
+                    $result->isRetrying() => '<fg=cyan>ran; next retry scheduled</>',
+                    $result->isCancelled() => '<fg=magenta>cancelled during run</>',
+                    default => '<fg=green>completed</>',
+                };
             }
 
             $service->dispatch($candidate);

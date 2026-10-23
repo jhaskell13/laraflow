@@ -6,3 +6,8 @@ providers:
 
 env:
   - DB_CONNECTION=sqlite
+  # A real queue, not `sync`: dispatched executions wait in the `jobs`
+  # table until `vendor/bin/testbench queue:work` picks them up, so the
+  # playground demonstrates asynchronous execution, duplicate-delivery
+  # safety, and delayed retry delivery the way an application would.
+  - QUEUE_CONNECTION=database
