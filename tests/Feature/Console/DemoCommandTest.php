@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Console;
 
+use Illuminate\Support\Facades\Queue;
 use Laraflow\Demo\DemoWorkflow;
+use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionStatus;
@@ -56,5 +58,26 @@ class DemoCommandTest extends TestCase
 
         // The checkpointed first step's result survives for the retry.
         $this->assertSame('RES-1-SKU-1001', $execution->context['reservation_id'] ?? null);
+    }
+
+    public function test_the_queue_flag_dispatches_the_demo_instead_of_running_it(): void
+    {
+        Queue::fake();
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:demo', ['--queue' => true]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Queued as execution 1', $output);
+        $this->assertStringContainsString('queue:work', $output);
+
+        $execution = WorkflowExecutionModel::query()->sole();
+
+        $this->assertSame(ExecutionStatus::Pending->value, $execution->status);
+        $this->assertSame(DemoWorkflow::class, $execution->workflow);
+
+        Queue::assertPushed(
+            ExecuteWorkflowJob::class,
+            fn (ExecuteWorkflowJob $job): bool => $job->executionId === $execution->id,
+        );
     }
 }

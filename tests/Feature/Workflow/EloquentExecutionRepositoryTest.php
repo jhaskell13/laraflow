@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Workflow;
 
 use DateTimeImmutable;
+use Illuminate\Support\Facades\Date;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -228,6 +229,163 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->expectException(ClaimLostException::class);
 
         $this->repository()->release($execution);
+    }
+
+    public function test_a_step_failure_timestamp_round_trips_through_the_database(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $execution = $this->repository()->create('W', steps: ['StepA']);
+        [$step] = $this->repository()->steps($execution);
+
+        $step->markRunning(Date::now()->toImmutable());
+        $step->markFailed('boom', 'RuntimeException', Date::now()->toImmutable());
+        $this->repository()->saveStep($step);
+
+        [$reloaded] = $this->repository()->steps($execution);
+
+        $this->assertNotNull($reloaded->failedAt, 'A failed step must record when it failed.');
+        $this->assertSame('2026-10-22 10:00:00', $reloaded->failedAt->format('Y-m-d H:i:s'));
+        $this->assertNull($reloaded->completedAt);
+
+        // Completing it on retry clears the failure timestamp durably.
+        Date::setTestNow('2026-10-22 10:05:00');
+        $reloaded->markRunning(Date::now()->toImmutable());
+        $reloaded->markCompleted(['ok' => true], Date::now()->toImmutable());
+        $this->repository()->saveStep($reloaded);
+
+        [$final] = $this->repository()->steps($execution);
+
+        $this->assertNull($final->failedAt);
+        $this->assertSame('2026-10-22 10:05:00', $final->completedAt?->format('Y-m-d H:i:s'));
+    }
+
+    // ------------------------------------------------------------------
+    // stale()
+    // ------------------------------------------------------------------
+
+    public function test_stale_finds_running_executions_with_old_or_missing_claims(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $old = $this->repository()->create('WorkflowA');
+        $this->repository()->claim($old->id, 'dead-worker', 300);
+
+        $unclaimed = $this->repository()->create('WorkflowB');
+        WorkflowExecutionModel::query()->whereKey($unclaimed->id)->update([
+            'status' => ExecutionStatus::Running->value,
+            'claimed_at' => null,
+        ]);
+
+        Date::setTestNow('2026-10-22 10:10:00');
+
+        $fresh = $this->repository()->create('WorkflowC');
+        $this->repository()->claim($fresh->id, 'live-worker', 300);
+
+        $stale = $this->repository()->stale($this->secondsAgo(300));
+
+        $this->assertSame(
+            [$old->id, $unclaimed->id],
+            array_map(fn ($execution) => $execution->id, $stale),
+        );
+    }
+
+    public function test_stale_uses_the_same_boundary_comparison_as_claim(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $execution = $this->repository()->create('WorkflowA');
+        $this->repository()->claim($execution->id, 'worker', 300);
+
+        // Exactly stale_after old: claim() would allow a takeover at this
+        // instant, so stale() must report it too.
+        Date::setTestNow('2026-10-22 10:05:00');
+
+        $this->assertCount(1, $this->repository()->stale($this->secondsAgo(300)));
+    }
+
+    public function test_stale_ignores_pending_failed_and_completed_executions(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $this->repository()->create('PendingWorkflow');
+
+        $failed = $this->repository()->create('FailedWorkflow');
+        WorkflowExecutionModel::query()->whereKey($failed->id)->update([
+            'status' => ExecutionStatus::Failed->value,
+        ]);
+
+        $completed = $this->repository()->create('CompletedWorkflow');
+        WorkflowExecutionModel::query()->whereKey($completed->id)->update([
+            'status' => ExecutionStatus::Completed->value,
+        ]);
+
+        Date::setTestNow('2026-10-22 11:00:00');
+
+        $this->assertSame([], $this->repository()->stale($this->secondsAgo(300)));
+    }
+
+    public function test_stale_respects_the_limit_and_workflow_filter(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        foreach (['WorkflowA', 'WorkflowA', 'WorkflowB'] as $workflow) {
+            $execution = $this->repository()->create($workflow);
+            $this->repository()->claim($execution->id, 'dead-worker', 300);
+        }
+
+        Date::setTestNow('2026-10-22 10:10:00');
+
+        $this->assertCount(2, $this->repository()->stale($this->secondsAgo(300), limit: 2));
+        $this->assertCount(2, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowA'));
+        $this->assertCount(1, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowB'));
+        $this->assertCount(0, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowC'));
+    }
+
+    // ------------------------------------------------------------------
+    // pendingBefore()
+    // ------------------------------------------------------------------
+
+    public function test_pending_before_finds_only_old_pending_executions(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $old = $this->repository()->create('WorkflowA');
+
+        $running = $this->repository()->create('WorkflowB');
+        $this->repository()->claim($running->id, 'worker', 300);
+
+        Date::setTestNow('2026-10-22 10:10:00');
+
+        $young = $this->repository()->create('WorkflowC');
+
+        $found = $this->repository()->pendingBefore($this->secondsAgo(300));
+
+        $this->assertSame(
+            [$old->id],
+            array_map(fn ($execution) => $execution->id, $found),
+        );
+        $this->assertNotContains($young->id, array_map(fn ($execution) => $execution->id, $found));
+    }
+
+    public function test_pending_before_respects_the_limit_and_workflow_filter(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $this->repository()->create('WorkflowA');
+        $this->repository()->create('WorkflowA');
+        $this->repository()->create('WorkflowB');
+
+        Date::setTestNow('2026-10-22 10:10:00');
+
+        $this->assertCount(2, $this->repository()->pendingBefore($this->secondsAgo(300), limit: 2));
+        $this->assertCount(2, $this->repository()->pendingBefore($this->secondsAgo(300), workflow: 'WorkflowA'));
+        $this->assertCount(1, $this->repository()->pendingBefore($this->secondsAgo(300), workflow: 'WorkflowB'));
+    }
+
+    protected function secondsAgo(int $seconds): DateTimeImmutable
+    {
+        return Date::now()->subSeconds($seconds)->toImmutable();
     }
 
     protected function repository(): ExecutionRepository

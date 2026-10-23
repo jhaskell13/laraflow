@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $error_class
  * @property Carbon|null $started_at
  * @property Carbon|null $completed_at
+ * @property Carbon|null $failed_at
  * @property Carbon|null $next_retry_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -47,6 +48,7 @@ class StepExecutionModel extends Model
         'error_class',
         'started_at',
         'completed_at',
+        'failed_at',
         'next_retry_at',
     ];
 
@@ -70,6 +72,7 @@ class StepExecutionModel extends Model
             'output' => 'array',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'failed_at' => 'datetime',
             'next_retry_at' => 'datetime',
         ];
     }

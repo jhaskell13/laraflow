@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Milestone 2 — queue execution and operational recovery
+
+#### Added
+
+- `Laraflow\Queue\WorkflowDispatcher` (public): `dispatch(Workflow, $input, ?connection, ?queue)` creates an execution and queues it; `dispatchExecution(id, ...)` queues an existing one for retry or recovery. Queue concerns live here rather than on `WorkflowRunner`, which keeps no queue dependency.
+- `Laraflow\Queue\ExecuteWorkflowJob` (public): the queued job. Its payload carries **only the execution id** — the workflow class is read from the execution record, so a job can never disagree with durable state, and no workflow input reaches the queue backend.
+- Eight lifecycle events in `Laraflow\Events` (public, `readonly`): `WorkflowExecutionDispatched`, `WorkflowExecutionStarted`, `WorkflowStepStarted`, `WorkflowStepCompleted`, `WorkflowStepFailed`, `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, `WorkflowExecutionRetryScheduled`. Each fires strictly after the durable write it describes.
+- `laraflow:recover` command: finds interrupted executions (stale claims, and optionally never-dispatched pendings) and retries them, with `--dry-run`, `--sync`, `--limit`, `--max-attempts`, `--stale-after`, `--pending-after`, and `--workflow`. Exits non-zero when work was abandoned or an action failed, so a scheduled run surfaces stuck work through existing alerting.
+- `--queue` on `laraflow:execute` and `laraflow:demo`.
+- `ExecutionRepository::stale()` and `::pendingBefore()`: bounded, clock-free scans for recoverable work. `stale()` uses the same `claimed_at <= cutoff` comparison as `claim()`, so scanning and claiming cannot disagree about staleness.
+- Configuration: `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `max_attempts`, `pending_after`), and `events.include_error_messages`.
+- `docs/queue-and-recovery.md` specifying dispatch, the retry decision, duplicate-delivery semantics, recovery policy and bounds, and event payload safety.
+- End-to-end coverage in `tests/Feature/Queue/QueueRecoveryTest.php` using a real database queue driver and a real `queue:work` worker, rather than `Queue::fake()`: async completion, crash-to-recovery from a checkpoint, duplicate deliveries, the abandonment bound, and the absence of retry multiplication.
+- Dependencies: `illuminate/bus`, `illuminate/queue`, `illuminate/events`, and `illuminate/console` (the last was already used by the existing commands but never declared).
+
+#### Decisions
+
+- **The queue does not retry by default** (`queue.tries` defaults to 1). Queue retries and Laraflow step attempts would otherwise multiply on two unrelated schedules. Re-running a failed execution is an explicit operation until per-step retry policy arrives in Milestone 3.
+- **Duplicate deliveries are no-ops, not failures.** The existing compare-and-set claim is the only authority; `ExecutionAlreadyClaimedException`, `ExecutionNotRunnableException`, and `ClaimLostException` are caught and logged so the job succeeds. No cache lock or `ShouldBeUnique` is involved.
+- **Recovery is bounded by step attempts.** An execution whose steps reached `recovery.max_attempts` is reported as abandoned rather than re-dispatched, so a crash-looping workflow cannot be retried forever by the scheduler. The bound reuses durable `attempts`, so Milestone 2 required **no migration**.
+- **Recovery of `pending` executions is opt-in** (`recovery.pending_after` defaults to null). `pending` is also the state of work created with `start()` and deliberately not yet run; recovery must not start that behind the application's back.
+- **Events never carry input, output, or context**, with no opt-in. Failure events carry the exception class and, unless `events.include_error_messages` is disabled, the truncated message — data the execution record already holds.
+- **Event listeners are observational**: a throwing listener is logged and swallowed rather than altering execution state, aborting a dispatch, or masking a step's exception. Listeners needing retry semantics should be queued listeners.
+
+#### Changed
+
+- `WorkflowRunner` takes two optional trailing constructor arguments (an internal event emitter and an error-message flag). Construction is internal wiring; resolve the runner from the container.
+- `laraflow:execute` now resolves the recorded workflow class through a shared resolver and, with `--queue`, validates it *before* queueing, so a missing class fails at the console rather than minutes later on a worker.
+- README gained a "Running on a queue" section; its configuration sample now reflects every shipped key, and "Current limitations" has been rewritten for the post-Milestone-2 state.
+
 ### Console tooling and local playground
 
 #### Added

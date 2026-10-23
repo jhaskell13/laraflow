@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Console;
 
+use Illuminate\Support\Facades\Queue;
+use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionRepository;
@@ -57,6 +59,67 @@ class ExecuteCommandTest extends TestCase
 
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('cannot be executed from status [completed]', $output);
+    }
+
+    public function test_the_queue_option_dispatches_instead_of_running(): void
+    {
+        Queue::fake();
+
+        $this->callCommand('laraflow:demo', ['--fail' => true]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:execute',
+            ['execution' => '1', '--queue' => true],
+        );
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('queued', $output);
+
+        Queue::assertPushed(
+            ExecuteWorkflowJob::class,
+            fn (ExecuteWorkflowJob $job): bool => (string) $job->executionId === '1',
+        );
+
+        // Nothing ran in this process: the execution is still failed.
+        $this->assertSame(
+            ExecutionStatus::Failed->value,
+            WorkflowExecutionModel::query()->value('status'),
+        );
+    }
+
+    public function test_the_queue_option_refuses_a_completed_execution(): void
+    {
+        Queue::fake();
+
+        $this->callCommand('laraflow:demo');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:execute',
+            ['execution' => '1', '--queue' => true],
+        );
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('cannot be executed from status [completed]', $output);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_the_queue_option_refuses_a_missing_workflow_class_before_queueing(): void
+    {
+        Queue::fake();
+
+        $this->app->make(ExecutionRepository::class)->create(
+            workflow: 'App\\Workflows\\DeletedWorkflow',
+            steps: ['App\\Workflows\\Steps\\DeletedStep'],
+        );
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:execute',
+            ['execution' => '1', '--queue' => true],
+        );
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('no longer exists', $output);
+        Queue::assertNothingPushed();
     }
 
     public function test_an_execution_whose_workflow_class_is_gone_is_refused(): void

@@ -61,8 +61,13 @@ class WorkflowExecution
 
         $this->status = ExecutionStatus::Completed;
         $this->completedAt = $at;
+
+        // A recovered execution cleared its error fields; leaving failedAt
+        // behind would describe a failure with no error attached. Attempt
+        // history is Milestone 3's job, not a half-cleared terminal row.
         $this->error = null;
         $this->errorClass = null;
+        $this->failedAt = null;
     }
 
     public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void

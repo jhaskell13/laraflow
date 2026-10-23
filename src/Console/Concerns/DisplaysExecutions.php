@@ -55,12 +55,13 @@ trait DisplaysExecutions
     protected function displaySteps(array $steps): void
     {
         $this->table(
-            ['#', 'Step', 'Status', 'Attempts', 'Output', 'Error'],
+            ['#', 'Step', 'Status', 'Attempts', 'Finished', 'Output', 'Error'],
             array_map(fn (StepExecution $step): array => [
                 $step->position,
                 class_basename($step->step),
                 $this->coloredStatus($step->status->value),
                 $step->attempts,
+                $this->formatDate($step->completedAt ?? $step->failedAt),
                 $this->formatValue($step->output, 60),
                 $step->error ?? '',
             ], $steps),

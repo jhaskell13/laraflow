@@ -117,6 +117,23 @@ class WorkflowExecutionTest extends TestCase
         $execution->markRunning(new DateTimeImmutable);
     }
 
+    public function test_completing_a_recovered_execution_clears_the_earlier_failure(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markFailed('boom', RuntimeException::class, new DateTimeImmutable);
+
+        $execution->markRunning(new DateTimeImmutable);
+        $execution->markCompleted(new DateTimeImmutable('2026-10-22 11:00:00'));
+
+        $this->assertNull($execution->error);
+        $this->assertNull($execution->errorClass);
+        $this->assertNull(
+            $execution->failedAt,
+            'A completed execution must not still carry a failure timestamp.'
+        );
+    }
+
     protected function execution(): WorkflowExecution
     {
         return new WorkflowExecution(

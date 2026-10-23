@@ -15,6 +15,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Try it locally](#try-it-locally)
 - [Configuration](#configuration)
 - [Your first workflow](#your-first-workflow)
+- [Running on a queue](#running-on-a-queue)
 - [Inspecting executions](#inspecting-executions)
 - [Your first connector](#your-first-connector)
 - [Current limitations](#current-limitations)
@@ -88,9 +89,18 @@ vendor/bin/testbench laraflow:execute 1     # recovery: step 1 skipped, step 2 s
 vendor/bin/testbench laraflow:show 1        # full record: steps, attempts, outputs, context
 ```
 
+The queue path uses the same commands:
+
+```bash
+vendor/bin/testbench laraflow:demo --queue       # hands the execution to the queue
+vendor/bin/testbench laraflow:recover --dry-run  # what recovery would do right now
+```
+
+The playground has no queue connection configured, so Laravel's default `sync` driver runs the dispatched job immediately in the same process — the execution is already complete when the command returns. Point `QUEUE_CONNECTION` at a real connection (and run `php artisan queue:work`) to see it execute out of process; see [docs/queue-and-recovery.md](docs/queue-and-recovery.md).
+
 The demo workflow simulates an order: reserve inventory → charge payment → send receipt. With `--fail`, the payment step throws on its first attempt, leaving a persisted failed execution; `laraflow:execute` then recovers it from the checkpoint — the completed step is skipped, its context restored, and the retry reports the same idempotency key the first attempt used. Run `laraflow:demo` without the flag for the happy path.
 
-The same four commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
+The same five commands (`laraflow:demo`, `laraflow:list`, `laraflow:show`, `laraflow:execute`, `laraflow:recover`) are registered in any application that installs the package. They are experimental; see [docs/public-api.md](docs/public-api.md).
 
 ## Configuration
 
@@ -107,6 +117,40 @@ return [
     'migrations' => [
         // Load migrations from the package (true) or manage published copies (false).
         'load' => env('LARAFLOW_LOAD_MIGRATIONS', true),
+    ],
+
+    'execution' => [
+        // Seconds before a running execution's claim is considered abandoned
+        // and may be reclaimed. Set it above your longest step.
+        'stale_after' => env('LARAFLOW_STALE_AFTER', 300),
+        'max_error_length' => env('LARAFLOW_MAX_ERROR_LENGTH', 65535),
+    ],
+
+    'queue' => [
+        // null uses your application's default connection and queue.
+        'connection' => env('LARAFLOW_QUEUE_CONNECTION'),
+        'queue' => env('LARAFLOW_QUEUE'),
+        // 1 = the queue does not retry; see docs/queue-and-recovery.md.
+        'tries' => env('LARAFLOW_QUEUE_TRIES', 1),
+        'backoff' => env('LARAFLOW_QUEUE_BACKOFF', 0),
+        // Must stay below execution.stale_after.
+        'timeout' => env('LARAFLOW_QUEUE_TIMEOUT', 60),
+        'after_commit' => env('LARAFLOW_QUEUE_AFTER_COMMIT', true),
+    ],
+
+    'recovery' => [
+        'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
+        // Executions whose steps reach this many attempts are abandoned
+        // by recovery rather than retried forever.
+        'max_attempts' => env('LARAFLOW_RECOVERY_MAX_ATTEMPTS', 3),
+        // null disables recovery of never-dispatched pending executions.
+        'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
+    ],
+
+    'events' => [
+        // Lifecycle events never carry input, output, or context. This
+        // controls only the exception message on failure events.
+        'include_error_messages' => env('LARAFLOW_EVENT_ERROR_MESSAGES', true),
     ],
 
     'integrations' => [
@@ -236,9 +280,70 @@ A step that repeats this way may re-perform external side effects — that is th
 | Record | Fields |
 |--------|--------|
 | Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps |
-| Step execution | step class, position, status, attempts, output, error message and class, started/completed timestamps, next retry time |
+| Step execution | step class, position, status, attempts, output, error message and class, started/completed/failed timestamps, next retry time |
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
+
+## Running on a queue
+
+`WorkflowDispatcher` is the asynchronous counterpart of `run()`. It persists the execution and its step plan, queues a job carrying only the execution id, and returns immediately:
+
+```php
+use Laraflow\Queue\WorkflowDispatcher;
+
+$execution = app(WorkflowDispatcher::class)
+    ->dispatch(new SyncCustomerWorkflow(), ['customer_id' => 42]);
+
+$execution->id;          // store it, show it, poll it
+$execution->isPending(); // true — a worker will run it
+```
+
+A worker is an ordinary Laravel worker; there is no Laraflow-specific worker command:
+
+```bash
+php artisan queue:work --queue=workflows
+```
+
+Note that Laravel's default `sync` connection (when `QUEUE_CONNECTION` is unset) runs the job immediately in the dispatching process, so `dispatch()` returns an already-finished execution. Configure a real queue connection to get asynchronous execution.
+
+The worker reads the workflow class from the execution record, so the queue payload never contains your input, your step data, or a serialized workflow object. Connection and queue come from `laraflow.queue.*` or per-dispatch arguments.
+
+**The queue does not retry by default** (`laraflow.queue.tries` is `1`). One delivery means one execution attempt, so Laravel's retries and Laraflow's step attempts cannot multiply on two unrelated schedules. A failing step is persisted as `failed` and recorded in `failed_jobs`; re-running it is an explicit act. Duplicate deliveries are safe: claiming is an atomic compare-and-set, so a second delivery simply no-ops instead of running the workflow twice or failing the job.
+
+### Recovering interrupted work
+
+A worker that is killed mid-step leaves its execution `running` with an aging claim. Schedule the recovery command to find and retry such work:
+
+```php
+// routes/console.php
+Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
+```
+
+```bash
+php artisan laraflow:recover --dry-run   # report only; changes nothing
+php artisan laraflow:recover             # re-dispatch interrupted executions
+php artisan laraflow:recover --sync      # run them here instead of queueing
+```
+
+Recovery is bounded: at most `--limit` executions per run, and an execution whose steps have reached `--max-attempts` (default 3) is reported as **abandoned** rather than retried, so a crash-looping workflow can never be re-dispatched forever. The command exits non-zero when anything was abandoned or failed, so a scheduled run surfaces stuck work through your existing alerts. Overriding the bound deliberately is `php artisan laraflow:execute <id>`.
+
+### Lifecycle events
+
+Laraflow fires events for dispatch, execution start, each step's start/completion/failure, execution completion/failure, and scheduled retries. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
+
+```php
+use Laraflow\Events\WorkflowExecutionFailed;
+
+Event::listen(function (WorkflowExecutionFailed $event) {
+    Log::error('Workflow failed', [
+        'execution' => $event->executionId,
+        'workflow' => $event->workflow,
+        'error' => $event->errorClass,
+    ]);
+});
+```
+
+Queueing, retry interaction, recovery policy, and event payload safety are specified in full in [docs/queue-and-recovery.md](docs/queue-and-recovery.md).
 
 ## Inspecting executions
 
@@ -352,14 +457,14 @@ Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 1; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 2; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
 
-- **Execution is synchronous only.** There is no queue integration yet. `run()` and `execute()` block until the workflow finishes (Milestone 2).
-- **Recovery is manual.** A stale or failed execution is recovered by calling `execute()`; nothing scans for stale executions or re-dispatches them automatically (Milestone 2).
-- **No automatic retries.** A failing step fails the workflow until something calls `execute()` again. `next_retry_at` is recorded but not acted on; backoff and retry policies are Milestone 3.
+- **No automatic retries.** A *failed* execution is never retried on its own: the queue does not retry it (by design) and `laraflow:recover` only picks up *interrupted* work, not failures. Retrying a failure is an explicit act until per-step retry policy, backoff, and `next_retry_at` land in Milestone 3.
+- **No timeouts or cancellation.** A step that hangs is bounded only by the queue worker's timeout, and there is no way to cancel a running execution (Milestone 3).
 - **Attempt history is overwritten.** Each retry updates the step row in place; per-attempt history arrives with the retry work (Milestone 3).
 - **Side effects are at-least-once.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
 - **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
+- **No stable querying or pruning API.** Listing and filtering executions means the internal Eloquent models or `laraflow:list`; there is no retention or pruning command yet (Milestone 4).
 - **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet (Milestone 5).
 - **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots.
 

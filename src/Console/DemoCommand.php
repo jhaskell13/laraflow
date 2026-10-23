@@ -7,6 +7,7 @@ namespace Laraflow\Console;
 use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Demo\DemoWorkflow;
+use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
@@ -19,12 +20,16 @@ class DemoCommand extends Command
     use DisplaysExecutions;
 
     protected $signature = 'laraflow:demo
-        {--fail : Make the payment step fail on its first attempt so recovery can be demonstrated}';
+        {--fail : Make the payment step fail on its first attempt so recovery can be demonstrated}
+        {--queue : Dispatch the demo workflow to the queue instead of running it in this process}';
 
     protected $description = 'Run the bundled demo workflow against the durable runtime';
 
-    public function handle(WorkflowRunner $runner, ExecutionRepository $repository): int
-    {
+    public function handle(
+        WorkflowRunner $runner,
+        ExecutionRepository $repository,
+        WorkflowDispatcher $dispatcher,
+    ): int {
         $input = [
             'sku' => 'SKU-1001',
             'quantity' => 2,
@@ -32,6 +37,19 @@ class DemoCommand extends Command
         ];
 
         $this->components->info('Starting '.DemoWorkflow::class);
+
+        if ((bool) $this->option('queue')) {
+            $execution = $dispatcher->dispatch(new DemoWorkflow, $input);
+
+            $this->components->info(
+                "Queued as execution {$execution->id}. Process it with: php artisan queue:work"
+            );
+            $this->components->info(
+                "Inspect it anytime with: laraflow:show {$execution->id}"
+            );
+
+            return self::SUCCESS;
+        }
 
         $execution = $runner->start(new DemoWorkflow, $input);
 

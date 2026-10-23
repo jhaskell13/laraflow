@@ -36,6 +36,7 @@ class StepExecution
         public ?string $errorClass = null,
         public ?DateTimeImmutable $startedAt = null,
         public ?DateTimeImmutable $completedAt = null,
+        public ?DateTimeImmutable $failedAt = null,
         public ?DateTimeImmutable $nextRetryAt = null,
     ) {}
 
@@ -63,6 +64,7 @@ class StepExecution
         $this->completedAt = $at;
         $this->error = null;
         $this->errorClass = null;
+        $this->failedAt = null;
     }
 
     public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void
@@ -74,6 +76,7 @@ class StepExecution
         $this->status = StepStatus::Failed;
         $this->error = $error;
         $this->errorClass = $errorClass;
+        $this->failedAt = $at;
     }
 
     public function isPending(): bool

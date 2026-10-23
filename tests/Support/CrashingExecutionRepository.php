@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Support;
 
+use DateTimeImmutable;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
@@ -46,6 +47,16 @@ class CrashingExecutionRepository implements ExecutionRepository
     public function steps(WorkflowExecution $execution): array
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->steps($execution));
+    }
+
+    public function stale(DateTimeImmutable $claimedBefore, int $limit = 100, ?string $workflow = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->stale($claimedBefore, $limit, $workflow));
+    }
+
+    public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow));
     }
 
     public function saveStep(StepExecution $step): void

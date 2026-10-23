@@ -51,11 +51,30 @@ class StepExecutionTest extends TestCase
         $step = $this->step();
         $step->markRunning(new DateTimeImmutable);
 
-        $step->markFailed('boom', RuntimeException::class, new DateTimeImmutable);
+        $failedAt = new DateTimeImmutable('2026-10-22 10:00:00');
+        $step->markFailed('boom', RuntimeException::class, $failedAt);
 
         $this->assertTrue($step->isFailed());
         $this->assertSame('boom', $step->error);
         $this->assertSame(RuntimeException::class, $step->errorClass);
+        $this->assertSame($failedAt, $step->failedAt);
+        $this->assertNull($step->completedAt);
+    }
+
+    public function test_completing_a_previously_failed_step_clears_the_failure(): void
+    {
+        $step = $this->step();
+        $step->markRunning(new DateTimeImmutable);
+        $step->markFailed('boom', RuntimeException::class, new DateTimeImmutable);
+
+        $step->markRunning(new DateTimeImmutable);
+        $completedAt = new DateTimeImmutable('2026-10-22 11:00:00');
+        $step->markCompleted(['ok' => true], $completedAt);
+
+        $this->assertNull($step->error);
+        $this->assertNull($step->errorClass);
+        $this->assertNull($step->failedAt, 'A completed step must not still claim it failed.');
+        $this->assertSame($completedAt, $step->completedAt);
     }
 
     public function test_a_failed_step_can_retry_and_attempts_accumulate(): void

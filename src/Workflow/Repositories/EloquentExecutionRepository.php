@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow\Repositories;
 
 use Closure;
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
@@ -125,6 +126,42 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->all();
     }
 
+    public function stale(
+        DateTimeImmutable $claimedBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Running->value)
+            ->where(function ($query) use ($claimedBefore) {
+                $query
+                    ->whereNull('claimed_at')
+                    ->orWhere('claimed_at', '<=', $claimedBefore);
+            })
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
+            ->all();
+    }
+
+    public function pendingBefore(
+        DateTimeImmutable $createdBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Pending->value)
+            ->where('created_at', '<=', $createdBefore)
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
+            ->all();
+    }
+
     public function saveStep(
         StepExecution $step
     ): void {
@@ -138,6 +175,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'error_class' => $step->errorClass,
                 'started_at' => $step->startedAt,
                 'completed_at' => $step->completedAt,
+                'failed_at' => $step->failedAt,
                 'next_retry_at' => $step->nextRetryAt,
             ]);
     }
@@ -246,6 +284,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             errorClass: $model->error_class,
             startedAt: $model->started_at?->toImmutable(),
             completedAt: $model->completed_at?->toImmutable(),
+            failedAt: $model->failed_at?->toImmutable(),
             nextRetryAt: $model->next_retry_at?->toImmutable(),
         );
     }

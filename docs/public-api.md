@@ -29,6 +29,31 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 | `Laraflow\Workflow\StepExecution` | Public | Read-only handle describing one step within an execution, with the same transition-method rule. |
 | `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`. More cases (e.g. `cancelled`) may be added; applications should handle unknown cases defensively. |
 | `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`. Same caveat. |
+| `Laraflow\Support\DurableValue` | Public | `DurableValue::assert(mixed $value, string $path): void` — the serialization contract's enforcement point, used by the runner on input, output, and context. Call it yourself to validate a payload before `start()`/`dispatch()` rather than discovering the problem at a persistence boundary. Throws `UnserializableValueException` naming the offending path. |
+
+## Queue execution
+
+| Class | Level | Notes |
+|-------|-------|-------|
+| `Laraflow\Queue\WorkflowDispatcher` | Public | Asynchronous counterpart of `WorkflowRunner::run()`: `dispatch(Workflow, array $input, ?string $connection, ?string $queue)` and `dispatchExecution(id, ...)`. Behaviour specified in [docs/queue-and-recovery.md](queue-and-recovery.md). |
+| `Laraflow\Queue\ExecuteWorkflowJob` | Public | The queued job. Public so applications can reference it in `Queue::fake()` assertions, Horizon configuration, and worker tuning. Its constructor takes an execution id; the payload carries nothing else. |
+| `Laraflow\Workflow\RecoveryService` | Internal | Engine behind `laraflow:recover`. Use the command. |
+| `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
+| `Laraflow\Workflow\WorkflowResolver` | Internal | Resolves the workflow class recorded on an execution. |
+| `Laraflow\Events\EventEmitter` | Internal | Applies the observational-event policy below. |
+
+## Events
+
+All events live in `Laraflow\Events`, are `readonly`, and are **public**: `WorkflowExecutionDispatched`, `WorkflowExecutionStarted`, `WorkflowStepStarted`, `WorkflowStepCompleted`, `WorkflowStepFailed`, `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, `WorkflowExecutionRetryScheduled`.
+
+Guarantees applications may rely on:
+
+- Each event fires **after** the durable write it describes; if persisting a failure fails, no failure event fires.
+- Events carry identifiers and metadata only — **never workflow input, step output, or context**. Failure events carry the exception class and (unless `laraflow.events.include_error_messages` is false) the truncated message; never the exception object or stack trace.
+- A listener that throws is logged and swallowed — it cannot change execution state, abort a dispatch, or mask a step's exception. Use queued listeners when failure must be retried or surfaced.
+- `Started`, `StepStarted`, `StepFailed`, and `ExecutionFailed` may fire more than once per execution (recovery); `ExecutionCompleted` fires once.
+
+New event classes and new properties on existing ones may be added before 1.0; listeners should not depend on an exhaustive list.
 
 Public properties on `WorkflowExecution` and `StepExecution` remain technically writable (PHP 8.2 has no asymmetric visibility), but writing them from application code is unsupported: all state changes must go through the `mark*()` transition methods, which throw `InvalidStateTransitionException` for anything the state machine forbids.
 
@@ -36,7 +61,7 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Workflow\ExecutionRepository` | Public (contract) | The supported way to read executions, and the persistence boundary: `create` (with plan snapshot), `find`, `claim` (compare-and-set), `steps`, `saveStep`, `checkpoint` (transactional, claim-verified), `release`. Custom implementations must honour the guarantees in [docs/execution-lifecycle.md](execution-lifecycle.md). |
+| `Laraflow\Workflow\ExecutionRepository` | Public (contract) | The supported way to read executions, and the persistence boundary: `create` (with plan snapshot), `find`, `claim` (compare-and-set), `steps`, `saveStep`, `checkpoint` (transactional, claim-verified), `release`, plus the recovery scans `stale` and `pendingBefore`. Custom implementations must honour the guarantees in [docs/execution-lifecycle.md](execution-lifecycle.md). |
 | `Laraflow\Workflow\Repositories\EloquentExecutionRepository` | Internal | Default binding. Swap via the container if needed. |
 | `Laraflow\Workflow\Models\WorkflowExecutionModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\StepExecutionModel` | Internal | Table layout will change. |
@@ -83,6 +108,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 |------|-------|-------|
 | `Laraflow\Core\LaraflowServiceProvider` | Public | Auto-discovered. |
 | `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `integrations.github.token` | Public | |
+| `config/laraflow.php` keys `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `max_attempts`, `pending_after`), `events.include_error_messages` | Public | Defaults and their rationale in [docs/queue-and-recovery.md](queue-and-recovery.md). `queue.tries` defaults to 1 and `recovery.pending_after` defaults to null (pending scan disabled) deliberately. |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 
 ## Console commands
@@ -91,10 +117,11 @@ All experimental: names, signatures, and output format may change while the oper
 
 | Command | Level | Notes |
 |---------|-------|-------|
-| `laraflow:demo {--fail}` | Experimental | Runs the bundled `Laraflow\Demo\DemoWorkflow`. `--fail` makes the payment step fail on attempt 1 so recovery can be demonstrated. |
+| `laraflow:demo {--fail} {--queue}` | Experimental | Runs the bundled `Laraflow\Demo\DemoWorkflow`. `--fail` makes the payment step fail on attempt 1 so recovery can be demonstrated; `--queue` dispatches it instead of running it inline. |
 | `laraflow:list {--status=} {--limit=20}` | Experimental | Lists executions, newest first. |
 | `laraflow:show {execution}` | Experimental | One execution in detail: steps, attempts, outputs, errors, context, claim. |
-| `laraflow:execute {execution}` | Experimental | Executes or recovers an execution using the workflow class stored on it; refuses if that class no longer exists or is not a `Workflow`. |
+| `laraflow:execute {execution} {--queue}` | Experimental | Executes or recovers an execution using the workflow class stored on it; refuses if that class no longer exists or is not a `Workflow`. `--queue` hands it to a worker instead. No attempt bound — this is the deliberate operator override. |
+| `laraflow:recover {--stale-after=} {--pending-after=} {--limit=} {--max-attempts=} {--workflow=} {--dry-run} {--sync}` | Experimental | Finds interrupted executions and retries them within a bounded policy. Exits non-zero when work was abandoned or an action failed. Intended for the scheduler; see [docs/queue-and-recovery.md](queue-and-recovery.md#recovering-interrupted-work). |
 
 The `Laraflow\Demo` classes exist for the demo command and are experimental; do not build applications on them.
 

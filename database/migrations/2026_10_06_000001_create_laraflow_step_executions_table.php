@@ -27,6 +27,7 @@ return new class extends Migration
             $table->string('error_class')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
             $table->timestamp('next_retry_at')->nullable();
             $table->timestamps();
 

@@ -76,6 +76,7 @@ class MigrationTest extends TestCase
                     'error_class',
                     'started_at',
                     'completed_at',
+                    'failed_at',
                     'next_retry_at',
                     'created_at',
                     'updated_at',
