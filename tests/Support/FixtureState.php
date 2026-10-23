@@ -18,6 +18,7 @@ class FixtureState
         StepOne::$seenDeadline = null;
         StepTwo::$runs = 0;
         StepTwo::$failTimes = 0;
+        StepTwo::$beforeReturn = null;
         StepTwo::$seenIdempotencyKeys = [];
         StepTwo::$seenContextValue = null;
         MutableWorkflow::$steps = [];

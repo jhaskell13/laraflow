@@ -7,6 +7,7 @@ namespace Laraflow\Workflow;
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Events\EventEmitter;
+use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
 use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowExecutionStarted;
@@ -15,6 +16,8 @@ use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
+use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
+use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
@@ -140,6 +143,13 @@ class WorkflowRunner
         foreach ($steps as $stepExecution) {
             if ($stepExecution->isCompleted()) {
                 continue;
+            }
+
+            // Cancellation is cooperative: it takes effect between
+            // steps, so whatever is in flight finishes and checkpoints
+            // first. Laraflow cannot interrupt a running step.
+            if ($this->honourCancellationRequest($execution)) {
+                return $execution;
             }
 
             $startedAt = $this->now();
@@ -277,6 +287,44 @@ class WorkflowRunner
     }
 
     /**
+     * Cancel an execution, or request cancellation when a live worker
+     * owns it.
+     *
+     * Returns the resulting handle: `isCancelled()` means it is done;
+     * a still-`running` handle with `cancelRequestedAt` set means the
+     * owning worker will stop at its next step boundary. A step already
+     * in flight is never interrupted — bounding that is the job of the
+     * step's own timeout and the queue worker's.
+     *
+     * @throws ExecutionNotFoundException
+     * @throws ExecutionNotCancellableException when the execution has completed.
+     */
+    public function cancel(int|string $executionId, ?string $reason = null): WorkflowExecution
+    {
+        $existing = $this->repository->find($executionId);
+
+        if ($existing->isCancelled()) {
+            // Idempotent: the original cancellation, and its event,
+            // stand. Re-announcing a state that did not change would
+            // make the event's once-per-execution guarantee a lie.
+            return $existing;
+        }
+
+        $execution = $this->repository->requestCancellation($executionId, $reason, $this->now());
+
+        if ($execution->isCancelled() && $execution->cancelledAt !== null) {
+            $this->event(new WorkflowExecutionCancelled(
+                executionId: $execution->id,
+                workflow: $execution->workflow,
+                cancelledAt: $execution->cancelledAt,
+                reason: $execution->cancelReason,
+            ));
+        }
+
+        return $execution;
+    }
+
+    /**
      * The supplied workflow must be the one the execution was created
      * from: same class, same steps, same order. Otherwise durable state
      * would be silently reinterpreted by different code.
@@ -364,6 +412,38 @@ class WorkflowRunner
         }
 
         return $step;
+    }
+
+    /**
+     * If cancellation was requested since this worker claimed the
+     * execution, durably cancel it and release the claim. Reads fresh
+     * state once per step boundary — the cost of noticing a request
+     * made by another process.
+     */
+    protected function honourCancellationRequest(WorkflowExecution $execution): bool
+    {
+        $fresh = $this->repository->find($execution->id);
+
+        if ($fresh->cancelRequestedAt === null) {
+            return false;
+        }
+
+        $cancelledAt = $this->now();
+
+        // Carry over the request metadata: this worker's handle predates
+        // the request and knows nothing about it.
+        $execution->cancelRequestedAt = $fresh->cancelRequestedAt;
+        $execution->markCancelled($cancelledAt, $fresh->cancelReason);
+        $this->repository->release($execution);
+
+        $this->event(new WorkflowExecutionCancelled(
+            executionId: $execution->id,
+            workflow: $execution->workflow,
+            cancelledAt: $cancelledAt,
+            reason: $fresh->cancelReason,
+        ));
+
+        return true;
     }
 
     /**

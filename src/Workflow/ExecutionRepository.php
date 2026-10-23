@@ -7,6 +7,7 @@ namespace Laraflow\Workflow;
 use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
+use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
@@ -143,6 +144,31 @@ interface ExecutionRepository
         StepExecution $step,
         ?StepAttempt $attempt = null
     ): void;
+
+    /**
+     * Request cancellation, returning the resulting execution state.
+     *
+     * An execution nobody is running — `pending`, `failed`, `retrying` —
+     * is cancelled outright by compare-and-set on its status, so the
+     * cancellation cannot race a worker claiming it: either the claim
+     * wins and this becomes a request, or this wins and the claim is
+     * refused. Any scheduled retry is voided.
+     *
+     * A `running` execution instead gets `cancel_requested_at` set and
+     * stays running: the owning worker honours it at its next step
+     * boundary. Laraflow never yanks durable state out from under a live
+     * worker, and cannot interrupt a step mid-flight.
+     *
+     * Cancelling an already-cancelled execution is an idempotent no-op.
+     *
+     * @throws ExecutionNotFoundException
+     * @throws ExecutionNotCancellableException when the execution has completed.
+     */
+    public function requestCancellation(
+        int|string $id,
+        ?string $reason,
+        DateTimeImmutable $at
+    ): WorkflowExecution;
 
     /**
      * Attempt history for one step, ordered by attempt number ascending.

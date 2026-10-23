@@ -11,6 +11,7 @@ use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\ServiceProvider;
 use Laraflow\Auth\GithubTokenAuthenticator;
+use Laraflow\Console\CancelCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
 use Laraflow\Console\ListCommand;
@@ -138,6 +139,7 @@ class LaraflowServiceProvider extends ServiceProvider
         }
 
         $this->commands([
+            CancelCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
             ListCommand::class,

@@ -8,6 +8,7 @@ use Closure;
 use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
+use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
@@ -255,6 +256,59 @@ class EloquentExecutionRepository implements ExecutionRepository
                 throw ClaimLostException::forId($execution->id);
             }
         });
+    }
+
+    public function requestCancellation(
+        int|string $id,
+        ?string $reason,
+        DateTimeImmutable $at
+    ): WorkflowExecution {
+        // Unclaimed work is cancelled outright. The status predicate is
+        // the same compare-and-set claiming uses, so this cannot race a
+        // worker: whichever UPDATE lands first, the other is refused.
+        $cancelled = WorkflowExecutionModel::query()
+            ->whereKey($id)
+            ->whereIn('status', [
+                ExecutionStatus::Pending->value,
+                ExecutionStatus::Failed->value,
+                ExecutionStatus::Retrying->value,
+            ])
+            ->update([
+                'status' => ExecutionStatus::Cancelled->value,
+                'cancelled_at' => $at,
+                'cancel_requested_at' => $at,
+                'cancel_reason' => $reason,
+                // A cancelled execution must never surface in the scan.
+                'next_retry_at' => null,
+                'claim_token' => null,
+                'claimed_at' => null,
+            ]);
+
+        if ($cancelled === 1) {
+            return $this->find($id);
+        }
+
+        // A live worker owns it: leave a request for its next step
+        // boundary rather than rewriting state underneath it.
+        $requested = WorkflowExecutionModel::query()
+            ->whereKey($id)
+            ->where('status', ExecutionStatus::Running->value)
+            ->update([
+                'cancel_requested_at' => $at,
+                'cancel_reason' => $reason,
+            ]);
+
+        if ($requested === 1) {
+            return $this->find($id);
+        }
+
+        $current = $this->find($id);
+
+        if ($current->isCancelled()) {
+            return $current;
+        }
+
+        throw ExecutionNotCancellableException::forStatus($id, $current->status);
     }
 
     public function attempts(

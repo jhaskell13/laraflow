@@ -68,8 +68,8 @@ class WorkflowDispatcher
      *
      * A `running` execution is accepted on purpose — recovering a worker
      * that died leaves exactly that state, and the claim decides which
-     * worker actually proceeds. Only a completed execution is refused,
-     * because there is nothing left to run.
+     * worker actually proceeds. Terminal executions (completed,
+     * cancelled) are refused, because there is nothing left to run.
      *
      * @param  DateTimeInterface|null  $availableAt  Hold the delivery until
      *                                               this time — how a scheduled retry travels on the queue. The
@@ -89,7 +89,7 @@ class WorkflowDispatcher
     ): WorkflowExecution {
         $execution = $this->repository->find($executionId);
 
-        if ($execution->isCompleted()) {
+        if ($execution->isCompleted() || $execution->isCancelled()) {
             throw ExecutionNotRunnableException::forStatus($execution->id, $execution->status);
         }
 
