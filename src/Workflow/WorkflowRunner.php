@@ -98,15 +98,24 @@ class WorkflowRunner
      * relying on "failure throws" should check isRetrying() on the
      * returned handle, or keep retries disabled for workflows they run
      * in-process.
+     *
+     * @param  bool  $ignoreRetrySchedule  Claim a retrying execution even
+     *                                     before its next_retry_at — the deliberate operator override
+     *                                     behind laraflow:execute --now. Without it, an early claim
+     *                                     throws RetryNotDueException.
      */
-    public function execute(int|string $executionId, Workflow $workflow): WorkflowExecution
-    {
+    public function execute(
+        int|string $executionId,
+        Workflow $workflow,
+        bool $ignoreRetrySchedule = false
+    ): WorkflowExecution {
         $claimToken = bin2hex(random_bytes(16));
 
         $execution = $this->repository->claim(
             $executionId,
             $claimToken,
-            $this->staleAfterSeconds
+            $this->staleAfterSeconds,
+            $ignoreRetrySchedule
         );
 
         $startedAt = $this->now();

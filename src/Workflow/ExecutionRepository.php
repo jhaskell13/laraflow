@@ -9,6 +9,7 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 
 /**
  * Durable storage for workflow executions.
@@ -45,18 +46,22 @@ interface ExecutionRepository
     /**
      * Atomically claim an execution for this worker (compare-and-set).
      *
-     * Succeeds when the execution is `pending`, `failed`, or `running`
-     * with a claim older than $staleAfterSeconds. Exactly one concurrent
-     * claimant can succeed.
+     * Succeeds when the execution is `pending`, `failed`, `retrying`
+     * with `next_retry_at` due (or $ignoreRetrySchedule set — the
+     * deliberate operator override), or `running` with a claim older
+     * than $staleAfterSeconds. Exactly one concurrent claimant can
+     * succeed.
      *
      * @throws ExecutionNotFoundException
-     * @throws ExecutionNotRunnableException when the execution is completed.
+     * @throws ExecutionNotRunnableException when the execution is completed or cancelled.
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
+     * @throws RetryNotDueException when the execution is retrying before its due time.
      */
     public function claim(
         int|string $id,
         string $claimToken,
-        int $staleAfterSeconds
+        int $staleAfterSeconds,
+        bool $ignoreRetrySchedule = false
     ): WorkflowExecution;
 
     /**
@@ -96,6 +101,20 @@ interface ExecutionRepository
      */
     public function pendingBefore(
         DateTimeImmutable $createdBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array;
+
+    /**
+     * Executions in `retrying` state whose next_retry_at is at or before
+     * the cutoff: scheduled retries ready to run. Dispatching these is
+     * race-safe — the claim still decides which worker proceeds.
+     *
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @return WorkflowExecution[] ordered by next_retry_at ascending (most overdue first), at most $limit.
+     */
+    public function dueForRetry(
+        DateTimeImmutable $dueBefore,
         int $limit = 100,
         ?string $workflow = null
     ): array;

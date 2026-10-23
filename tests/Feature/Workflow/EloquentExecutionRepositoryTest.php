@@ -10,6 +10,7 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
@@ -355,6 +356,133 @@ class EloquentExecutionRepositoryTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Claiming retrying executions
+    // ------------------------------------------------------------------
+
+    public function test_a_retrying_execution_cannot_be_claimed_before_it_is_due(): void
+    {
+        $execution = $this->makeRetryingExecution(dueAt: '2026-10-22 10:05:00', now: '2026-10-22 10:00:00');
+
+        try {
+            $this->repository()->claim($execution->id, 'eager-worker', 300);
+            $this->fail('Expected RetryNotDueException.');
+        } catch (RetryNotDueException $exception) {
+            // The refusal names the due time and the override.
+            $this->assertStringContainsString('2026-10-22 10:05:00', $exception->getMessage());
+            $this->assertStringContainsString('--now', $exception->getMessage());
+        }
+
+        $this->assertSame(
+            ExecutionStatus::Retrying->value,
+            WorkflowExecutionModel::query()->whereKey($execution->id)->value('status'),
+            'A refused claim must not disturb the schedule.',
+        );
+    }
+
+    public function test_a_retrying_execution_is_claimable_once_due(): void
+    {
+        $execution = $this->makeRetryingExecution(dueAt: '2026-10-22 10:05:00', now: '2026-10-22 10:00:00');
+
+        Date::setTestNow('2026-10-22 10:05:00');
+
+        $claimed = $this->repository()->claim($execution->id, 'patient-worker', 300);
+
+        $this->assertSame(ExecutionStatus::Running, $claimed->status);
+        $this->assertSame('patient-worker', $claimed->claimToken);
+        $this->assertNull($claimed->nextRetryAt, 'Claiming consumes the schedule.');
+    }
+
+    public function test_the_override_claims_a_retrying_execution_early(): void
+    {
+        $execution = $this->makeRetryingExecution(dueAt: '2026-10-22 11:00:00', now: '2026-10-22 10:00:00');
+
+        $claimed = $this->repository()->claim($execution->id, 'operator', 300, ignoreRetrySchedule: true);
+
+        $this->assertSame(ExecutionStatus::Running, $claimed->status);
+    }
+
+    public function test_only_one_worker_can_claim_a_due_retry(): void
+    {
+        $execution = $this->makeRetryingExecution(dueAt: '2026-10-22 10:00:00', now: '2026-10-22 10:00:00');
+
+        $this->repository()->claim($execution->id, 'worker-a', 300);
+
+        $this->expectException(ExecutionAlreadyClaimedException::class);
+
+        $this->repository()->claim($execution->id, 'worker-b', 300);
+    }
+
+    public function test_a_cancelled_execution_cannot_be_claimed(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+
+        WorkflowExecutionModel::query()->whereKey($execution->id)->update([
+            'status' => ExecutionStatus::Cancelled->value,
+        ]);
+
+        try {
+            $this->repository()->claim($execution->id, 'worker', 300);
+            $this->fail('Expected ExecutionNotRunnableException.');
+        } catch (ExecutionNotRunnableException $exception) {
+            $this->assertStringContainsString('cancelled', $exception->getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // dueForRetry()
+    // ------------------------------------------------------------------
+
+    public function test_due_for_retry_finds_only_retries_whose_time_has_come(): void
+    {
+        $due = $this->makeRetryingExecution(dueAt: '2026-10-22 10:04:00', now: '2026-10-22 10:00:00');
+        $overdue = $this->makeRetryingExecution(dueAt: '2026-10-22 10:01:00', now: '2026-10-22 10:00:00');
+        $this->makeRetryingExecution(dueAt: '2026-10-22 11:30:00', now: '2026-10-22 10:00:00');
+
+        Date::setTestNow('2026-10-22 10:05:00');
+
+        $found = $this->repository()->dueForRetry(Date::now()->toImmutable());
+
+        // Most overdue first: the longest-waiting retry runs first.
+        $this->assertSame(
+            [$overdue->id, $due->id],
+            array_map(fn ($execution) => $execution->id, $found),
+        );
+    }
+
+    public function test_due_for_retry_ignores_other_statuses_whatever_their_next_retry_at_says(): void
+    {
+        // A stale next_retry_at on a non-retrying row (however it got
+        // there) must never resurrect the execution through this scan.
+        foreach ([ExecutionStatus::Running, ExecutionStatus::Completed, ExecutionStatus::Failed] as $status) {
+            $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+
+            WorkflowExecutionModel::query()->whereKey($execution->id)->update([
+                'status' => $status->value,
+                'next_retry_at' => '2026-10-22 09:00:00',
+            ]);
+        }
+
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $this->assertSame([], $this->repository()->dueForRetry(Date::now()->toImmutable()));
+    }
+
+    public function test_due_for_retry_respects_the_limit_and_workflow_filter(): void
+    {
+        $first = $this->makeRetryingExecution(dueAt: '2026-10-22 10:01:00', now: '2026-10-22 10:00:00');
+        $second = $this->makeRetryingExecution(dueAt: '2026-10-22 10:02:00', now: '2026-10-22 10:00:00');
+        $other = $this->makeRetryingExecution(dueAt: '2026-10-22 10:03:00', now: '2026-10-22 10:00:00', workflow: 'OtherWorkflow');
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $limited = $this->repository()->dueForRetry(Date::now()->toImmutable(), limit: 1);
+        $this->assertSame([$first->id], array_map(fn ($execution) => $execution->id, $limited));
+
+        $filtered = $this->repository()->dueForRetry(Date::now()->toImmutable(), workflow: 'OtherWorkflow');
+        $this->assertSame([$other->id], array_map(fn ($execution) => $execution->id, $filtered));
+    }
+
+    // ------------------------------------------------------------------
     // Retry and cancellation fields round-trip
     // ------------------------------------------------------------------
 
@@ -423,6 +551,28 @@ class EloquentExecutionRepositoryTest extends TestCase
             '2026-10-23 12:00:05',
             StepExecutionModel::query()->sole()->failed_at?->format('Y-m-d H:i:s'),
         );
+    }
+
+    /**
+     * An execution whose step failed retryably and is waiting for
+     * $dueAt, built through the real repository write path: created,
+     * claimed, marked retrying, released.
+     */
+    protected function makeRetryingExecution(
+        string $dueAt,
+        string $now,
+        string $workflow = 'SyncCustomerWorkflow',
+    ): \Laraflow\Workflow\WorkflowExecution {
+        Date::setTestNow($now);
+
+        $repository = $this->repository();
+        $execution = $repository->create($workflow, steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $execution->markRetrying('boom', 'RuntimeException', new DateTimeImmutable($dueAt));
+        $repository->release($execution);
+
+        return $execution;
     }
 
     protected function secondsAgo(int $seconds): DateTimeImmutable

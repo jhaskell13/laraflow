@@ -40,9 +40,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->find($id));
     }
 
-    public function claim(int|string $id, string $claimToken, int $staleAfterSeconds): WorkflowExecution
+    public function claim(int|string $id, string $claimToken, int $staleAfterSeconds, bool $ignoreRetrySchedule = false): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->claim($id, $claimToken, $staleAfterSeconds));
+        return $this->call(__FUNCTION__, fn () => $this->inner->claim($id, $claimToken, $staleAfterSeconds, $ignoreRetrySchedule));
     }
 
     public function steps(WorkflowExecution $execution): array
@@ -58,6 +58,11 @@ class CrashingExecutionRepository implements ExecutionRepository
     public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null): array
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow));
+    }
+
+    public function dueForRetry(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow));
     }
 
     public function saveStep(StepExecution $step, ?StepAttempt $attempt = null): void

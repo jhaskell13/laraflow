@@ -10,6 +10,7 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
@@ -82,19 +83,37 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function claim(
         int|string $id,
         string $claimToken,
-        int $staleAfterSeconds
+        int $staleAfterSeconds,
+        bool $ignoreRetrySchedule = false
     ): WorkflowExecution {
         $now = $this->clock->now();
         $staleBefore = $now->modify("-{$staleAfterSeconds} seconds");
 
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->where(function ($query) use ($staleBefore) {
+            ->where(function ($query) use ($staleBefore, $now, $ignoreRetrySchedule) {
                 $query
                     ->whereIn('status', [
                         ExecutionStatus::Pending->value,
                         ExecutionStatus::Failed->value,
                     ])
+                    ->orWhere(function ($query) use ($now, $ignoreRetrySchedule) {
+                        $query->where('status', ExecutionStatus::Retrying->value);
+
+                        if (! $ignoreRetrySchedule) {
+                            // Claimable only once its backoff has elapsed;
+                            // early claiming is the deliberate operator
+                            // override. A null due time (which the runner
+                            // never writes) counts as due, because a
+                            // schedule nobody can read must not make an
+                            // execution unclaimable forever.
+                            $query->where(function ($query) use ($now) {
+                                $query
+                                    ->whereNull('next_retry_at')
+                                    ->orWhere('next_retry_at', '<=', $now);
+                            });
+                        }
+                    })
                     ->orWhere(function ($query) use ($staleBefore) {
                         $query
                             ->where('status', ExecutionStatus::Running->value)
@@ -171,6 +190,23 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->where('status', ExecutionStatus::Pending->value)
             ->where('created_at', '<=', $createdBefore)
             ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
+            ->all();
+    }
+
+    public function dueForRetry(
+        DateTimeImmutable $dueBefore,
+        int $limit = 100,
+        ?string $workflow = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Retrying->value)
+            ->where('next_retry_at', '<=', $dueBefore)
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->orderBy('next_retry_at')
             ->orderBy('id')
             ->limit(max(1, $limit))
             ->get()
@@ -314,6 +350,11 @@ class EloquentExecutionRepository implements ExecutionRepository
 
         if ($status === ExecutionStatus::Running) {
             throw ExecutionAlreadyClaimedException::forId($id);
+        }
+
+        if ($status === ExecutionStatus::Retrying) {
+            // The only way a retrying claim misses: it is not due yet.
+            throw RetryNotDueException::forId($id, $current->next_retry_at?->toImmutable());
         }
 
         throw ExecutionNotRunnableException::forStatus($id, $status);

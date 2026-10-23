@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\BadOutputStep;
@@ -29,14 +30,12 @@ use LogicException;
 use RuntimeException;
 
 /**
- * The runner's side of the retry contract: a retryable failure becomes
- * durable `retrying` state and a returned handle — never an exception,
- * never a failed execution — while terminal failures keep the
- * Milestone 2 contract unchanged.
- *
- * Re-executing a retrying execution (and exhausting a multi-attempt
- * budget) needs claim() to accept the retrying state; that is the next
- * step's contract and is proven there.
+ * The retry contract end to end: a retryable failure becomes durable
+ * `retrying` state and a returned handle — never an exception, never a
+ * failed execution — the due retry resumes from its checkpoint, the
+ * schedule gates early claims, and a spent budget fails terminally with
+ * the original exception. Terminal failures keep the Milestone 2
+ * contract unchanged.
  */
 class RetrySchedulingTest extends TestCase
 {
@@ -99,6 +98,128 @@ class RetrySchedulingTest extends TestCase
 
         // First failure → base delay exactly, no jitter.
         $this->assertSame('2026-10-23 12:01:00', $execution->nextRetryAt?->format('Y-m-d H:i:s'));
+    }
+
+    // ------------------------------------------------------------------
+    // The retry lifecycle, end to end
+    // ------------------------------------------------------------------
+
+    public function test_a_due_retry_runs_from_the_checkpoint_and_completes(): void
+    {
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 10, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+        $runner = $this->runner();
+
+        $execution = $runner->run(new PolicyWorkflow);
+        $this->assertTrue($execution->isRetrying());
+
+        $this->clock->set('2026-10-23 12:00:10');
+
+        $finished = $runner->execute($execution->id, new PolicyWorkflow);
+
+        $this->assertTrue($finished->isCompleted());
+        $this->assertNull($finished->error, 'Completing clears the retry-era error.');
+        $this->assertSame(1, StepOne::$runs, 'The checkpointed step must not run again.');
+        $this->assertSame(2, StepTwo::$runs);
+
+        // The retry is the same logical step: same idempotency key.
+        $this->assertSame(StepTwo::$seenIdempotencyKeys[0], StepTwo::$seenIdempotencyKeys[1]);
+    }
+
+    public function test_a_retry_cannot_run_before_it_is_due(): void
+    {
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 60, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+        $runner = $this->runner();
+
+        $execution = $runner->run(new PolicyWorkflow);
+
+        $this->clock->set('2026-10-23 12:00:30');
+
+        try {
+            $runner->execute($execution->id, new PolicyWorkflow);
+            $this->fail('Expected RetryNotDueException.');
+        } catch (RetryNotDueException $exception) {
+            $this->assertStringContainsString('2026-10-23 12:01:00', $exception->getMessage());
+        }
+
+        $this->assertSame(1, StepTwo::$runs, 'Backoff protects the failing dependency.');
+    }
+
+    public function test_the_operator_override_runs_a_retry_ahead_of_schedule(): void
+    {
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 3600, maxDelaySeconds: 3600, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+        $runner = $this->runner();
+
+        $execution = $runner->run(new PolicyWorkflow);
+
+        // An hour early, deliberately.
+        $finished = $runner->execute($execution->id, new PolicyWorkflow, ignoreRetrySchedule: true);
+
+        $this->assertTrue($finished->isCompleted());
+    }
+
+    public function test_an_exhausted_budget_fails_terminally_with_the_original_exception(): void
+    {
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 2, baseDelaySeconds: 10, jitter: 0.0);
+        StepTwo::$failTimes = 99;
+        $runner = $this->runner();
+
+        $execution = $runner->run(new PolicyWorkflow);
+        $this->assertTrue($execution->isRetrying(), 'Attempt 1 of 2 schedules.');
+
+        $this->clock->set('2026-10-23 12:00:10');
+
+        try {
+            $runner->execute($execution->id, new PolicyWorkflow);
+            $this->fail('Attempt 2 of 2 must fail terminally.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('step two blew up', $exception->getMessage());
+        }
+
+        $model = WorkflowExecutionModel::query()->sole();
+        $this->assertSame(ExecutionStatus::Failed->value, $model->status);
+        $this->assertNotNull($model->failed_at);
+        $this->assertNull($model->next_retry_at, 'A spent budget schedules nothing.');
+        $this->assertSame(2, StepTwo::$runs);
+
+        // History tells the whole story: the first attempt scheduled a
+        // retry, the second did not.
+        $stepTwoId = StepExecutionModel::query()->where('position', 1)->value('id');
+        $history = StepAttemptModel::query()
+            ->where('step_execution_id', $stepTwoId)
+            ->orderBy('attempt')
+            ->get();
+
+        $this->assertCount(2, $history);
+        $this->assertNotNull($history[0]->next_retry_at);
+        $this->assertNull($history[1]->next_retry_at);
+        $this->assertSame('step two blew up', $history[0]->error, 'Attempt 1 diagnostics survive attempt 2.');
+    }
+
+    public function test_backoff_grows_across_real_attempts(): void
+    {
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 4, baseDelaySeconds: 10, multiplier: 2.0, jitter: 0.0);
+        StepTwo::$failTimes = 99;
+        $runner = $this->runner();
+
+        // Attempt 1 fails at 12:00:00 → due 10s later.
+        $execution = $runner->run(new PolicyWorkflow);
+        $this->assertSame('2026-10-23 12:00:10', $execution->nextRetryAt?->format('Y-m-d H:i:s'));
+
+        // Attempt 2 fails at 12:00:10 → due 20s later.
+        $this->clock->set('2026-10-23 12:00:10');
+        $execution = $runner->execute($execution->id, new PolicyWorkflow);
+
+        $this->assertTrue($execution->isRetrying());
+        $this->assertSame('2026-10-23 12:00:30', $execution->nextRetryAt?->format('Y-m-d H:i:s'));
+
+        // Attempt 3 fails at 12:00:30 → due 40s later.
+        $this->clock->set('2026-10-23 12:00:30');
+        $execution = $runner->execute($execution->id, new PolicyWorkflow);
+
+        $this->assertSame('2026-10-23 12:01:10', $execution->nextRetryAt?->format('Y-m-d H:i:s'));
     }
 
     // ------------------------------------------------------------------
