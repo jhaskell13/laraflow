@@ -43,6 +43,56 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Retry
+    |--------------------------------------------------------------------------
+    |
+    | The default retry policy for steps that declare none of their own
+    | (via Policy\HasStepPolicy) and whose workflow declares no default.
+    |
+    | max_attempts counts the first attempt, so the shipped value of 1
+    | means NO step is ever retried automatically. Retries are opt-in,
+    | like every other retry authority in Laraflow: nothing re-runs your
+    | side effects unless you asked for it.
+    |
+    | Delays grow as base_delay * multiplier^(attempt-1), capped at
+    | max_delay, then spread by a ± jitter fraction. The jitter is
+    | derived from the execution id rather than randomness, so a
+    | schedule is reproducible while retries of different executions
+    | still avoid landing together.
+    |
+    */
+
+    'retry' => [
+        'max_attempts' => env('LARAFLOW_RETRY_MAX_ATTEMPTS', 1),
+        'base_delay' => env('LARAFLOW_RETRY_BASE_DELAY', 5),
+        'multiplier' => env('LARAFLOW_RETRY_MULTIPLIER', 2.0),
+        'max_delay' => env('LARAFLOW_RETRY_MAX_DELAY', 300),
+        'jitter' => env('LARAFLOW_RETRY_JITTER', 0.2),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Timeout
+    |--------------------------------------------------------------------------
+    |
+    | step: the default per-attempt deadline in seconds for steps that
+    | declare no policy of their own; null means no deadline.
+    |
+    | Laraflow records the deadline and exposes it to the step, but does
+    | not interrupt running PHP: a step is expected to bound its own
+    | work (pass the deadline to your HTTP client), and an attempt that
+    | overran is classified at the recovery boundary. Keep any step
+    | deadline below queue.timeout, which must stay below
+    | execution.stale_after.
+    |
+    */
+
+    'timeout' => [
+        'step' => env('LARAFLOW_STEP_TIMEOUT'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue
     |--------------------------------------------------------------------------
     |

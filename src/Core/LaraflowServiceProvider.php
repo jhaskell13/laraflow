@@ -23,6 +23,8 @@ use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\Policy\PolicyResolver;
+use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\WorkflowResolver;
@@ -47,6 +49,24 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ClockInterface::class, Clock::class);
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+
+        // The configured policy is only a fallback: a step's own policy,
+        // then its workflow's, take precedence (see PolicyResolver).
+        $this->app->singleton(PolicyResolver::class, function (Container $app): PolicyResolver {
+            /** @var Config $config */
+            $config = $app->make(Config::class);
+
+            $timeout = $config->get('laraflow.timeout.step');
+
+            return new PolicyResolver(new StepPolicy(
+                maxAttempts: (int) $config->get('laraflow.retry.max_attempts', 1),
+                baseDelaySeconds: (int) $config->get('laraflow.retry.base_delay', 5),
+                multiplier: (float) $config->get('laraflow.retry.multiplier', 2.0),
+                maxDelaySeconds: (int) $config->get('laraflow.retry.max_delay', 300),
+                jitter: (float) $config->get('laraflow.retry.jitter', 0.2),
+                timeoutSeconds: $timeout === null ? null : (int) $timeout,
+            ));
+        });
 
         $this->app->singleton(EventEmitter::class, fn (Container $app): EventEmitter => new EventEmitter(
             $app->make(EventDispatcher::class),
