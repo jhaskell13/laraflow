@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Queue;
 
+use DateTimeInterface;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
 use Laraflow\Events\EventEmitter;
@@ -70,6 +71,13 @@ class WorkflowDispatcher
      * worker actually proceeds. Only a completed execution is refused,
      * because there is nothing left to run.
      *
+     * @param  DateTimeInterface|null  $availableAt  Hold the delivery until
+     *                                               this time — how a scheduled retry travels on the queue. The
+     *                                               claim's schedule gate still decides, so a delivery arriving
+     *                                               early (an imprecise driver, a duplicate) is refused with
+     *                                               RetryNotDueException and treated as a no-op by the job; the
+     *                                               queue owes no precision here.
+     *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotRunnableException when the execution is already completed.
      */
@@ -77,6 +85,7 @@ class WorkflowDispatcher
         int|string $executionId,
         ?string $connection = null,
         ?string $queue = null,
+        ?DateTimeInterface $availableAt = null,
     ): WorkflowExecution {
         $execution = $this->repository->find($executionId);
 
@@ -84,7 +93,7 @@ class WorkflowDispatcher
             throw ExecutionNotRunnableException::forStatus($execution->id, $execution->status);
         }
 
-        $this->queueJob($execution, $connection, $queue);
+        $this->queueJob($execution, $connection, $queue, $availableAt);
 
         return $execution;
     }
@@ -93,6 +102,7 @@ class WorkflowDispatcher
         WorkflowExecution $execution,
         ?string $connection,
         ?string $queue,
+        ?DateTimeInterface $availableAt = null,
     ): void {
         $connection ??= $this->stringConfig('laraflow.queue.connection');
         $queue ??= $this->stringConfig('laraflow.queue.queue');
@@ -102,6 +112,10 @@ class WorkflowDispatcher
         // Null leaves Laravel's own defaults in place.
         $job->onConnection($connection);
         $job->onQueue($queue);
+
+        if ($availableAt !== null) {
+            $job->delay($availableAt);
+        }
 
         if ((bool) $this->config->get('laraflow.queue.after_commit', true)) {
             // Without this, a worker can receive an execution id before

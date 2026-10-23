@@ -49,6 +49,10 @@ class ConfigTest extends TestCase
         $this->assertSame(2.0, (float) config('laraflow.retry.multiplier'));
         $this->assertSame(300, (int) config('laraflow.retry.max_delay'));
         $this->assertSame(0.2, (float) config('laraflow.retry.jitter'));
+
+        // The fast path ships on: punctual retries out of the box, with
+        // the recovery scan as the safety net either way.
+        $this->assertTrue((bool) config('laraflow.retry.dispatch_delayed'));
     }
 
     public function test_no_step_deadline_is_configured_by_default(): void

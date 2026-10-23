@@ -13,7 +13,9 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Log\LoggerInterface;
@@ -59,6 +61,8 @@ class ExecuteWorkflowJob implements ShouldQueue
         ExecutionRepository $repository,
         WorkflowResolver $resolver,
         LoggerInterface $logger,
+        WorkflowDispatcher $dispatcher,
+        Config $config,
     ): void {
         try {
             $execution = $repository->find($this->executionId);
@@ -78,7 +82,20 @@ class ExecuteWorkflowJob implements ShouldQueue
         $workflow = $resolver->resolve($execution->id, $execution->workflow);
 
         try {
-            $runner->execute($execution->id, $workflow);
+            $result = $runner->execute($execution->id, $workflow);
+
+            if ($result->isRetrying() && $result->nextRetryAt !== null) {
+                // A retry was durably scheduled; nothing failed. Hand the
+                // due time to the queue where that is enabled and safe.
+                $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
+            }
+        } catch (RetryNotDueException) {
+            // A delivery raced the schedule: a duplicate, an imprecise
+            // driver, or an operator who already ran it. The schedule
+            // stands and this delivery has nothing to do.
+            $logger->info('Laraflow ignored a delivery for a retry that is not due yet.', [
+                'execution_id' => $execution->id,
+            ]);
         } catch (ExecutionAlreadyClaimedException) {
             // A duplicate delivery, or a scheduled recovery racing the
             // original worker. The holder of the claim is running it.
@@ -126,6 +143,75 @@ class ExecuteWorkflowJob implements ShouldQueue
                 ? null
                 : $exception::class.': '.$exception->getMessage(),
         ]);
+    }
+
+    /**
+     * Queue a delayed delivery for a scheduled retry — the low-latency
+     * path, never the guarantee. The laraflow:recover scan remains the
+     * contractual pickup: it needs no queue and catches anything this
+     * loses, which is why every refusal here is a log line rather than
+     * an error.
+     *
+     * Skipped on a sync connection: the sync driver ignores delay() and
+     * runs the job inside the dispatch call, which would turn backoff
+     * into immediate recursion — the whole budget burned in one stack,
+     * with no backoff at all.
+     */
+    protected function scheduleRetryDelivery(
+        WorkflowExecution $execution,
+        WorkflowDispatcher $dispatcher,
+        Config $config,
+        LoggerInterface $logger,
+    ): void {
+        if (! (bool) $config->get('laraflow.retry.dispatch_delayed', true)) {
+            return;
+        }
+
+        $connection = $this->resolveConnection($config);
+
+        if ($config->get("queue.connections.{$connection}.driver") === 'sync') {
+            $logger->notice(
+                'Laraflow left a scheduled retry to laraflow:recover: the sync queue driver cannot delay it.',
+                [
+                    'execution_id' => $execution->id,
+                    'next_retry_at' => $execution->nextRetryAt?->format('c'),
+                ],
+            );
+
+            return;
+        }
+
+        try {
+            $dispatcher->dispatchExecution(
+                $execution->id,
+                $this->connection,
+                $this->queue,
+                $execution->nextRetryAt,
+            );
+        } catch (Throwable $dispatchFailure) {
+            // The retry is durably scheduled either way; losing the fast
+            // path must not fail this job (the execution did not fail).
+            $logger->warning('Laraflow could not queue a delayed retry; laraflow:recover will deliver it.', [
+                'execution_id' => $execution->id,
+                'exception' => $dispatchFailure::class.': '.$dispatchFailure->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * The connection this retry would be pushed onto, for the sync-driver
+     * check: the job's own, else laraflow.queue.connection, else the
+     * application default.
+     */
+    protected function resolveConnection(Config $config): string
+    {
+        foreach ([$this->connection, $config->get('laraflow.queue.connection')] as $candidate) {
+            if (is_string($candidate) && $candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return (string) $config->get('queue.default');
     }
 
     /**

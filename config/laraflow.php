@@ -60,6 +60,14 @@ return [
     | schedule is reproducible while retries of different executions
     | still avoid landing together.
     |
+    | dispatch_delayed: when an execution running on a queue worker
+    | schedules a retry, push a delayed job for the due time — the
+    | low-latency delivery path. The laraflow:recover scan remains the
+    | contractual pickup either way: it needs no queue, and it catches
+    | anything the fast path loses. The fast path is always skipped on
+    | the sync driver, which ignores delays and would turn backoff into
+    | immediate recursion.
+    |
     */
 
     'retry' => [
@@ -68,6 +76,7 @@ return [
         'multiplier' => env('LARAFLOW_RETRY_MULTIPLIER', 2.0),
         'max_delay' => env('LARAFLOW_RETRY_MAX_DELAY', 300),
         'jitter' => env('LARAFLOW_RETRY_JITTER', 0.2),
+        'dispatch_delayed' => env('LARAFLOW_RETRY_DISPATCH_DELAYED', true),
     ],
 
     /*
