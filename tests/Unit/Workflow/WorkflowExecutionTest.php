@@ -241,6 +241,87 @@ class WorkflowExecutionTest extends TestCase
         );
     }
 
+    // ------------------------------------------------------------------
+    // isFinished(): stopped, which is not the same as never claimable
+    // ------------------------------------------------------------------
+
+    public function test_finished_covers_every_state_that_records_a_finish(): void
+    {
+        $this->assertTrue(ExecutionStatus::Completed->isFinished());
+        $this->assertTrue(ExecutionStatus::Cancelled->isFinished());
+
+        // Failed is re-executable — not "terminal" in the claiming
+        // sense — but it has stopped, and retention asks that question.
+        $this->assertTrue(ExecutionStatus::Failed->isFinished());
+
+        $this->assertFalse(ExecutionStatus::Pending->isFinished());
+        $this->assertFalse(ExecutionStatus::Running->isFinished());
+        $this->assertFalse(ExecutionStatus::Retrying->isFinished());
+    }
+
+    public function test_the_handle_agrees_with_its_status(): void
+    {
+        $execution = $this->executionIn('failed');
+
+        $this->assertTrue($execution->isFinished());
+        $this->assertTrue($execution->isFailed());
+        $this->assertNotNull($execution->finishedAt, 'A finished execution records when.');
+    }
+
+    public function test_a_status_that_has_not_finished_records_no_finish(): void
+    {
+        foreach (['pending', 'running', 'retrying'] as $state) {
+            $execution = $this->executionIn($state);
+
+            $this->assertFalse($execution->isFinished(), "[{$state}] has not finished.");
+            $this->assertNull($execution->finishedAt);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // durationMs(): end-to-end latency
+    // ------------------------------------------------------------------
+
+    public function test_duration_spans_the_first_start_to_the_finish(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable('2026-10-24 12:00:00'));
+        $execution->markCompleted(new DateTimeImmutable('2026-10-24 12:00:02.500'));
+
+        $this->assertSame(2500, $execution->durationMs());
+    }
+
+    public function test_duration_includes_the_time_spent_failed(): void
+    {
+        $execution = $this->execution();
+        $execution->markRunning(new DateTimeImmutable('2026-10-24 12:00:00'));
+        $execution->markFailed('boom', RuntimeException::class, new DateTimeImmutable('2026-10-24 12:00:01'));
+
+        // Re-executed an hour later and completing immediately.
+        $execution->markRunning(new DateTimeImmutable('2026-10-24 13:00:00'));
+        $execution->markCompleted(new DateTimeImmutable('2026-10-24 13:00:00'));
+
+        // startedAt is the first start, so this is end-to-end latency —
+        // the hour it sat failed is part of how long it took.
+        $this->assertSame(3_600_000, $execution->durationMs());
+    }
+
+    public function test_an_unfinished_execution_has_no_duration(): void
+    {
+        $execution = $this->executionIn('running');
+
+        $this->assertNull($execution->durationMs());
+    }
+
+    public function test_an_execution_cancelled_before_it_started_has_no_duration(): void
+    {
+        $execution = $this->execution();
+        $execution->markCancelled(new DateTimeImmutable);
+
+        // It never began, so there is no span — not a span of zero.
+        $this->assertNull($execution->durationMs());
+    }
+
     protected function execution(): WorkflowExecution
     {
         return new WorkflowExecution(

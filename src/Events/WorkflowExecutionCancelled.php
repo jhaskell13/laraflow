@@ -27,6 +27,11 @@ readonly class WorkflowExecutionCancelled
      *                                      recorded on the execution, or null if none was supplied.
      * @param  string|null  $tenantId  Application-supplied tenant identifier,
      *                                 or null if none was supplied.
+     * @param  int|null  $durationMs  Wall-clock milliseconds from the execution's
+     *                                first start to this finish. End-to-end latency, not compute
+     *                                time: it includes any time spent failed, cancelled-pending, or
+     *                                waiting out a retry backoff. Null when the execution never
+     *                                started.
      */
     public function __construct(
         public int|string $executionId,
@@ -35,5 +40,6 @@ readonly class WorkflowExecutionCancelled
         public ?string $reason = null,
         public ?string $correlationId = null,
         public ?string $tenantId = null,
+        public ?int $durationMs = null,
     ) {}
 }

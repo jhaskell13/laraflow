@@ -145,6 +145,39 @@ class WorkflowExecution
     }
 
     /**
+     * Wall-clock milliseconds from the execution's first start to its
+     * finish, or null while it is unfinished (or was cancelled before
+     * it ever started).
+     *
+     * This is **end-to-end latency, not compute time**. `startedAt` is
+     * the first start and is preserved across re-executions, so for an
+     * execution that failed and was recovered, or that backed off
+     * between retries, this span includes the time it spent waiting —
+     * which is what an SLA measures and what a "how long did the
+     * customer wait?" question means. Per-attempt compute time is on
+     * the step events and in the attempt history.
+     */
+    public function durationMs(): ?int
+    {
+        if ($this->startedAt === null || $this->finishedAt === null) {
+            return null;
+        }
+
+        $ms = ((float) $this->finishedAt->format('U.u') - (float) $this->startedAt->format('U.u')) * 1000;
+
+        return max(0, (int) round($ms));
+    }
+
+    /**
+     * Whether the execution has stopped and recorded `finished_at`.
+     * See ExecutionStatus::isFinished() for why this is not "terminal".
+     */
+    public function isFinished(): bool
+    {
+        return $this->status->isFinished();
+    }
+
+    /**
      * Whole seconds the execution waited for a worker: from the most
      * recent time it was made available to the queue until $claimedAt.
      *

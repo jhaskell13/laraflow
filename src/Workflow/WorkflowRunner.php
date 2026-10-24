@@ -261,14 +261,16 @@ class WorkflowRunner
                 $stepExecution->markCompleted($output, $completedAt);
                 $execution->context = $context->all();
 
-                $this->repository->checkpoint($execution, $stepExecution, new StepAttempt(
+                $attempt = new StepAttempt(
                     executionId: $execution->id,
                     stepExecutionId: $stepExecution->id,
                     attempt: $stepExecution->attempts,
                     status: StepAttemptStatus::Completed,
                     startedAt: $stepExecution->startedAt,
                     endedAt: $completedAt,
-                ));
+                );
+
+                $this->repository->checkpoint($execution, $stepExecution, $attempt);
 
                 $this->event(new WorkflowStepCompleted(
                     executionId: $execution->id,
@@ -279,6 +281,10 @@ class WorkflowRunner
                     position: $stepExecution->position,
                     attempt: $stepExecution->attempts,
                     completedAt: $completedAt,
+                    // The same record that went to history, so the
+                    // event and the stored attempt can never disagree
+                    // about how long the step took.
+                    durationMs: $attempt->durationMs(),
                 ));
             } catch (ClaimLostException $exception) {
                 // Another worker owns the execution now; nothing we
@@ -326,6 +332,7 @@ class WorkflowRunner
             correlationId: $execution->correlationId,
             tenantId: $execution->tenantId,
             completedAt: $completedAt,
+            durationMs: $execution->durationMs(),
         ));
 
         return $execution;
@@ -382,6 +389,7 @@ class WorkflowRunner
                 tenantId: $execution->tenantId,
                 cancelledAt: $execution->cancelledAt,
                 reason: $execution->cancelReason,
+                durationMs: $execution->durationMs(),
             ));
         }
 
@@ -507,6 +515,7 @@ class WorkflowRunner
             tenantId: $execution->tenantId,
             cancelledAt: $cancelledAt,
             reason: $fresh->cancelReason,
+            durationMs: $execution->durationMs(),
         ));
 
         return true;
@@ -577,19 +586,21 @@ class WorkflowRunner
         $delay = $policy->delaySeconds($attempt, "{$execution->id}:{$stepExecution->position}");
         $nextRetryAt = $failedAt->modify("+{$delay} seconds");
 
+        $record = new StepAttempt(
+            executionId: $execution->id,
+            stepExecutionId: $stepExecution->id,
+            attempt: $attempt,
+            status: $attemptStatus,
+            error: $error,
+            errorClass: $exception::class,
+            startedAt: $stepExecution->startedAt,
+            endedAt: $failedAt,
+            nextRetryAt: $nextRetryAt,
+        );
+
         try {
             $stepExecution->markRetrying($error, $exception::class, $failedAt, $nextRetryAt);
-            $this->repository->saveStep($stepExecution, new StepAttempt(
-                executionId: $execution->id,
-                stepExecutionId: $stepExecution->id,
-                attempt: $attempt,
-                status: $attemptStatus,
-                error: $error,
-                errorClass: $exception::class,
-                startedAt: $stepExecution->startedAt,
-                endedAt: $failedAt,
-                nextRetryAt: $nextRetryAt,
-            ));
+            $this->repository->saveStep($stepExecution, $record);
 
             $execution->markRetrying($error, $exception::class, $nextRetryAt);
             $this->repository->release($execution);
@@ -617,6 +628,7 @@ class WorkflowRunner
             attempt: $attempt,
             errorClass: $exception::class,
             error: $eventError,
+            durationMs: $record->durationMs(),
         ));
 
         $this->event(new WorkflowStepRetryScheduled(
@@ -653,18 +665,20 @@ class WorkflowRunner
         $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
+        $record = new StepAttempt(
+            executionId: $execution->id,
+            stepExecutionId: $stepExecution->id,
+            attempt: $stepExecution->attempts,
+            status: $attemptStatus,
+            error: $error,
+            errorClass: $exception::class,
+            startedAt: $stepExecution->startedAt,
+            endedAt: $failedAt,
+        );
+
         try {
             $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, new StepAttempt(
-                executionId: $execution->id,
-                stepExecutionId: $stepExecution->id,
-                attempt: $stepExecution->attempts,
-                status: $attemptStatus,
-                error: $error,
-                errorClass: $exception::class,
-                startedAt: $stepExecution->startedAt,
-                endedAt: $failedAt,
-            ));
+            $this->repository->saveStep($stepExecution, $record);
         } catch (Throwable $storageFailure) {
             $this->logger->error('Laraflow could not persist a workflow failure.', [
                 'execution_id' => $execution->id,
@@ -687,6 +701,7 @@ class WorkflowRunner
             attempt: $stepExecution->attempts,
             errorClass: $exception::class,
             error: $this->includeErrorMessages ? $error : null,
+            durationMs: $record->durationMs(),
         ));
     }
 
@@ -722,6 +737,7 @@ class WorkflowRunner
             errorClass: $exception::class,
             error: $this->includeErrorMessages ? $error : null,
             failedAt: $failedAt,
+            durationMs: $execution->durationMs(),
         ));
     }
 
@@ -739,18 +755,20 @@ class WorkflowRunner
         $error = $this->errorMessage($exception);
         $failedAt = $this->now();
 
+        $record = new StepAttempt(
+            executionId: $execution->id,
+            stepExecutionId: $stepExecution->id,
+            attempt: $stepExecution->attempts,
+            status: $attemptStatus,
+            error: $error,
+            errorClass: $exception::class,
+            startedAt: $stepExecution->startedAt,
+            endedAt: $failedAt,
+        );
+
         try {
             $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, new StepAttempt(
-                executionId: $execution->id,
-                stepExecutionId: $stepExecution->id,
-                attempt: $stepExecution->attempts,
-                status: $attemptStatus,
-                error: $error,
-                errorClass: $exception::class,
-                startedAt: $stepExecution->startedAt,
-                endedAt: $failedAt,
-            ));
+            $this->repository->saveStep($stepExecution, $record);
 
             $execution->markFailed($error, $exception::class, $failedAt);
             $this->repository->release($execution);
@@ -779,6 +797,7 @@ class WorkflowRunner
             attempt: $stepExecution->attempts,
             errorClass: $exception::class,
             error: $eventError,
+            durationMs: $record->durationMs(),
         ));
 
         $this->event(new WorkflowExecutionFailed(
@@ -789,6 +808,7 @@ class WorkflowRunner
             errorClass: $exception::class,
             error: $eventError,
             failedAt: $failedAt,
+            durationMs: $execution->durationMs(),
         ));
     }
 

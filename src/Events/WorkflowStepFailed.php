@@ -25,6 +25,8 @@ readonly class WorkflowStepFailed
      *                                      recorded on the execution, or null if none was supplied.
      * @param  string|null  $tenantId  Application-supplied tenant identifier,
      *                                 or null if none was supplied.
+     * @param  int|null  $durationMs  Wall-clock milliseconds this attempt ran,
+     *                                or null when it had no recorded end.
      */
     public function __construct(
         public int|string $executionId,
@@ -36,5 +38,6 @@ readonly class WorkflowStepFailed
         public ?string $error = null,
         public ?string $correlationId = null,
         public ?string $tenantId = null,
+        public ?int $durationMs = null,
     ) {}
 }

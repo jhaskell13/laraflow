@@ -21,6 +21,7 @@ class FixtureState
         StepTwo::$runs = 0;
         StepTwo::$failTimes = 0;
         StepTwo::$beforeReturn = null;
+        StepTwo::$beforeRun = null;
         StepTwo::$seenIdempotencyKeys = [];
         StepTwo::$seenContextValue = null;
         StepTwo::$seenCorrelationId = null;

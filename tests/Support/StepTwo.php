@@ -22,6 +22,14 @@ class StepTwo implements Step
      */
     public static ?Closure $beforeReturn = null;
 
+    /**
+     * Runs at the very top of handle(), before the failure check — so
+     * it still runs on an attempt that throws. $beforeReturn cannot:
+     * it sits after the throw, which makes a failing attempt look
+     * instantaneous to anything measuring it.
+     */
+    public static ?Closure $beforeRun = null;
+
     /** @var string[] */
     public static array $seenIdempotencyKeys = [];
 
@@ -36,6 +44,10 @@ class StepTwo implements Step
         static::$seenIdempotencyKeys[] = $context->idempotencyKey();
         static::$seenContextValue = $context->get('one');
         static::$seenCorrelationId = $context->correlationId();
+
+        if (static::$beforeRun !== null) {
+            (static::$beforeRun)();
+        }
 
         if (static::$failTimes > 0) {
             static::$failTimes--;
