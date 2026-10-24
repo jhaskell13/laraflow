@@ -28,10 +28,18 @@ trait DisplaysExecutions
         $this->components->twoColumnDetail('<fg=gray>Workflow</>', $execution->workflow);
         $this->components->twoColumnDetail('<fg=gray>Status</>', $this->coloredStatus($execution->status->value));
         $this->components->twoColumnDetail('<fg=gray>Started</>', $this->formatDate($execution->startedAt));
-        $this->components->twoColumnDetail(
-            '<fg=gray>Finished</>',
-            $this->formatDate($execution->completedAt ?? $execution->failedAt)
-        );
+
+        // finished_at covers completion, failure, and cancellation
+        // alike, so this no longer has to guess which timestamp to read.
+        $this->components->twoColumnDetail('<fg=gray>Finished</>', $this->formatDate($execution->finishedAt));
+
+        if ($execution->correlationId !== null) {
+            $this->components->twoColumnDetail('<fg=gray>Correlation</>', $execution->correlationId);
+        }
+
+        if ($execution->tenantId !== null) {
+            $this->components->twoColumnDetail('<fg=gray>Tenant</>', $execution->tenantId);
+        }
 
         if ($execution->isRetrying() && $execution->nextRetryAt !== null) {
             $this->components->twoColumnDetail(

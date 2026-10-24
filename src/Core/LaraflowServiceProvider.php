@@ -18,6 +18,7 @@ use Laraflow\Console\ExecuteCommand;
 use Laraflow\Console\ListCommand;
 use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ShowCommand;
+use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Integration\ConnectorFactory;
 use Laraflow\Integration\ConnectorManager;
@@ -171,6 +172,7 @@ class LaraflowServiceProvider extends ServiceProvider
             ListCommand::class,
             RecoverCommand::class,
             ShowCommand::class,
+            SummaryCommand::class,
         ]);
     }
 

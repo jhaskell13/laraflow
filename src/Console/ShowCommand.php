@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\WorkflowExecution;
 
 /**
  * @experimental Console tooling is still evolving; see docs/public-api.md.
@@ -45,7 +46,7 @@ class ShowCommand extends Command
         }
 
         if ((bool) $this->option('attempts')) {
-            $this->displayAttemptHistory($repository, $steps);
+            $this->displayAttemptHistory($repository, $execution, $steps);
         }
 
         return self::SUCCESS;
@@ -56,24 +57,35 @@ class ShowCommand extends Command
      * it took, and which failures scheduled retries — the step table
      * alone only ever shows the latest attempt.
      *
+     * Read in one query via attemptHistory() rather than one per step.
+     * The rows already carry their step's id, so the step class names
+     * are resolved from the steps this command had already loaded.
+     *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
      */
-    protected function displayAttemptHistory(ExecutionRepository $repository, array $steps): void
-    {
-        $rows = [];
+    protected function displayAttemptHistory(
+        ExecutionRepository $repository,
+        WorkflowExecution $execution,
+        array $steps
+    ): void {
+        $names = [];
 
         foreach ($steps as $step) {
-            foreach ($repository->attempts($step) as $attempt) {
-                $rows[] = [
-                    class_basename($step->step),
-                    $attempt->attempt,
-                    $this->coloredStatus($attempt->status->value),
-                    $this->formatDate($attempt->startedAt),
-                    $attempt->durationMs() !== null ? $attempt->durationMs().' ms' : '—',
-                    $attempt->nextRetryAt !== null ? $this->formatDate($attempt->nextRetryAt) : '',
-                    $attempt->error ?? '',
-                ];
-            }
+            $names[(string) $step->id] = class_basename($step->step);
+        }
+
+        $rows = [];
+
+        foreach ($repository->attemptHistory($execution) as $attempt) {
+            $rows[] = [
+                $names[(string) $attempt->stepExecutionId] ?? '(removed step)',
+                $attempt->attempt,
+                $this->coloredStatus($attempt->status->value),
+                $this->formatDate($attempt->startedAt),
+                $attempt->durationMs() !== null ? $attempt->durationMs().' ms' : '—',
+                $attempt->nextRetryAt !== null ? $this->formatDate($attempt->nextRetryAt) : '',
+                $attempt->error ?? '',
+            ];
         }
 
         if ($rows === []) {
