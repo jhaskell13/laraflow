@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
+use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -21,6 +22,15 @@ use Laraflow\Exceptions\Workflow\RetryNotDueException;
  */
 interface ExecutionRepository
 {
+    /**
+     * The most executions list() will ever return in one page, whatever
+     * limit the caller asked for. Observability tooling that can ask
+     * for an unbounded result is observability tooling that can take an
+     * application down; the bound lives in the contract so no caller
+     * can be surprised by an implementation that forgot it.
+     */
+    public const MAX_PAGE_SIZE = 500;
+
     /**
      * Create an execution and its complete step plan atomically.
      *
@@ -73,6 +83,46 @@ interface ExecutionRepository
      * @return StepExecution[] ordered by position.
      */
     public function steps(
+        WorkflowExecution $execution
+    ): array;
+
+    /**
+     * One page of executions matching $filter, ordered by id (newest
+     * first unless the filter says otherwise), paginated by keyset.
+     *
+     * $limit is clamped to [1, MAX_PAGE_SIZE]; the page reports the
+     * limit actually applied. $cursor is the `nextCursor` of a previous
+     * page and is opaque to callers; an implementation may reject a
+     * cursor it did not issue.
+     *
+     * Every filter criterion must be served from an index — this is the
+     * stable listing API for applications and consoles, and it must stay
+     * bounded on a high-volume table.
+     *
+     * @throws InvalidArgumentException for a malformed cursor.
+     */
+    public function list(
+        ExecutionFilter $filter,
+        int $limit = 50,
+        ?string $cursor = null
+    ): ExecutionPage;
+
+    /**
+     * How many executions match $filter. Ordering and pagination do not
+     * apply; the count is of the whole matching set.
+     */
+    public function count(
+        ExecutionFilter $filter
+    ): int;
+
+    /**
+     * Attempt history for every step of one execution in a single
+     * query, ordered by step position then attempt number. The same rows
+     * attempts() returns per step, without one query per step.
+     *
+     * @return StepAttempt[]
+     */
+    public function attemptHistory(
         WorkflowExecution $execution
     ): array;
 
