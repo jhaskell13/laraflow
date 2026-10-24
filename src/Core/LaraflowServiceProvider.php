@@ -9,6 +9,7 @@ use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Http\Client\Factory as HttpClient;
+use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Laraflow\Auth\GithubTokenAuthenticator;
@@ -20,12 +21,14 @@ use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ShowCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
+use Laraflow\Events\LifecycleLogger;
 use Laraflow\Integration\ConnectorFactory;
 use Laraflow\Integration\ConnectorManager;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Policy\PolicyResolver;
@@ -95,6 +98,21 @@ class LaraflowServiceProvider extends ServiceProvider
             ));
         });
 
+        $this->app->singleton(LoggingContext::class, function (Container $app): LoggingContext {
+            /** @var Config $config */
+            $config = $app->make(Config::class);
+
+            // Null repository = disabled, so the runner's call sites
+            // stay unconditional. The bound() check matters because
+            // Laravel's context repository is registered by the
+            // framework, not by this package: a non-Laravel container
+            // resolving the runner must still work.
+            $enabled = (bool) $config->get('laraflow.logging.context', true)
+                && $app->bound(ContextRepository::class);
+
+            return new LoggingContext($enabled ? $app->make(ContextRepository::class) : null);
+        });
+
         $this->app->singleton(EventEmitter::class, fn (Container $app): EventEmitter => new EventEmitter(
             $app->make(EventDispatcher::class),
             $app->make(LoggerInterface::class),
@@ -115,6 +133,7 @@ class LaraflowServiceProvider extends ServiceProvider
                 clock: $app->make(ClockInterface::class),
                 policies: $app->make(PolicyResolver::class),
                 redactor: $app->make(ErrorRedactor::class),
+                logging: $app->make(LoggingContext::class),
             );
         });
 
@@ -143,6 +162,26 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->registerMigrations();
         $this->registerCommands();
         $this->registerConnectors();
+        $this->registerLifecycleLogging();
+    }
+
+    /**
+     * Log every lifecycle event, when the application asks for it.
+     *
+     * A wildcard listener rather than one registration per event class,
+     * so an event added in a later version is logged without this
+     * method being touched.
+     */
+    protected function registerLifecycleLogging(): void
+    {
+        if (! (bool) $this->config()->get('laraflow.logging.lifecycle', false)) {
+            return;
+        }
+
+        $this->app->make(EventDispatcher::class)->listen(
+            'Laraflow\Events\*',
+            [LifecycleLogger::class, 'handle'],
+        );
     }
 
     /**

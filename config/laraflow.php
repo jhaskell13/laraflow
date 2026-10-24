@@ -197,6 +197,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Logging
+    |--------------------------------------------------------------------------
+    |
+    | context: publish the running execution's identity into Laravel's
+    | log context (laraflow.execution_id, workflow, step, position,
+    | attempt, correlation_id, tenant_id) for as long as a step is
+    | running. Every log record your application writes from inside a
+    | step then carries them without you passing anything, and Laravel
+    | propagates the context into any job the step dispatches. Keys are
+    | prefixed and restored on the way out, so nothing of yours is
+    | overwritten and nothing of ours lingers after the run.
+    |
+    | lifecycle: write one log record per lifecycle event — a ready-made
+    | execution trail for applications that do not want to register
+    | listeners. Off by default: an application already listening to
+    | these events, or shipping them to a metrics backend, should not
+    | also pay for a log line per step. Failures log at error, retries
+    | and failed attempts at warning, everything else at info.
+    |
+    */
+
+    'logging' => [
+        'context' => env('LARAFLOW_LOG_CONTEXT', true),
+        'lifecycle' => env('LARAFLOW_LOG_LIFECYCLE', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Events
     |--------------------------------------------------------------------------
     |

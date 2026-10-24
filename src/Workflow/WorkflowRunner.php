@@ -25,6 +25,7 @@ use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
@@ -61,6 +62,7 @@ class WorkflowRunner
         ?ClockInterface $clock = null,
         ?PolicyResolver $policies = null,
         ?ErrorRedactor $redactor = null,
+        protected ?LoggingContext $logging = null,
     ) {
         $this->clock = $clock ?? new Clock;
 
@@ -135,6 +137,88 @@ class WorkflowRunner
             $ignoreRetrySchedule
         );
 
+        // Published before anything runs and restored in the finally,
+        // so every log record written while this execution is in
+        // flight — including the application's own, from inside a step
+        // — carries its identity, and none written afterwards do.
+        $this->logging?->enter($execution);
+
+        try {
+            return $this->runClaimed($execution, $workflow);
+        } finally {
+            $this->logging?->leave();
+        }
+    }
+
+    /**
+     * Convenience: start() then execute() synchronously in this process.
+     *
+     * @param  array<string, mixed>  $input
+     * @param  ExecutionOptions|null  $options  Correlation and tenant
+     *                                          identifiers to record on the execution.
+     */
+    public function run(
+        Workflow $workflow,
+        array $input = [],
+        ?ExecutionOptions $options = null
+    ): WorkflowExecution {
+        $execution = $this->start($workflow, $input, $options);
+
+        return $this->execute($execution->id, $workflow);
+    }
+
+    /**
+     * Cancel an execution, or request cancellation when a live worker
+     * owns it.
+     *
+     * Returns the resulting handle: `isCancelled()` means it is done;
+     * a still-`running` handle with `cancelRequestedAt` set means the
+     * owning worker will stop at its next step boundary. A step already
+     * in flight is never interrupted — bounding that is the job of the
+     * step's own timeout and the queue worker's.
+     *
+     * @throws ExecutionNotFoundException
+     * @throws ExecutionNotCancellableException when the execution has completed.
+     */
+    public function cancel(int|string $executionId, ?string $reason = null): WorkflowExecution
+    {
+        $existing = $this->repository->find($executionId);
+
+        if ($existing->isCancelled()) {
+            // Idempotent: the original cancellation, and its event,
+            // stand. Re-announcing a state that did not change would
+            // make the event's once-per-execution guarantee a lie.
+            return $existing;
+        }
+
+        $execution = $this->repository->requestCancellation($executionId, $reason, $this->now());
+
+        if ($execution->isCancelled() && $execution->cancelledAt !== null) {
+            $this->event(new WorkflowExecutionCancelled(
+                executionId: $execution->id,
+                workflow: $execution->workflow,
+                correlationId: $execution->correlationId,
+                tenantId: $execution->tenantId,
+                cancelledAt: $execution->cancelledAt,
+                reason: $execution->cancelReason,
+                durationMs: $execution->durationMs(),
+            ));
+        }
+
+        return $execution;
+    }
+
+    /**
+     * Run every non-completed step of an execution this worker has
+     * already claimed, and bring the execution to its resting state.
+     *
+     * Split from execute() so the claim's logging context can be
+     * restored in a finally without indenting the whole run.
+     */
+    protected function runClaimed(
+        WorkflowExecution $execution,
+        Workflow $workflow
+    ): WorkflowExecution {
         $startedAt = $this->now();
         $execution->markRunning($startedAt);
 
@@ -339,64 +423,6 @@ class WorkflowRunner
     }
 
     /**
-     * Convenience: start() then execute() synchronously in this process.
-     *
-     * @param  array<string, mixed>  $input
-     * @param  ExecutionOptions|null  $options  Correlation and tenant
-     *                                          identifiers to record on the execution.
-     */
-    public function run(
-        Workflow $workflow,
-        array $input = [],
-        ?ExecutionOptions $options = null
-    ): WorkflowExecution {
-        $execution = $this->start($workflow, $input, $options);
-
-        return $this->execute($execution->id, $workflow);
-    }
-
-    /**
-     * Cancel an execution, or request cancellation when a live worker
-     * owns it.
-     *
-     * Returns the resulting handle: `isCancelled()` means it is done;
-     * a still-`running` handle with `cancelRequestedAt` set means the
-     * owning worker will stop at its next step boundary. A step already
-     * in flight is never interrupted — bounding that is the job of the
-     * step's own timeout and the queue worker's.
-     *
-     * @throws ExecutionNotFoundException
-     * @throws ExecutionNotCancellableException when the execution has completed.
-     */
-    public function cancel(int|string $executionId, ?string $reason = null): WorkflowExecution
-    {
-        $existing = $this->repository->find($executionId);
-
-        if ($existing->isCancelled()) {
-            // Idempotent: the original cancellation, and its event,
-            // stand. Re-announcing a state that did not change would
-            // make the event's once-per-execution guarantee a lie.
-            return $existing;
-        }
-
-        $execution = $this->repository->requestCancellation($executionId, $reason, $this->now());
-
-        if ($execution->isCancelled() && $execution->cancelledAt !== null) {
-            $this->event(new WorkflowExecutionCancelled(
-                executionId: $execution->id,
-                workflow: $execution->workflow,
-                correlationId: $execution->correlationId,
-                tenantId: $execution->tenantId,
-                cancelledAt: $execution->cancelledAt,
-                reason: $execution->cancelReason,
-                durationMs: $execution->durationMs(),
-            ));
-        }
-
-        return $execution;
-    }
-
-    /**
      * The supplied workflow must be the one the execution was created
      * from: same class, same steps, same order. Otherwise durable state
      * would be silently reinterpreted by different code.
@@ -537,6 +563,14 @@ class WorkflowRunner
         $stepExecution->markRunning($startedAt, $timeoutAt);
         $this->repository->saveStep($stepExecution, $interrupted);
 
+        // Narrowed to this step *before* the start is announced. A
+        // listener's own logging, and the optional lifecycle log,
+        // both write during the event — with the keys set afterwards
+        // they would be attributed to the previous step, or to none
+        // at all on the first one.
+        $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt);
+        $this->logging?->enterStep($stepExecution);
+
         $this->event(new WorkflowStepStarted(
             executionId: $execution->id,
             workflow: $execution->workflow,
@@ -546,8 +580,6 @@ class WorkflowRunner
             position: $stepExecution->position,
             attempt: $stepExecution->attempts,
         ));
-
-        $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt);
     }
 
     /**

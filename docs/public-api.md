@@ -37,6 +37,8 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 | `Laraflow\Workflow\StepAttempt` | Public | Read-only record of one finished attempt: number, outcome, error, timestamps, `durationMs()`, and any retry it scheduled. |
 | `Laraflow\Workflow\StepAttemptStatus` | Public | Enum: `completed`, `failed`, `timed_out`, `interrupted`. |
 | `Laraflow\Support\ErrorRedactor` | Public (contract) | Rewrites exception messages before Laraflow persists, logs, or emits them; configured via `laraflow.errors.redactor`. |
+| `Laraflow\Support\LoggingContext` | Internal | Publishes `laraflow.*` keys into Laravel's log context for the duration of an execution and restores them afterwards. Controlled by `laraflow.logging.context`. |
+| `Laraflow\Events\LifecycleLogger` | Internal | Wildcard listener writing one log record per lifecycle event. Controlled by `laraflow.logging.lifecycle`. |
 | `Laraflow\Support\Clock` | Internal | Default PSR-20 `ClockInterface` binding, backed by Laravel's `Date` facade. Replace the binding to control every Laraflow timestamp. |
 
 ## Queue execution
@@ -130,6 +132,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | `Laraflow\Core\LaraflowServiceProvider` | Public | Auto-discovered. |
 | `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `integrations.github.token` | Public | |
 | `config/laraflow.php` keys `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `abandon_after_attempts`, `pending_after`), `events.include_error_messages` | Public | Defaults and their rationale in [docs/queue-and-recovery.md](queue-and-recovery.md). `queue.tries` defaults to 1 and `recovery.pending_after` to null (pending scan disabled), deliberately. **Breaking in Milestone 3:** `recovery.max_attempts` was renamed `recovery.abandon_after_attempts`. |
+| `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 

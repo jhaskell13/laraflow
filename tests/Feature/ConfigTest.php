@@ -55,6 +55,17 @@ class ConfigTest extends TestCase
         $this->assertTrue((bool) config('laraflow.retry.dispatch_delayed'));
     }
 
+    public function test_logging_configuration_defaults(): void
+    {
+        // Context is on: it is additive, namespaced, and restored on the
+        // way out, so it cannot disturb an application that ignores it.
+        $this->assertTrue((bool) config('laraflow.logging.context'));
+
+        // The lifecycle log is opt-in: a record per step is a cost an
+        // application should choose.
+        $this->assertFalse((bool) config('laraflow.logging.lifecycle'));
+    }
+
     public function test_no_step_deadline_is_configured_by_default(): void
     {
         $this->assertNull(config('laraflow.timeout.step'));
