@@ -13,6 +13,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowExecution;
@@ -45,6 +46,8 @@ class WorkflowDispatcher
      * @param  array<string, mixed>  $input
      * @param  string|null  $connection  Overrides laraflow.queue.connection.
      * @param  string|null  $queue  Overrides laraflow.queue.queue.
+     * @param  ExecutionOptions|null  $options  Correlation and tenant
+     *                                          identifiers to record on the execution.
      *
      * @throws InvalidWorkflowDefinitionException if the workflow has no steps or a step is not a Step class.
      * @throws UnserializableValueException if the input is not JSON-serializable.
@@ -54,8 +57,9 @@ class WorkflowDispatcher
         array $input = [],
         ?string $connection = null,
         ?string $queue = null,
+        ?ExecutionOptions $options = null,
     ): WorkflowExecution {
-        $execution = $this->runner->start($workflow, $input);
+        $execution = $this->runner->start($workflow, $input, $options);
 
         $this->queueJob($execution, $connection, $queue);
 
@@ -128,6 +132,8 @@ class WorkflowDispatcher
         $this->events?->emit(new WorkflowExecutionDispatched(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             connection: $connection,
             queue: $queue,
         ));

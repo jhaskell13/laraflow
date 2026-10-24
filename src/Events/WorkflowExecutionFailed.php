@@ -22,6 +22,10 @@ readonly class WorkflowExecutionFailed
     /**
      * @param  string  $workflow  Workflow class name.
      * @param  string  $errorClass  Class of the exception the failing step threw.
+     * @param  string|null  $correlationId  Application-supplied identifier
+     *                                      recorded on the execution, or null if none was supplied.
+     * @param  string|null  $tenantId  Application-supplied tenant identifier,
+     *                                 or null if none was supplied.
      */
     public function __construct(
         public int|string $executionId,
@@ -29,5 +33,7 @@ readonly class WorkflowExecutionFailed
         public string $errorClass,
         public ?string $error,
         public DateTimeImmutable $failedAt,
+        public ?string $correlationId = null,
+        public ?string $tenantId = null,
     ) {}
 }

@@ -20,6 +20,10 @@ readonly class WorkflowStepStarted
      * @param  string  $step  Step class name.
      * @param  int  $position  Zero-based position in the step plan.
      * @param  int  $attempt  Attempt number, starting at 1.
+     * @param  string|null  $correlationId  Application-supplied identifier
+     *                                      recorded on the execution, or null if none was supplied.
+     * @param  string|null  $tenantId  Application-supplied tenant identifier,
+     *                                 or null if none was supplied.
      */
     public function __construct(
         public int|string $executionId,
@@ -27,5 +31,7 @@ readonly class WorkflowStepStarted
         public string $step,
         public int $position,
         public int $attempt,
+        public ?string $correlationId = null,
+        public ?string $tenantId = null,
     ) {}
 }

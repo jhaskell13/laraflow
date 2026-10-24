@@ -30,6 +30,8 @@ class WorkflowContext
     public function __construct(
         protected array $data = [],
         protected int|string|null $executionId = null,
+        protected ?string $correlationId = null,
+        protected ?string $tenantId = null,
     ) {}
 
     public function set(string $key, mixed $value): void
@@ -71,6 +73,33 @@ class WorkflowContext
     public function executionId(): int|string|null
     {
         return $this->executionId;
+    }
+
+    /**
+     * The correlation identifier recorded on this execution, or null if
+     * the application supplied none.
+     *
+     * Forward it to external services (a request id header, a provider's
+     * metadata field) so one identifier ties your application's logs,
+     * this execution, and the provider's records together.
+     */
+    public function correlationId(): ?string
+    {
+        return $this->correlationId;
+    }
+
+    /**
+     * The tenant identifier recorded on this execution, or null if the
+     * application supplied none.
+     *
+     * This is the tenant the execution was *created* for. It is durable,
+     * so a step reading it after recovery gets the original tenant
+     * rather than whatever ambient tenant context the recovering worker
+     * happens to be in.
+     */
+    public function tenantId(): ?string
+    {
+        return $this->tenantId;
     }
 
     /**

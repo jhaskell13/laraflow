@@ -30,11 +30,15 @@ interface ExecutionRepository
      *
      * @param  array<string, mixed>  $input
      * @param  list<string>  $steps  Ordered step class names.
+     * @param  ExecutionOptions|null  $options  Application-supplied correlation
+     *                                          and tenant identifiers, recorded with the execution. Null
+     *                                          records none.
      */
     public function create(
         string $workflow,
         array $input = [],
-        array $steps = []
+        array $steps = [],
+        ?ExecutionOptions $options = null
     ): WorkflowExecution;
 
     /**

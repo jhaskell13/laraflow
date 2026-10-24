@@ -18,7 +18,7 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 |-------|-------|-------|
 | `Laraflow\Workflow\Workflow` | Public | Abstract base. `steps(): array` returns an ordered list of step class names. Optional overrides: `defaultStepPolicy(): ?StepPolicy` and `failurePolicy(): FailurePolicy`. |
 | `Laraflow\Workflow\Step` | Public | Interface. `handle(WorkflowContext $context): mixed`. The return value is persisted as the step output and must be JSON-serialisable. |
-| `Laraflow\Workflow\WorkflowContext` | Public | Key/value data shared between steps in one execution: `get`, `set`, `has`, `forget`, `all`. A stored `null` is a value (`has()` is true, `get()` returns null, not the default). Exposes execution metadata for idempotency — `executionId`, `stepPosition`, `attempt`, `idempotencyKey` — and the current attempt's deadline: `deadline()`, `remainingSeconds()`. |
+| `Laraflow\Workflow\WorkflowContext` | Public | Key/value data shared between steps in one execution: `get`, `set`, `has`, `forget`, `all`. A stored `null` is a value (`has()` is true, `get()` returns null, not the default). Exposes execution metadata for idempotency — `executionId`, `stepPosition`, `attempt`, `idempotencyKey` — the current attempt's deadline (`deadline()`, `remainingSeconds()`), and the execution's identifiers (`correlationId()`, `tenantId()`), read from durable state so a recovered step sees the originals. |
 | `Laraflow\Workflow\Policy\StepPolicy` | Public | Retry and timeout policy for one step: attempts, capped exponential backoff, deterministic jitter, `retryOn`/`dontRetryOn`, `timeoutSeconds`. Specified in [retry-and-failure-policy.md](retry-and-failure-policy.md). |
 | `Laraflow\Workflow\Policy\HasStepPolicy` | Public (contract) | Optional interface for steps declaring their own `StepPolicy`. |
 | `Laraflow\Workflow\Policy\FailurePolicy` | Public | Enum: `stop` (default), `continue`. |
@@ -28,8 +28,9 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Workflow\WorkflowRunner` | Public | Entry point for running workflows: `start()`, `execute()` (with the `ignoreRetrySchedule` override), `run()`, and `cancel()`. Resolve it from the container; its constructor is internal wiring. Behaviour is specified in [docs/execution-lifecycle.md](execution-lifecycle.md) and [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). |
-| `Laraflow\Workflow\WorkflowExecution` | Public | Read-only handle describing one execution: id, workflow class, input, context, status, error, timestamps. State changes go through `mark*()` transition methods that enforce the state machine. |
+| `Laraflow\Workflow\WorkflowRunner` | Public | Entry point for running workflows: `start()`, `execute()` (with the `ignoreRetrySchedule` override), `run()`, and `cancel()`. `start()` and `run()` take an optional trailing `ExecutionOptions`. Resolve it from the container; its constructor is internal wiring. Behaviour is specified in [docs/execution-lifecycle.md](execution-lifecycle.md) and [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). |
+| `Laraflow\Workflow\ExecutionOptions` | Public | Identifiers recorded on an execution at creation: `correlationId`, `tenantId`. Validated at construction — trimmed, blank treated as absent, rejected over 255 characters or containing control characters. An options object rather than extra parameters so later additions do not change four signatures again. |
+| `Laraflow\Workflow\WorkflowExecution` | Public | Read-only handle describing one execution: id, workflow class, input, context, status, error, timestamps, `correlationId`, `tenantId`, and `finishedAt` (set by every terminal transition, cleared when the execution runs again). State changes go through `mark*()` transition methods that enforce the state machine. |
 | `Laraflow\Workflow\StepExecution` | Public | Read-only handle describing one step within an execution, with the same transition-method rule. |
 | `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`. More cases may be added; applications should handle unknown cases defensively. |
 | `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`. Same caveat. |
@@ -42,7 +43,7 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Queue\WorkflowDispatcher` | Public | Asynchronous counterpart of `WorkflowRunner::run()`: `dispatch(Workflow, array $input, ?string $connection, ?string $queue)` and `dispatchExecution(id, ...)`. Behaviour specified in [docs/queue-and-recovery.md](queue-and-recovery.md). |
+| `Laraflow\Queue\WorkflowDispatcher` | Public | Asynchronous counterpart of `WorkflowRunner::run()`: `dispatch(Workflow, array $input, ?string $connection, ?string $queue, ?ExecutionOptions $options)` and `dispatchExecution(id, ...)`. Behaviour specified in [docs/queue-and-recovery.md](queue-and-recovery.md). |
 | `Laraflow\Queue\ExecuteWorkflowJob` | Public | The queued job. Public so applications can reference it in `Queue::fake()` assertions, Horizon configuration, and worker tuning. Its constructor takes an execution id; the payload carries nothing else. |
 | `Laraflow\Workflow\RecoveryService` | Internal | Engine behind `laraflow:recover`. Use the command. |
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
@@ -52,6 +53,8 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 ## Events
 
 All events live in `Laraflow\Events`, are `readonly`, and are **public**: `WorkflowExecutionDispatched`, `WorkflowExecutionStarted`, `WorkflowStepStarted`, `WorkflowStepCompleted`, `WorkflowStepFailed`, `WorkflowStepRetryScheduled`, `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, `WorkflowExecutionCancelled`, `WorkflowExecutionRetryScheduled`.
+
+Every one of them carries `correlationId` and `tenantId` (null when the application supplied none), so a listener can route or tag by them without re-reading the execution.
 
 Guarantees applications may rely on:
 
@@ -70,7 +73,7 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Workflow\ExecutionRepository` | Public (contract) | The supported way to read executions, and the persistence boundary: `create` (with plan snapshot), `find`, `claim` (compare-and-set, retry-schedule-gated), `steps`, `attempts`, `saveStep`, `checkpoint` (transactional, claim-verified, attempt-history-carrying), `release`, `requestCancellation`, plus the recovery scans `stale`, `pendingBefore`, and `dueForRetry`. Custom implementations must honour the guarantees in [docs/execution-lifecycle.md](execution-lifecycle.md) and [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). **Breaking in Milestone 3:** `claim()` gained `$ignoreRetrySchedule` and may throw `RetryNotDueException`; `saveStep()`/`checkpoint()` gained an optional `StepAttempt`; `attempts()`, `dueForRetry()`, and `requestCancellation()` were added. |
+| `Laraflow\Workflow\ExecutionRepository` | Public (contract) | The supported way to read executions, and the persistence boundary: `create` (with plan snapshot), `find`, `claim` (compare-and-set, retry-schedule-gated), `steps`, `attempts`, `saveStep`, `checkpoint` (transactional, claim-verified, attempt-history-carrying), `release`, `requestCancellation`, plus the recovery scans `stale`, `pendingBefore`, and `dueForRetry`. Custom implementations must honour the guarantees in [docs/execution-lifecycle.md](execution-lifecycle.md) and [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). **Breaking in Milestone 3:** `claim()` gained `$ignoreRetrySchedule` and may throw `RetryNotDueException`; `saveStep()`/`checkpoint()` gained an optional `StepAttempt`; `attempts()`, `dueForRetry()`, and `requestCancellation()` were added. **Breaking in Milestone 4:** `create()` gained a trailing optional `?ExecutionOptions $options`. |
 | `Laraflow\Workflow\Repositories\EloquentExecutionRepository` | Internal | Default binding. Swap via the container if needed. |
 | `Laraflow\Workflow\Models\WorkflowExecutionModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\StepExecutionModel` | Internal | Table layout will change. |
@@ -112,6 +115,7 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | `Laraflow\Exceptions\Workflow\RetryNotDueException` | Public. A `retrying` execution was claimed before its `next_retry_at`; override deliberately with `--now`. |
 | `Laraflow\Exceptions\Workflow\StepTimeoutException` | Public. Recorded failure of an attempt that passed its deadline and was never checkpointed. |
 | `Laraflow\Exceptions\Workflow\ExecutionNotCancellableException` | Public. Cancellation of an execution that has already completed. |
+| `Laraflow\Exceptions\Workflow\InvalidExecutionOptionsException` | Public. An `ExecutionOptions` identifier was too long or contained control characters. Thrown at construction, before anything is persisted. |
 
 Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw after persisting the failure.
 

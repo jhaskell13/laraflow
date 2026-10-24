@@ -13,6 +13,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Support\Clock;
+use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepAttemptModel;
@@ -44,14 +45,17 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function create(
         string $workflow,
         array $input = [],
-        array $steps = []
+        array $steps = [],
+        ?ExecutionOptions $options = null
     ): WorkflowExecution {
-        $model = $this->transaction(function () use ($workflow, $input, $steps) {
+        $model = $this->transaction(function () use ($workflow, $input, $steps, $options) {
             $model = WorkflowExecutionModel::query()->create([
                 'workflow' => $workflow,
                 'status' => ExecutionStatus::Pending->value,
                 'input' => $input,
                 'context' => [],
+                'correlation_id' => $options?->correlationId,
+                'tenant_id' => $options?->tenantId,
             ]);
 
             foreach ($steps as $position => $stepClass) {

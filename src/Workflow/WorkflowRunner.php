@@ -76,18 +76,24 @@ class WorkflowRunner
      * running anything.
      *
      * @param  array<string, mixed>  $input
+     * @param  ExecutionOptions|null  $options  Correlation and tenant
+     *                                          identifiers to record on the execution.
      *
      * @throws InvalidWorkflowDefinitionException if the workflow has no steps or a step is not a Step class.
      * @throws UnserializableValueException if the input is not JSON-serializable.
      */
-    public function start(Workflow $workflow, array $input = []): WorkflowExecution
-    {
+    public function start(
+        Workflow $workflow,
+        array $input = [],
+        ?ExecutionOptions $options = null
+    ): WorkflowExecution {
         DurableValue::assert($input, 'input');
 
         return $this->repository->create(
             workflow: $workflow::class,
             input: $input,
             steps: $this->validatedPlan($workflow),
+            options: $options,
         );
     }
 
@@ -135,6 +141,8 @@ class WorkflowRunner
         $this->event(new WorkflowExecutionStarted(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             startedAt: $execution->startedAt ?? $startedAt,
         ));
 
@@ -145,6 +153,11 @@ class WorkflowRunner
         $context = new WorkflowContext(
             data: array_merge($execution->input, $execution->context),
             executionId: $execution->id,
+            // Read from durable state, not from ambient request context:
+            // a step re-run on a recovering worker must see the identifiers
+            // the execution was created with.
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
         );
 
         $failurePolicy = $workflow->failurePolicy();
@@ -255,6 +268,8 @@ class WorkflowRunner
                 $this->event(new WorkflowStepCompleted(
                     executionId: $execution->id,
                     workflow: $execution->workflow,
+                    correlationId: $execution->correlationId,
+                    tenantId: $execution->tenantId,
                     step: $stepExecution->step,
                     position: $stepExecution->position,
                     attempt: $stepExecution->attempts,
@@ -303,6 +318,8 @@ class WorkflowRunner
         $this->event(new WorkflowExecutionCompleted(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             completedAt: $completedAt,
         ));
 
@@ -313,10 +330,15 @@ class WorkflowRunner
      * Convenience: start() then execute() synchronously in this process.
      *
      * @param  array<string, mixed>  $input
+     * @param  ExecutionOptions|null  $options  Correlation and tenant
+     *                                          identifiers to record on the execution.
      */
-    public function run(Workflow $workflow, array $input = []): WorkflowExecution
-    {
-        $execution = $this->start($workflow, $input);
+    public function run(
+        Workflow $workflow,
+        array $input = [],
+        ?ExecutionOptions $options = null
+    ): WorkflowExecution {
+        $execution = $this->start($workflow, $input, $options);
 
         return $this->execute($execution->id, $workflow);
     }
@@ -351,6 +373,8 @@ class WorkflowRunner
             $this->event(new WorkflowExecutionCancelled(
                 executionId: $execution->id,
                 workflow: $execution->workflow,
+                correlationId: $execution->correlationId,
+                tenantId: $execution->tenantId,
                 cancelledAt: $execution->cancelledAt,
                 reason: $execution->cancelReason,
             ));
@@ -474,6 +498,8 @@ class WorkflowRunner
         $this->event(new WorkflowExecutionCancelled(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             cancelledAt: $cancelledAt,
             reason: $fresh->cancelReason,
         ));
@@ -500,6 +526,8 @@ class WorkflowRunner
         $this->event(new WorkflowStepStarted(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $stepExecution->attempts,
@@ -577,6 +605,8 @@ class WorkflowRunner
         $this->event(new WorkflowStepFailed(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $attempt,
@@ -587,6 +617,8 @@ class WorkflowRunner
         $this->event(new WorkflowStepRetryScheduled(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $attempt,
@@ -643,6 +675,8 @@ class WorkflowRunner
         $this->event(new WorkflowStepFailed(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $stepExecution->attempts,
@@ -678,6 +712,8 @@ class WorkflowRunner
         $this->event(new WorkflowExecutionFailed(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             errorClass: $exception::class,
             error: $this->includeErrorMessages ? $error : null,
             failedAt: $failedAt,
@@ -731,6 +767,8 @@ class WorkflowRunner
         $this->event(new WorkflowStepFailed(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $stepExecution->attempts,
@@ -741,6 +779,8 @@ class WorkflowRunner
         $this->event(new WorkflowExecutionFailed(
             executionId: $execution->id,
             workflow: $execution->workflow,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
             errorClass: $exception::class,
             error: $eventError,
             failedAt: $failedAt,

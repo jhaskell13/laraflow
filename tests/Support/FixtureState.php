@@ -16,11 +16,14 @@ class FixtureState
         StepOne::$runs = 0;
         StepOne::$beforeReturn = null;
         StepOne::$seenDeadline = null;
+        StepOne::$seenCorrelationId = null;
+        StepOne::$seenTenantId = null;
         StepTwo::$runs = 0;
         StepTwo::$failTimes = 0;
         StepTwo::$beforeReturn = null;
         StepTwo::$seenIdempotencyKeys = [];
         StepTwo::$seenContextValue = null;
+        StepTwo::$seenCorrelationId = null;
         StepThree::$runs = 0;
         StepThree::$seenContextValueFromStepTwo = null;
         MutableWorkflow::$steps = [];

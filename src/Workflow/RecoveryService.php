@@ -229,6 +229,8 @@ class RecoveryService
         $this->events?->emit(new WorkflowExecutionRetryScheduled(
             executionId: $candidate->execution->id,
             workflow: $candidate->execution->workflow,
+            correlationId: $candidate->execution->correlationId,
+            tenantId: $candidate->execution->tenantId,
             reason: $candidate->reason,
             attempts: $candidate->attempts,
         ));

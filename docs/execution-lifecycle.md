@@ -8,9 +8,9 @@ All three run the workflow in the calling process. To run one on a queue worker 
 
 | Method | Behaviour |
 |--------|-----------|
-| `start(Workflow $workflow, array $input = []): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. |
+| `start(Workflow $workflow, array $input = [], ?ExecutionOptions $options = null): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. `$options` records the correlation and tenant identifiers described in [Correlation identifiers](#correlation-identifiers). |
 | `execute(int\|string $executionId, Workflow $workflow, bool $ignoreRetrySchedule = false): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` in position order, checkpoints after each, and marks the execution terminal. Used for first execution *and* for recovery — there is one code path. `$ignoreRetrySchedule` claims a `retrying` execution before its due time (the operator override behind `laraflow:execute --now`). |
-| `run(Workflow $workflow, array $input = []): WorkflowExecution` | `start()` followed by `execute()` in the same process. |
+| `run(Workflow $workflow, array $input = [], ?ExecutionOptions $options = null): WorkflowExecution` | `start()` followed by `execute()` in the same process. |
 | `cancel(int\|string $executionId, ?string $reason = null): WorkflowExecution` | Cancels an execution, or requests cooperative cancellation from the worker that owns it. See [retry-and-failure-policy.md](retry-and-failure-policy.md#cancellation). |
 
 On a step failure the step's retry policy decides ([retry-and-failure-policy.md](retry-and-failure-policy.md)). If a retry is allowed, the failed attempt and its schedule are persisted and the `retrying` handle is **returned** — nothing is thrown, because nothing has terminally failed. When the policy refuses, or no policy enables retries (the shipped default), `execute()`/`run()` persist the failure and rethrow the step's original exception unchanged.
@@ -104,6 +104,25 @@ The bold row is the at-least-once contract: **Laraflow guarantees each step's ch
 Each of the re-run rows above also closes out the dead attempt in history, as `interrupted` or — if its deadline had passed — as `timed_out`, which is charged to the retry budget; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts).
 
 To make repeated side effects safe, steps get an idempotency hook: `WorkflowContext::idempotencyKey()` returns `laraflow:{executionId}:{stepPosition}` — stable across crashes and retries of the same logical step, different for different steps and executions. `executionId()`, `stepPosition()`, and `attempt()` are also exposed for custom schemes. Pass the key to providers that support idempotency keys, or use it to deduplicate in your own tables.
+
+## Correlation identifiers
+
+An execution can record two application-supplied identifiers when it is created:
+
+```php
+use Laraflow\Workflow\ExecutionOptions;
+
+$runner->run($workflow, $input, new ExecutionOptions(
+    correlationId: $request->header('X-Request-Id'),
+    tenantId: (string) $tenant->id,
+));
+```
+
+Laraflow never interprets them. It persists them to indexed columns, exposes them to steps, and carries them on every lifecycle event, so one identifier ties an application's logs, an execution, and an external provider's records together.
+
+- **Validated at construction**, before anything is persisted: trimmed, with a blank value treated as absent (so passing a missing request header is safe); rejected over 255 characters, because silent truncation by the database leaves an identifier that correlates with nothing; and rejected when they contain control characters, because these values reach log records where a newline would let a crafted identifier forge a second line. Violations raise `InvalidExecutionOptionsException`.
+- **Read from durable state, never from ambient context.** A step calls `$context->correlationId()` and `$context->tenantId()`. A worker recovering an execution has no request to inherit them from, so they come from the execution record and a re-run step sees the originals.
+- **Immutable.** They are set at creation and never rewritten; `execute()` has no options parameter. An execution's identity cannot change under recovery.
 
 ## Serialization contract
 

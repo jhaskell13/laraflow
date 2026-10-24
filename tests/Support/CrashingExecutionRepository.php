@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Support;
 
 use DateTimeImmutable;
+use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepExecution;
@@ -30,9 +31,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         protected string $phase = 'before',
     ) {}
 
-    public function create(string $workflow, array $input = [], array $steps = []): WorkflowExecution
+    public function create(string $workflow, array $input = [], array $steps = [], ?ExecutionOptions $options = null): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->create($workflow, $input, $steps));
+        return $this->call(__FUNCTION__, fn () => $this->inner->create($workflow, $input, $steps, $options));
     }
 
     public function find(int|string $id): WorkflowExecution

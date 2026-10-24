@@ -31,6 +31,10 @@ readonly class WorkflowStepRetryScheduled
      * @param  int  $maxAttempts  The policy's total attempt budget.
      * @param  string  $errorClass  Class of the exception the attempt threw.
      * @param  int  $delaySeconds  Backoff applied before the next attempt.
+     * @param  string|null  $correlationId  Application-supplied identifier
+     *                                      recorded on the execution, or null if none was supplied.
+     * @param  string|null  $tenantId  Application-supplied tenant identifier,
+     *                                 or null if none was supplied.
      */
     public function __construct(
         public int|string $executionId,
@@ -43,5 +47,7 @@ readonly class WorkflowStepRetryScheduled
         public ?string $error,
         public DateTimeImmutable $nextRetryAt,
         public int $delaySeconds,
+        public ?string $correlationId = null,
+        public ?string $tenantId = null,
     ) {}
 }

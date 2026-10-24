@@ -27,11 +27,15 @@ class StepTwo implements Step
 
     public static mixed $seenContextValue = null;
 
+    /** The correlation id the context exposed on the most recent run. */
+    public static ?string $seenCorrelationId = null;
+
     public function handle(WorkflowContext $context): mixed
     {
         static::$runs++;
         static::$seenIdempotencyKeys[] = $context->idempotencyKey();
         static::$seenContextValue = $context->get('one');
+        static::$seenCorrelationId = $context->correlationId();
 
         if (static::$failTimes > 0) {
             static::$failTimes--;
