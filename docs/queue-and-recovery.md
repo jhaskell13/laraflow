@@ -208,7 +208,7 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 Two properties hold for all of them:
 
 - **Each fires strictly *after* the durable write it describes.** A listener can always trust what it is told, and can re-read the execution from the repository. If persisting a failure itself fails, no failure event fires — there is no durable state to describe.
-- **Some fire more than once per execution.** `Started`, `StepStarted`, `StepFailed`, and `ExecutionFailed` repeat across recovery attempts; `attempt` distinguishes them. Only `ExecutionCompleted` is once-per-execution.
+- **Some fire more than once per execution.** `Started`, `StepStarted`, `StepFailed`, `StepRetryScheduled`, and `ExecutionFailed` repeat across retries and recovery attempts; `attempt` distinguishes them. `ExecutionCompleted` and `ExecutionCancelled` fire once per execution.
 
 ### Payload safety
 

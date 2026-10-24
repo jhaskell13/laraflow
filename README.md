@@ -54,7 +54,7 @@ Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvide
 
 ### Database tables
 
-Laraflow stores executions in two tables, `laraflow_workflow_executions` and `laraflow_step_executions`. The package loads its own migrations, so you only need to run:
+Laraflow stores executions in three tables: `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` (the append-only per-attempt history). The package loads its own migrations, so you only need to run:
 
 ```bash
 php artisan migrate
@@ -383,12 +383,13 @@ A step that repeats this way may re-perform external side effects — that is th
 
 ### What gets persisted
 
-`start()` (and therefore `run()`) creates one row in `laraflow_workflow_executions` and — up front, before anything runs — one row per step in `laraflow_step_executions`:
+`start()` (and therefore `run()`) creates one row in `laraflow_workflow_executions` and — up front, before anything runs — one row per step in `laraflow_step_executions`. Every finished attempt of a step then appends one row to `laraflow_step_attempts`:
 
 | Record | Fields |
 |--------|--------|
-| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps |
-| Step execution | step class, position, status, attempts, output, error message and class, started/completed timestamps, next retry time |
+| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry time, cancellation request/time/reason |
+| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's deadline, next retry time |
+| Step attempt | attempt number, outcome (`completed`, `failed`, `timed_out`, `interrupted`), error message and class, started/ended timestamps, duration, scheduled retry time |
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
 

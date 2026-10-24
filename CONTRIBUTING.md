@@ -4,7 +4,7 @@ Thanks for your interest. Laraflow is early-stage, so the most valuable contribu
 
 ## Before you start
 
-- **Check the roadmap.** Work is ordered by dependency. A feature from a later milestone (queues, retries, branching, new connectors) is unlikely to be merged before the execution and recovery contract in Milestone 1 is proven, however good the code is. Open an issue first to discuss anything beyond the current milestone.
+- **Check the roadmap.** Work is ordered by dependency. A feature from a later milestone (branching, sub-workflows, new connectors, a dashboard) is unlikely to be merged before the milestone in progress is complete, however good the code is. Open an issue first to discuss anything beyond the current milestone.
 - **Open an issue for anything non-trivial.** Bug fixes with tests can go straight to a pull request. Design changes, new public API, and schema changes should be discussed first.
 - **Read [docs/public-api.md](docs/public-api.md).** Changes to public classes need a changelog entry; changes to internal classes do not.
 

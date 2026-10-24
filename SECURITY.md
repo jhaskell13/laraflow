@@ -34,10 +34,12 @@ Out of scope:
 
 - Vulnerabilities in third-party dependencies (report those upstream; let us know so we can bump the constraint).
 - Issues that require an attacker to already control the application's code, configuration, or environment variables.
-- Missing hardening in features the roadmap explicitly marks as not yet implemented (for example, there is currently no retry limit; an infinite loop caused by an application calling `run()` repeatedly is not a package vulnerability).
+- Missing hardening in features the roadmap explicitly marks as not yet implemented (for example, attempt history is not yet pruned; a table that grows because an application never schedules retention is not a package vulnerability).
+- Resource exhaustion caused by an application's own retry configuration. Retries are off by default, every bound is documented, and an infinite loop caused by an application calling `run()` repeatedly is not a package vulnerability.
 
 ## Handling of secrets in the package
 
 - Credentials are read from configuration and environment variables and are never written to the `laraflow_*` tables.
 - The `Authenticator` contract injects credentials into outbound request options at send time. Connectors must not include request options in exception messages.
-- Future lifecycle events and logging (roadmap Milestones 2 and 4) will redact step data by default.
+- Lifecycle events never carry workflow input, step output, or context, and there is no option to include them. Failure events and log records carry the exception class and message; the message can be disabled for events (`laraflow.events.include_error_messages`) and rewritten everywhere Laraflow retains it by a configured `ErrorRedactor` (`laraflow.errors.redactor`).
+- The queue payload carries only the execution id; workflow input never reaches the queue backend.
