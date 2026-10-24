@@ -341,6 +341,27 @@ class EloquentExecutionRepository implements ExecutionRepository
         });
     }
 
+    public function recordDispatch(
+        int|string $id,
+        DateTimeImmutable $dispatchedAt,
+        ?DateTimeImmutable $availableAt = null
+    ): void {
+        $updated = WorkflowExecutionModel::query()
+            ->whereKey($id)
+            ->update([
+                'dispatched_at' => $dispatchedAt,
+                // A delivery cannot be available before it was dispatched;
+                // a caller passing an earlier instant meant "now".
+                'available_at' => $availableAt !== null && $availableAt > $dispatchedAt
+                    ? $availableAt
+                    : $dispatchedAt,
+            ]);
+
+        if ($updated === 0) {
+            throw ExecutionNotFoundException::forId($id);
+        }
+    }
+
     public function requestCancellation(
         int|string $id,
         ?string $reason,

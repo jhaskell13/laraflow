@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Queue;
 
+use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
@@ -13,11 +14,13 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
+use Psr\Clock\ClockInterface;
 
 /**
  * Starts workflow executions asynchronously.
@@ -32,13 +35,18 @@ use Laraflow\Workflow\WorkflowRunner;
  */
 class WorkflowDispatcher
 {
+    protected ClockInterface $clock;
+
     public function __construct(
         protected WorkflowRunner $runner,
         protected ExecutionRepository $repository,
         protected Bus $bus,
         protected Config $config,
         protected ?EventEmitter $events = null,
-    ) {}
+        ?ClockInterface $clock = null,
+    ) {
+        $this->clock = $clock ?? new Clock;
+    }
 
     /**
      * Create an execution and queue it. Nothing runs in this process.
@@ -126,6 +134,17 @@ class WorkflowDispatcher
             // the surrounding application transaction has committed.
             $job->afterCommit();
         }
+
+        // Recorded *before* the push: on the sync driver the job runs
+        // inside dispatch(), and the claim it makes must already see when
+        // the work became available or it cannot measure its own wait.
+        $dispatchedAt = $this->clock->now();
+
+        $this->repository->recordDispatch(
+            $execution->id,
+            $dispatchedAt,
+            $availableAt !== null ? DateTimeImmutable::createFromInterface($availableAt) : null,
+        );
 
         $this->bus->dispatch($job);
 

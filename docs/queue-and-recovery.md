@@ -84,6 +84,34 @@ If you raise `tries` above 1, understand what you are buying: each queue retry r
 
 A killed or crashed worker never reaches any cleanup code. That is the point of claim-based recovery: the dead worker's claim simply stops being refreshed and ages out.
 
+## Queue lag
+
+Every dispatch records two timestamps on the execution: `dispatched_at`, when it was handed to the queue, and `available_at`, when the queue was asked to make it runnable. They are the same instant for an ordinary push and differ for a delayed retry, where `available_at` is the retry's due time.
+
+**Queue lag is measured from `available_at`, never from `dispatched_at`.** A retry held back by its own two-minute backoff has not been waiting for a worker for two minutes; only the time past its due time is wait. When a worker claims the execution, `WorkflowExecutionStarted` carries `queueLagSeconds` = claim time − `available_at`, and `laraflow:show` reports the same number as *Queue wait* — open-ended ("1 min 30 s so far") while the execution is still pending, exact once a worker owns it.
+
+| Situation | `queueLagSeconds` |
+|---|---|
+| Dispatched and claimed by a worker | Seconds between availability and the claim. |
+| Delayed retry claimed after its due time | Seconds **past the due time** only. |
+| Run in-process (`run()`, `execute()`, never dispatched) | `null` — nothing waited. |
+| Claimed ahead of availability (`laraflow:execute --now` on a scheduled retry) | `null` — running early is not a wait of zero; it is no wait at all. |
+| Recovered after a lost dispatch | Measured from the **re-dispatch** recovery made, which is the delivery actually claimed. If an operator instead runs it in-process with `laraflow:recover --sync`, the number is how long the work sat undelivered since its original dispatch — which is what they want to know. |
+
+Each dispatch overwrites the previous timestamps, so the columns always describe the most recent delivery. The write is not claim-guarded: delivery metadata is not execution state, and recovery must be able to record a re-dispatch of a `running` execution whose dead worker's claim is still on the row. The dispatch is recorded *before* the job is pushed, so on the `sync` driver — where the job runs inside `dispatch()` — the claim already sees it.
+
+A listener turning this into a metric:
+
+```php
+Event::listen(function (WorkflowExecutionStarted $event) {
+    if ($event->queueLagSeconds !== null) {
+        Metrics::histogram('laraflow.queue_lag_seconds', $event->queueLagSeconds, [
+            'workflow' => class_basename($event->workflow),
+        ]);
+    }
+});
+```
+
 ## Duplicate deliveries
 
 Every supported queue backend delivers at least once. Duplicates are safe here because claiming is a single atomic compare-and-set:

@@ -97,6 +97,13 @@ class CrashingExecutionRepository implements ExecutionRepository
         });
     }
 
+    public function recordDispatch(int|string $id, DateTimeImmutable $dispatchedAt, ?DateTimeImmutable $availableAt = null): void
+    {
+        $this->call(__FUNCTION__, function () use ($id, $dispatchedAt, $availableAt) {
+            $this->inner->recordDispatch($id, $dispatchedAt, $availableAt);
+        });
+    }
+
     public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at): WorkflowExecution
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at));

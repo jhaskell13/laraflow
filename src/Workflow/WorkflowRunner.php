@@ -144,6 +144,11 @@ class WorkflowRunner
             correlationId: $execution->correlationId,
             tenantId: $execution->tenantId,
             startedAt: $execution->startedAt ?? $startedAt,
+            // Measured against this claim, not the first start: a
+            // recovered execution's wait is the wait since it was last
+            // made available, which is the number that explains a slow
+            // queue today.
+            queueLagSeconds: $execution->queueLagSeconds($startedAt),
         ));
 
         $steps = $this->repository->steps($execution);

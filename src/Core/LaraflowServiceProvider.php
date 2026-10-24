@@ -124,6 +124,7 @@ class LaraflowServiceProvider extends ServiceProvider
             bus: $app->make(Bus::class),
             config: $app->make(Config::class),
             events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
         ));
 
         $this->app->singleton(RecoveryService::class, fn (Container $app): RecoveryService => new RecoveryService(

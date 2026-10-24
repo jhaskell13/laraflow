@@ -24,6 +24,14 @@ readonly class WorkflowExecutionStarted
      *                                      recorded on the execution, or null if none was supplied.
      * @param  string|null  $tenantId  Application-supplied tenant identifier,
      *                                 or null if none was supplied.
+     * @param  int|null  $queueLagSeconds  Whole seconds between the most recent
+     *                                     time the execution was made available to the queue and this
+     *                                     claim. Null when the execution was never dispatched (run
+     *                                     in-process) or was claimed ahead of its availability (an
+     *                                     operator running a scheduled retry early): in neither case
+     *                                     did it wait for a worker. For an execution recovered
+     *                                     in-process after a lost dispatch, this is how long the work
+     *                                     sat undelivered — which is what an operator wants to know.
      */
     public function __construct(
         public int|string $executionId,
@@ -31,5 +39,6 @@ readonly class WorkflowExecutionStarted
         public DateTimeImmutable $startedAt,
         public ?string $correlationId = null,
         public ?string $tenantId = null,
+        public ?int $queueLagSeconds = null,
     ) {}
 }

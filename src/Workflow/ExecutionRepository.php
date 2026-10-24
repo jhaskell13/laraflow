@@ -200,6 +200,27 @@ interface ExecutionRepository
     ): void;
 
     /**
+     * Record that the execution was handed to the queue at $dispatchedAt
+     * and asked to become runnable at $availableAt — the same instant
+     * for an immediate push, later for a delayed retry. Queue lag is
+     * measured from `available_at`, not `dispatched_at`: a retry held
+     * back by its own backoff has not been waiting for a worker.
+     *
+     * Not claim-guarded. These are delivery metadata, not execution
+     * state: recovery dispatches a `running` execution deliberately,
+     * and the write must succeed whether or not a (dead) worker's claim
+     * is still on the row. Each dispatch overwrites the last, so the
+     * columns always describe the most recent delivery.
+     *
+     * @throws ExecutionNotFoundException
+     */
+    public function recordDispatch(
+        int|string $id,
+        DateTimeImmutable $dispatchedAt,
+        ?DateTimeImmutable $availableAt = null
+    ): void;
+
+    /**
      * Request cancellation, returning the resulting execution state.
      *
      * An execution nobody is running — `pending`, `failed`, `retrying` —

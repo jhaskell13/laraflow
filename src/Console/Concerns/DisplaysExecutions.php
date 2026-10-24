@@ -41,6 +41,8 @@ trait DisplaysExecutions
             $this->components->twoColumnDetail('<fg=gray>Tenant</>', $execution->tenantId);
         }
 
+        $this->displayQueueTiming($execution);
+
         if ($execution->isRetrying() && $execution->nextRetryAt !== null) {
             $this->components->twoColumnDetail(
                 '<fg=gray>Next retry</>',
@@ -77,6 +79,59 @@ trait DisplaysExecutions
         }
 
         $this->newLine();
+    }
+
+    /**
+     * When the execution was handed to the queue, when it became
+     * runnable (shown only when that differs — a delayed retry), and how
+     * long it waited for a worker. Nothing is shown for an execution
+     * that was never dispatched: an in-process run has no queue wait,
+     * and an empty row would suggest otherwise.
+     */
+    protected function displayQueueTiming(WorkflowExecution $execution): void
+    {
+        if ($execution->dispatchedAt === null) {
+            return;
+        }
+
+        $this->components->twoColumnDetail('<fg=gray>Dispatched</>', $this->formatDate($execution->dispatchedAt));
+
+        if ($execution->availableAt !== null && $execution->availableAt != $execution->dispatchedAt) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Available</>',
+                $this->formatDate($execution->availableAt).' (held back by its retry backoff)',
+            );
+        }
+
+        $now = Date::now()->toImmutable();
+
+        if ($execution->isPending() && $execution->queueLagSeconds($now) !== null) {
+            // Still waiting: the wait is open-ended, and an operator
+            // seeing it grow is seeing the queue fall behind.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Queue wait</>',
+                '<fg=yellow>'.$this->formatSeconds($execution->queueLagSeconds($now)).' so far — no worker has claimed it</>',
+            );
+        } elseif ($execution->claimedAt !== null && $execution->queueLagSeconds($execution->claimedAt) !== null) {
+            // Claimed and still owned: the wait is known exactly.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Queue wait</>',
+                $this->formatSeconds($execution->queueLagSeconds($execution->claimedAt)),
+            );
+        }
+    }
+
+    protected function formatSeconds(?int $seconds): string
+    {
+        if ($seconds === null) {
+            return '—';
+        }
+
+        return match (true) {
+            $seconds < 60 => "{$seconds} s",
+            $seconds < 3600 => sprintf('%d min %d s', intdiv($seconds, 60), $seconds % 60),
+            default => sprintf('%d h %d min', intdiv($seconds, 3600), intdiv($seconds % 3600, 60)),
+        };
     }
 
     /**

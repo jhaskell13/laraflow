@@ -144,6 +144,24 @@ class WorkflowExecution
         $this->nextRetryAt = null;
     }
 
+    /**
+     * Whole seconds the execution waited for a worker: from the most
+     * recent time it was made available to the queue until $claimedAt.
+     *
+     * Null when it was never dispatched (an in-process run) or when
+     * $claimedAt precedes availability (an operator running a scheduled
+     * retry early) — in neither case did it wait for a worker, and
+     * reporting zero would be a measurement, not an absence of one.
+     */
+    public function queueLagSeconds(DateTimeImmutable $claimedAt): ?int
+    {
+        if ($this->availableAt === null || $claimedAt < $this->availableAt) {
+            return null;
+        }
+
+        return $claimedAt->getTimestamp() - $this->availableAt->getTimestamp();
+    }
+
     public function isPending(): bool
     {
         return $this->status === ExecutionStatus::Pending;
