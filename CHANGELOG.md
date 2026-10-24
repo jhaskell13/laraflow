@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Milestone 4 — querying, observability, and lifecycle management
+
+*In progress.*
+
+#### Added
+
+- **Schema for correlation, queue lag, and retention** (existing migration edited in place, per the pre-release policy). `laraflow_workflow_executions` gains:
+  - `correlation_id` and `tenant_id` — application-supplied identifiers tying an execution to the request, job, tenant, or external operation that caused it. Indexed columns rather than a metadata blob, because listing by them must stay a bounded indexed query on every supported engine.
+  - `dispatched_at` and `available_at` — when the execution was handed to the queue, and when the queue was asked to make it runnable. These differ for a delayed retry, and queue lag (`claimed_at − available_at`) is meaningless without the distinction.
+  - `finished_at` — one terminal timestamp written by `completed`, `failed`, and `cancelled` alike, and cleared when an execution runs again. Retention and "finished between" filters would otherwise need a three-way coalesce over `completed_at`/`failed_at`/`cancelled_at` that no index can serve.
+  - `payloads_scrubbed_at` — when retention removed the execution's payloads, so a scrubbed record stays distinguishable from one that never carried any.
+  - Indexes on `correlation_id`, `tenant_id`, `created_at`, `(workflow, status)`, and `(status, finished_at)`: every listing and retention filter the milestone will expose has an index behind it.
+- `WorkflowExecution` gains `correlationId`, `tenantId`, `dispatchedAt`, `availableAt`, `finishedAt`, and `payloadsScrubbedAt`. `markCompleted()`, `markFailed()`, and `markCancelled()` set `finishedAt`; `markRunning()` clears it, so a re-executed failure cannot look eligible to retention while a worker is running it. The claim and the compare-and-set cancellation path make the same writes directly.
+
+#### Changed
+
+- **Fixed:** documentation that had drifted behind Milestone 3 — the README described two tables (there are three) and listed only the four original execution statuses; `SECURITY.md` still cited "there is currently no retry limit" as unimplemented hardening and promised that "future" events and logging would redact step data, both of which shipped; `CONTRIBUTING.md` still gated contributions on Milestone 1; and `docs/queue-and-recovery.md` disagreed with `docs/public-api.md` about which events fire once per execution.
+
 ### Milestone 3 — retry, timeout, and failure policy
 
 #### Added

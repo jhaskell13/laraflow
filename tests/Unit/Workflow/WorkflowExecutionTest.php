@@ -189,6 +189,58 @@ class WorkflowExecutionTest extends TestCase
         $execution->markRunning(new DateTimeImmutable);
     }
 
+    // ------------------------------------------------------------------
+    // finished_at: one terminal timestamp across all three terminal states
+    // ------------------------------------------------------------------
+
+    public function test_a_new_execution_has_not_finished(): void
+    {
+        $this->assertNull($this->execution()->finishedAt);
+    }
+
+    public function test_each_terminal_transition_records_the_same_finished_at(): void
+    {
+        $at = new DateTimeImmutable;
+
+        $completed = $this->executionIn('running');
+        $completed->markCompleted($at);
+        $this->assertSame($at, $completed->finishedAt);
+        $this->assertSame($completed->completedAt, $completed->finishedAt);
+
+        $failed = $this->executionIn('running');
+        $failed->markFailed('boom', RuntimeException::class, $at);
+        $this->assertSame($at, $failed->finishedAt);
+        $this->assertSame($failed->failedAt, $failed->finishedAt);
+
+        $cancelled = $this->executionIn('running');
+        $cancelled->markCancelled($at, 'operator request');
+        $this->assertSame($at, $cancelled->finishedAt);
+        $this->assertSame($cancelled->cancelledAt, $cancelled->finishedAt);
+    }
+
+    public function test_a_scheduled_retry_has_not_finished(): void
+    {
+        $execution = $this->executionIn('retrying');
+
+        // `retrying` is the one non-terminal state reached from running.
+        // Recording a finish here would offer a waiting execution to
+        // retention, which deletes it before its retry ever runs.
+        $this->assertNull($execution->finishedAt);
+    }
+
+    public function test_re_executing_a_failed_execution_clears_its_finish(): void
+    {
+        $execution = $this->executionIn('failed');
+        $this->assertNotNull($execution->finishedAt);
+
+        $execution->markRunning(new DateTimeImmutable);
+
+        $this->assertNull(
+            $execution->finishedAt,
+            'A stale finished_at would offer a running execution to retention.',
+        );
+    }
+
     protected function execution(): WorkflowExecution
     {
         return new WorkflowExecution(

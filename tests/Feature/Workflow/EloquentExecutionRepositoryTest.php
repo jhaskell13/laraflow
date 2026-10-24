@@ -553,6 +553,82 @@ class EloquentExecutionRepositoryTest extends TestCase
         );
     }
 
+    // ------------------------------------------------------------------
+    // finished_at: the single terminal timestamp retention scans on
+    // ------------------------------------------------------------------
+
+    public function test_every_terminal_release_persists_finished_at(): void
+    {
+        $at = new DateTimeImmutable('2026-10-24 09:00:00');
+
+        foreach (['completed', 'failed', 'cancelled'] as $outcome) {
+            $repository = $this->repository();
+            $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+            $execution = $repository->claim($execution->id, 'worker', 300);
+
+            match ($outcome) {
+                'completed' => $execution->markCompleted($at),
+                'failed' => $execution->markFailed('boom', 'RuntimeException', $at),
+                'cancelled' => $execution->markCancelled($at, 'operator request'),
+            };
+
+            $repository->release($execution);
+
+            $this->assertSame(
+                '2026-10-24 09:00:00',
+                $repository->find($execution->id)->finishedAt?->format('Y-m-d H:i:s'),
+                "A [{$outcome}] execution must record when it finished.",
+            );
+        }
+    }
+
+    public function test_a_scheduled_retry_persists_no_finish(): void
+    {
+        $execution = $this->makeRetryingExecution(
+            dueAt: '2026-10-24 09:05:00',
+            now: '2026-10-24 09:00:00',
+        );
+
+        $this->assertNull(
+            $this->repository()->find($execution->id)->finishedAt,
+            'A waiting retry is not finished; retention must not see it.',
+        );
+    }
+
+    public function test_cancelling_unclaimed_work_persists_finished_at(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+
+        // The compare-and-set cancellation path writes the row directly
+        // rather than going through the handle, so it needs its own proof.
+        $cancelled = $repository->requestCancellation(
+            $execution->id,
+            'operator request',
+            new DateTimeImmutable('2026-10-24 09:00:00'),
+        );
+
+        $this->assertTrue($cancelled->isCancelled());
+        $this->assertSame('2026-10-24 09:00:00', $cancelled->finishedAt?->format('Y-m-d H:i:s'));
+    }
+
+    public function test_reclaiming_a_failed_execution_clears_its_finish(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+        $execution->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-24 09:00:00'));
+        $repository->release($execution);
+
+        $reclaimed = $repository->claim($execution->id, 'worker-b', 300);
+
+        $this->assertNull(
+            $reclaimed->finishedAt,
+            'The claim must clear finished_at, or retention could delete a running execution.',
+        );
+        $this->assertNull(WorkflowExecutionModel::query()->sole()->finished_at);
+    }
+
     /**
      * An execution whose step failed retryably and is waiting for
      * $dueAt, built through the real repository write path: created,

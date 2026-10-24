@@ -134,6 +134,10 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // in WorkflowExecution::markRunning(); without it a
                 // running row would keep advertising a past due time.
                 'next_retry_at' => null,
+                // Mirrors markRunning(): a re-executed failure is not
+                // finished, and must not look eligible to retention
+                // while a worker is actively running it.
+                'finished_at' => null,
             ]);
 
         if ($claimed === 0) {
@@ -278,6 +282,9 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'cancelled_at' => $at,
                 'cancel_requested_at' => $at,
                 'cancel_reason' => $reason,
+                // Cancellation is terminal, so it finishes the execution
+                // — the same write markCancelled() makes on the handle.
+                'finished_at' => $at,
                 // A cancelled execution must never surface in the scan.
                 'next_retry_at' => null,
                 'claim_token' => null,
@@ -345,6 +352,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'error_class' => $execution->errorClass,
                 'completed_at' => $execution->completedAt,
                 'failed_at' => $execution->failedAt,
+                'finished_at' => $execution->finishedAt,
                 'next_retry_at' => $execution->nextRetryAt,
                 'cancel_requested_at' => $execution->cancelRequestedAt,
                 'cancelled_at' => $execution->cancelledAt,
@@ -442,6 +450,12 @@ class EloquentExecutionRepository implements ExecutionRepository
             cancelRequestedAt: $model->cancel_requested_at?->toImmutable(),
             cancelledAt: $model->cancelled_at?->toImmutable(),
             cancelReason: $model->cancel_reason,
+            correlationId: $model->correlation_id,
+            tenantId: $model->tenant_id,
+            dispatchedAt: $model->dispatched_at?->toImmutable(),
+            availableAt: $model->available_at?->toImmutable(),
+            finishedAt: $model->finished_at?->toImmutable(),
+            payloadsScrubbedAt: $model->payloads_scrubbed_at?->toImmutable(),
         );
     }
 

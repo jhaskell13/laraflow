@@ -24,6 +24,32 @@ return new class extends Migration
             $table->timestamp('completed_at')->nullable();
             $table->timestamp('failed_at')->nullable();
 
+            // Application-supplied identifiers tying this execution to the
+            // request, job, tenant, or external operation that caused it.
+            // Indexed columns rather than a metadata blob because listing
+            // by them must stay a bounded, indexed query on every engine.
+            $table->string('correlation_id')->nullable();
+            $table->string('tenant_id')->nullable();
+
+            // dispatched_at: when the execution was handed to the queue.
+            // available_at: when the queue was asked to make it runnable —
+            // equal to dispatched_at for an immediate push, later for a
+            // delayed retry. Queue lag is claimed_at minus available_at,
+            // which is meaningless without the delay distinction.
+            $table->timestamp('dispatched_at')->nullable();
+            $table->timestamp('available_at')->nullable();
+
+            // The single terminal timestamp: set on completed, failed, and
+            // cancelled alike, cleared when the execution runs again.
+            // Retention and "finished between" filters would otherwise need
+            // a three-way coalesce that no index can serve.
+            $table->timestamp('finished_at')->nullable();
+
+            // When retention removed this execution's input, context, and
+            // step outputs. The execution record itself survives as an
+            // audit trail; the payloads it carried do not.
+            $table->timestamp('payloads_scrubbed_at')->nullable();
+
             // When a step's retry policy schedules another attempt, the
             // due time is mirrored here from the retrying step so the
             // recovery scan stays a single-table indexed query. The step
@@ -44,6 +70,19 @@ return new class extends Migration
 
             // Supports finding retrying executions whose retry is due.
             $table->index(['status', 'next_retry_at']);
+
+            // Supports listing and retention scans: correlating an
+            // execution with an application request or tenant, filtering
+            // a workflow's executions by status, paginating by id within
+            // a creation window, and finding terminal work old enough to
+            // prune. Every supported listing filter has an index behind
+            // it, because an unbounded table scan is how observability
+            // tooling takes an application down.
+            $table->index('correlation_id');
+            $table->index('tenant_id');
+            $table->index('created_at');
+            $table->index(['workflow', 'status']);
+            $table->index(['status', 'finished_at']);
         });
     }
 

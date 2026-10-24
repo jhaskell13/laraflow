@@ -59,6 +59,12 @@ class MigrationTest extends TestCase
                     'cancel_requested_at',
                     'cancelled_at',
                     'cancel_reason',
+                    'correlation_id',
+                    'tenant_id',
+                    'dispatched_at',
+                    'available_at',
+                    'finished_at',
+                    'payloads_scrubbed_at',
                     'created_at',
                     'updated_at',
                 ]
@@ -129,6 +135,23 @@ class MigrationTest extends TestCase
         // (Milestone 3) must each be an indexed single-table query.
         $this->assertContains(['status', 'claimed_at'], $indexed);
         $this->assertContains(['status', 'next_retry_at'], $indexed);
+    }
+
+    public function test_every_listing_and_retention_filter_has_an_index(): void
+    {
+        $indexed = array_map(
+            fn (array $index): array => $index['columns'],
+            Schema::getIndexes('laraflow_workflow_executions'),
+        );
+
+        // Milestone 4 promises bounded listing queries. An unindexed
+        // filter on a high-volume table is how observability tooling
+        // takes an application down, so each one is pinned here.
+        $this->assertContains(['correlation_id'], $indexed, 'Correlating an execution must be indexed.');
+        $this->assertContains(['tenant_id'], $indexed, 'Listing a tenant must be indexed.');
+        $this->assertContains(['created_at'], $indexed, 'Paginating a creation window must be indexed.');
+        $this->assertContains(['workflow', 'status'], $indexed, 'Filtering a workflow by status must be indexed.');
+        $this->assertContains(['status', 'finished_at'], $indexed, 'The retention scan must be indexed.');
     }
 
     public function test_one_attempt_number_per_step_is_enforced_by_the_database(): void

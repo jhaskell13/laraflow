@@ -45,6 +45,12 @@ class WorkflowExecution
         public ?DateTimeImmutable $cancelRequestedAt = null,
         public ?DateTimeImmutable $cancelledAt = null,
         public ?string $cancelReason = null,
+        public readonly ?string $correlationId = null,
+        public readonly ?string $tenantId = null,
+        public ?DateTimeImmutable $dispatchedAt = null,
+        public ?DateTimeImmutable $availableAt = null,
+        public ?DateTimeImmutable $finishedAt = null,
+        public ?DateTimeImmutable $payloadsScrubbedAt = null,
     ) {}
 
     public function markRunning(DateTimeImmutable $at): void
@@ -62,6 +68,11 @@ class WorkflowExecution
         // Running consumes the schedule: whatever happens next writes a
         // fresh one, and a stale due time must not linger for the scan.
         $this->nextRetryAt = null;
+
+        // This execution is no longer finished. Leaving a stale
+        // finished_at behind would make a re-executed failure look
+        // eligible to retention while it is actively running.
+        $this->finishedAt = null;
     }
 
     public function markCompleted(DateTimeImmutable $at): void
@@ -72,6 +83,7 @@ class WorkflowExecution
 
         $this->status = ExecutionStatus::Completed;
         $this->completedAt = $at;
+        $this->finishedAt = $at;
         $this->error = null;
         $this->errorClass = null;
     }
@@ -84,6 +96,7 @@ class WorkflowExecution
 
         $this->status = ExecutionStatus::Failed;
         $this->failedAt = $at;
+        $this->finishedAt = $at;
         $this->error = $error;
         $this->errorClass = $errorClass;
     }
@@ -124,6 +137,7 @@ class WorkflowExecution
 
         $this->status = ExecutionStatus::Cancelled;
         $this->cancelledAt = $at;
+        $this->finishedAt = $at;
         $this->cancelReason = $reason;
 
         // A cancelled execution must never be picked up by the scan.
