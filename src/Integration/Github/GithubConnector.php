@@ -6,6 +6,7 @@ namespace Laraflow\Integration\Github;
 
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\HttpConnector;
 
 /**
@@ -31,5 +32,10 @@ class GithubConnector extends HttpConnector
     protected function authenticator(): Authenticator
     {
         return new BearerTokenAuthenticator('token', 'LARAFLOW_GITHUB_TOKEN');
+    }
+
+    protected function errorMapper(): ErrorMapper
+    {
+        return new GithubErrorMapper;
     }
 }

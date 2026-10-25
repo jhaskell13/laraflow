@@ -76,6 +76,23 @@ class SecretExposureTest extends TestCase
         }
     }
 
+    public function test_a_provider_error_renders_without_the_token(): void
+    {
+        // The provider echoes the request back, as some do on error; the
+        // exception may carry that body but its message must not, and
+        // the query string — where a token may travel — must not appear.
+        Http::fake(['api.github.com/*' => Http::response(['message' => 'Bad credentials'], 401)]);
+
+        $response = $this->app->make(LaraflowManager::class)->connector('github')
+            ->request(new ConnectorRequest('GET', '/user?access_token='.self::TOKEN));
+
+        $error = $response->error();
+
+        $this->assertNotNull($error);
+        $this->assertExceptionRendersWithoutToken($error);
+        $this->assertStringNotContainsString('access_token', $error->getMessage());
+    }
+
     public function test_a_missing_credential_error_renders_without_other_credentials(): void
     {
         // A second credential is present; the error about the missing

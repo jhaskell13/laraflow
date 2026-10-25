@@ -132,7 +132,7 @@ class ProjectContractsTest extends TestCase
         $doc = (string) file_get_contents($this->path('docs/public-api.md'));
         $missing = [];
 
-        foreach (['Exceptions\Workflow', 'Exceptions', 'Events'] as $namespace) {
+        foreach (['Exceptions\Workflow', 'Exceptions\Connector', 'Exceptions', 'Events'] as $namespace) {
             preg_match_all('/`Laraflow\\\\\\\\'.str_replace('\\', '\\\\\\\\', $namespace).'\\\\\\\\([A-Za-z]+)`/', $doc, $matches);
 
             foreach (array_unique($matches[1]) as $class) {

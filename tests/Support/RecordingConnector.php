@@ -38,6 +38,6 @@ class RecordingConnector implements Connector
     {
         $this->requests[] = $request;
 
-        return new ConnectorResponse(status: 200, headers: [], body: ['connection' => $this->connection->key()]);
+        return ConnectorResponse::fake(200, ['connection' => $this->connection->key()]);
     }
 }

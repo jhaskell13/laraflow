@@ -249,7 +249,7 @@ class LaravelIntegrationTest extends TestCase
 
             public function request(ConnectorRequest $request): ConnectorResponse
             {
-                return new ConnectorResponse(status: 200, headers: [], body: null);
+                return ConnectorResponse::fake();
             }
         };
     }

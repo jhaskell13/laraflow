@@ -246,7 +246,7 @@ class ConnectorRegistryTest extends TestCase
 
             public function request(ConnectorRequest $request): ConnectorResponse
             {
-                return new ConnectorResponse(200, [], null);
+                return ConnectorResponse::fake();
             }
         };
 

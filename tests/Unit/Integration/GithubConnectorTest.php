@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Unit\Integration;
 
+use DateTimeImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Laraflow\Exceptions\Connector\AuthenticationFailedException;
+use Laraflow\Exceptions\Connector\NotFoundException;
+use Laraflow\Exceptions\Connector\RateLimitedException;
+use Laraflow\Exceptions\Connector\ServerErrorException;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
@@ -65,10 +70,12 @@ class GithubConnectorTest extends TestCase
         $this->assertSame(404, $response->status());
         $this->assertTrue($response->failed());
         $this->assertSame('Not Found', $response->body()['message']);
+        $this->assertInstanceOf(NotFoundException::class, $response->error());
     }
 
-    public function test_non_json_bodies_are_returned_as_null(): void
+    public function test_non_json_bodies_are_returned_as_received(): void
     {
+        // Until Milestone 5 this was null, indistinguishable from a JSON null.
         Http::fake([
             'api.github.com/*' => Http::response('<html>maintenance</html>', 503, ['Content-Type' => 'text/html']),
         ]);
@@ -76,7 +83,35 @@ class GithubConnectorTest extends TestCase
         $response = $this->connector()->request(new ConnectorRequest('GET', '/user'));
 
         $this->assertSame(503, $response->status());
-        $this->assertNull($response->body());
+        $this->assertSame('<html>maintenance</html>', $response->body());
+        $this->assertInstanceOf(ServerErrorException::class, $response->error());
+    }
+
+    public function test_an_exhausted_rate_limit_is_rate_limiting_not_an_authentication_failure(): void
+    {
+        Http::fake([
+            'api.github.com/*' => Http::response(['message' => 'API rate limit exceeded'], 403, [
+                'X-RateLimit-Remaining' => '0',
+                'Retry-After' => '60',
+            ]),
+        ]);
+
+        $response = $this->connector()->request(new ConnectorRequest('GET', '/user'));
+
+        $error = $response->error();
+
+        $this->assertInstanceOf(RateLimitedException::class, $error);
+        $this->assertSame(60, $error->retryAfterSeconds(new DateTimeImmutable));
+        $this->assertStringContainsString('API rate limit exceeded', $error->getMessage());
+    }
+
+    public function test_a_plain_403_is_an_authentication_failure(): void
+    {
+        Http::fake(['api.github.com/*' => Http::response(['message' => 'Resource not accessible'], 403)]);
+
+        $response = $this->connector()->request(new ConnectorRequest('GET', '/user'));
+
+        $this->assertInstanceOf(AuthenticationFailedException::class, $response->error());
     }
 
     protected function connector(): GithubConnector

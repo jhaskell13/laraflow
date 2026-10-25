@@ -49,7 +49,7 @@ class LaravelHttpTransport implements HttpTransport
         return new ConnectorResponse(
             status: $response->status(),
             headers: $response->headers(),
-            body: $response->json(),
+            raw: $response->body(),
         );
     }
 }

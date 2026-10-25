@@ -745,7 +745,21 @@ if ($response->successful()) {
 }
 ```
 
-`ConnectorResponse` exposes `status()`, `headers()`, `body()`, `successful()`, and `failed()`. Connection failures throw `Laraflow\Exceptions\TransportException`.
+A `ConnectorResponse` keeps the body as received: `body()` decodes it when the server declared JSON and returns the raw string otherwise, `json('path.to.key')` decodes regardless, and `raw()` is the bytes. Failure to reach the provider at all throws `Laraflow\Exceptions\TransportException`.
+
+An error *response* is returned, not thrown, with its exception attached. Every connector maps responses to typed exceptions — `AuthenticationFailedException`, `NotFoundException`, `RateLimitedException`, `ClientErrorException`, `ServerErrorException`, all under `Laraflow\Exceptions\Connector` — by status, or by whatever the provider's convention is. Inspect or raise as you prefer:
+
+```php
+$response = $github->request(new ConnectorRequest('GET', '/repos/acme/app'));
+
+if ($response->failed()) {
+    $response->error();  // a NotFoundException, with ->response attached
+}
+
+$repo = $github->request(new ConnectorRequest('GET', '/repos/acme/app'))->throw()->json();
+```
+
+Setting `throw_on_error` on a connection makes `request()` throw instead. Exception messages name the connection, method, path, status, and the provider's own explanation — never the query string or request options, which may carry credentials.
 
 A connector serves any number of **connections** — one per account. Add a second entry under `connections` and name it when resolving; the same class serves both:
 
@@ -826,6 +840,8 @@ A package registers from its own service provider instead, with the class or a c
 ```php
 app(LaraflowManager::class)->register('crm', CrmConnector::class);
 ```
+
+Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 
 Requests go through an `HttpTransport`, Laravel's HTTP client by default — so `Http::fake()` works in your tests and the client's middleware applies. Bind another implementation to replace it for every connector, or override `transport()` on one. A connector that is not HTTP at all implements `Laraflow\Integration\Connector` directly: `name()` and `request()`.
 

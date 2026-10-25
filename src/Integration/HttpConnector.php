@@ -6,24 +6,34 @@ namespace Laraflow\Integration;
 
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Exceptions\Connector\RequestFailedException;
+use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
+use Laraflow\Integration\Http\StatusErrorMapper;
 
 /**
  * Base class for connectors that speak HTTP, which is most of them.
  *
  * A subclass describes its provider — base URL, headers, how to
- * authenticate — and inherits request(): resolve credentials for this
- * request, authenticate, send through the transport. The constructor is
- * satisfied by the container when the registry builds the connector,
+ * authenticate, how it says no — and inherits request(): resolve
+ * credentials for this request, authenticate, send through the
+ * transport, map the response to an error if it is one. The constructor
+ * is satisfied by the container when the registry builds the connector,
  * with the Connection passed by name; a subclass that needs more
  * declares its own constructor and calls parent::__construct().
+ *
+ * An error response is returned, not thrown, unless the connection sets
+ * `throw_on_error` (or throwsOnError() says so): the response carries
+ * the mapped exception, reports failed(), and throw() raises it.
  */
 abstract class HttpConnector implements Connector
 {
     protected HttpOptions $options;
 
     protected Authenticator $authenticator;
+
+    protected ErrorMapper $errors;
 
     public function __construct(
         protected Connection $connection,
@@ -39,6 +49,7 @@ abstract class HttpConnector implements Connector
             ->forConnection($connection);
 
         $this->authenticator = $this->authenticator();
+        $this->errors = $this->errorMapper();
     }
 
     /**
@@ -55,6 +66,9 @@ abstract class HttpConnector implements Connector
         return $this->connection;
     }
 
+    /**
+     * @throws RequestFailedException only when throwsOnError() is true.
+     */
     public function request(ConnectorRequest $request): ConnectorResponse
     {
         // Credentials are resolved here, per request, so a rotated token
@@ -64,7 +78,17 @@ abstract class HttpConnector implements Connector
             $this->credentials->credentials($this->connection),
         ));
 
-        return $this->transport()->send($authenticated, $this->options);
+        $response = $this->transport()->send($authenticated, $this->options);
+
+        // The mapper sees the request as the caller made it, so nothing
+        // the authenticator added can reach an exception message.
+        $response = $response->withError($this->errors->map($request, $response, $this->connection));
+
+        if ($this->throwsOnError()) {
+            $response->throw();
+        }
+
+        return $response;
     }
 
     /**
@@ -90,6 +114,25 @@ abstract class HttpConnector implements Connector
     protected function authenticator(): Authenticator
     {
         return new BearerTokenAuthenticator;
+    }
+
+    /**
+     * How the provider reports errors. By status unless a subclass knows
+     * better; see ErrorMapper.
+     */
+    protected function errorMapper(): ErrorMapper
+    {
+        return new StatusErrorMapper;
+    }
+
+    /**
+     * Whether request() throws the mapped error instead of returning the
+     * failed response. The connection's `throw_on_error` setting, false
+     * by default; a subclass may decide differently.
+     */
+    protected function throwsOnError(): bool
+    {
+        return (bool) $this->connection->get('throw_on_error', false);
     }
 
     /**
