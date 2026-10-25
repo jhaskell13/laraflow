@@ -19,4 +19,23 @@ readonly class ConnectorRequest
         public string $uri,
         public array $options = [],
     ) {}
+
+    /**
+     * @param  array<string, mixed>  $options  Replaces the current options.
+     */
+    public function withOptions(array $options): self
+    {
+        return new self($this->method, $this->uri, $options);
+    }
+
+    /**
+     * @param  array<string, string>  $headers  Merged over the current headers.
+     */
+    public function withHeaders(array $headers): self
+    {
+        $options = $this->options;
+        $options['headers'] = array_merge($options['headers'] ?? [], $headers);
+
+        return new self($this->method, $this->uri, $options);
+    }
 }

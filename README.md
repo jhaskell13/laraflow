@@ -386,6 +386,13 @@ return [
         'include_error_messages' => env('LARAFLOW_EVENT_ERROR_MESSAGES', true),
     ],
 
+    'http' => [
+        // Defaults every connection starts from; a connector class and then
+        // a connection may override them.
+        'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
+        'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+    ],
+
     'integrations' => [
         // One entry per connector: the class, the default connection, and
         // one named connection per account. Nothing else is accepted here.
@@ -763,55 +770,37 @@ Every credential is a `Laraflow\Support\Secret`: it prints as `[redacted]` where
 
 ### Writing your own
 
-Implement `Laraflow\Integration\Connector`, and use an `Authenticator` to inject credentials into request options. `BearerTokenAuthenticator` ships with the package; an authenticator receives the connection's `Credentials` on every request rather than holding a token:
+Extend `Laraflow\Integration\HttpConnector` and describe the provider: where it lives, which headers it wants, how it authenticates. The base class resolves credentials for each request, authenticates, and sends through the configured transport:
 
 ```php
 <?php
 
 namespace App\Integrations;
 
-use Illuminate\Support\Facades\Http;
+use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
-use Laraflow\Integration\Connection;
-use Laraflow\Integration\Connector;
-use Laraflow\Integration\ConnectorRequest;
-use Laraflow\Integration\ConnectorResponse;
-use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\HttpConnector;
 
-class CrmConnector implements Connector
+class CrmConnector extends HttpConnector
 {
-    public function __construct(
-        private Connection $connection,
-        private CredentialProvider $credentials,
-        private BearerTokenAuthenticator $authenticator = new BearerTokenAuthenticator('token', 'CRM_TOKEN'),
-    ) {}
-
-    public function name(): string
+    protected function baseUrl(): ?string
     {
-        return 'crm';
+        return 'https://crm.example/api/v2';
     }
 
-    public function request(ConnectorRequest $request): ConnectorResponse
+    protected function headers(): array
     {
-        $options = $this->authenticator->authenticate(
-            $request->options,
-            $this->credentials->credentials($this->connection),
-        );
+        return ['Accept' => 'application/json'];
+    }
 
-        $response = Http::baseUrl($this->connection->require('base_url'))
-            ->acceptJson()
-            ->send($request->method, $request->uri, $options);
-
-        return new ConnectorResponse(
-            status: $response->status(),
-            headers: $response->headers(),
-            body: $response->json(),
-        );
+    protected function authenticator(): Authenticator
+    {
+        return new BearerTokenAuthenticator('token', 'CRM_TOKEN');
     }
 }
 ```
 
-Register it either by naming the class in configuration — it is built through the container, with its `Laraflow\Integration\Connection` passed as `$connection` and everything else autowired — or from one of your service providers with a closure that receives the connection. Connectors are built on first use and cached per connection:
+Register it by naming the class in configuration. It is built through the container with its `Connection` passed as `$connection` and everything else autowired, on first use, once per connection. A connection may override the class's `base_url`, `timeout`, `connect_timeout`, and `headers` — a sandbox host for one account, a slower region for another:
 
 ```php
 // config/laraflow.php
@@ -820,27 +809,25 @@ Register it either by naming the class in configuration — it is built through 
         'connector' => \App\Integrations\CrmConnector::class,
         'connections' => [
             'default' => [
-                'base_url' => env('CRM_URL'),
                 'credentials' => ['token' => env('CRM_TOKEN')],
+            ],
+            'sandbox' => [
+                'base_url' => 'https://sandbox.crm.example/api/v2',
+                'timeout' => 60,
+                'credentials' => ['token' => env('CRM_SANDBOX_TOKEN')],
             ],
         ],
     ],
 ],
 ```
 
-```php
-use Laraflow\Core\LaraflowManager;
-use Laraflow\Integration\Connection;
-use Laraflow\Integration\CredentialProvider;
+A package registers from its own service provider instead, with the class or a closure receiving the `Connection`:
 
-public function boot(): void
-{
-    app(LaraflowManager::class)->register(
-        'crm',
-        fn (Connection $connection) => new CrmConnector($connection, app(CredentialProvider::class)),
-    );
-}
+```php
+app(LaraflowManager::class)->register('crm', CrmConnector::class);
 ```
+
+Requests go through an `HttpTransport`, Laravel's HTTP client by default — so `Http::fake()` works in your tests and the client's middleware applies. Bind another implementation to replace it for every connector, or override `transport()` on one. A connector that is not HTTP at all implements `Laraflow\Integration\Connector` directly: `name()` and `request()`.
 
 Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 

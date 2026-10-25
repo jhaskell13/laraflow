@@ -313,6 +313,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | HTTP
+    |--------------------------------------------------------------------------
+    |
+    | Defaults every connector connection starts from. A connector class
+    | overrides them for its provider, and a connection overrides both
+    | with its own base_url, timeout, connect_timeout, and headers.
+    |
+    | timeout: the whole request, in seconds, connection included. Keep it
+    | below any step deadline the request runs under, or the step will be
+    | classified as timed out while the request is still waiting.
+    |
+    | connect_timeout: establishing the connection alone, in seconds.
+    |
+    */
+
+    'http' => [
+        'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
+        'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Integrations
     |--------------------------------------------------------------------------
     |
@@ -320,6 +342,28 @@ return [
     | Keep secrets in your environment file, not in version control.
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | HTTP
+    |--------------------------------------------------------------------------
+    |
+    | Defaults every connector connection starts from. A connector class
+    | overrides them for its provider, and a connection overrides both
+    | with its own base_url, timeout, connect_timeout, and headers.
+    |
+    | timeout: the whole request, in seconds, connection included. Keep it
+    | below any step deadline the request runs under, or the step will be
+    | classified as timed out while the request is still waiting.
+    |
+    | connect_timeout: establishing the connection alone, in seconds.
+    |
+    */
+
+    'http' => [
+        'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
+        'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -340,6 +384,9 @@ return [
     |                connector class serves every connection, so a second
     |                GitHub organisation or a per-environment account is a
     |                second entry here, not a second class.
+    |
+    | A connection may also set base_url, timeout, connect_timeout, and
+    | headers, overriding the connector class and the `http` section above.
     |
     | Within a connection, `credentials` holds the secrets. They are read
     | when a request is built, not when the connector is constructed, so

@@ -4,70 +4,32 @@ declare(strict_types=1);
 
 namespace Laraflow\Integration\Github;
 
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\Factory as HttpClient;
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
-use Laraflow\Exceptions\TransportException;
-use Laraflow\Integration\Connection;
-use Laraflow\Integration\Connector;
-use Laraflow\Integration\ConnectorRequest;
-use Laraflow\Integration\ConnectorResponse;
-use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\HttpConnector;
 
 /**
- * @experimental Prototype connector; HTTP behaviour is not yet configurable.
+ * @experimental Prototype connector, kept experimental until the first release.
  */
-class GithubConnector implements Connector
+class GithubConnector extends HttpConnector
 {
     public const BASE_URL = 'https://api.github.com';
 
-    protected Authenticator $authenticator;
-
-    public function __construct(
-        protected Connection $connection,
-        protected CredentialProvider $credentials,
-        protected HttpClient $http,
-    ) {
-        $this->authenticator = new BearerTokenAuthenticator('token', 'LARAFLOW_GITHUB_TOKEN');
+    protected function baseUrl(): ?string
+    {
+        return self::BASE_URL;
     }
 
-    public function name(): string
+    /**
+     * @return array<string, string>
+     */
+    protected function headers(): array
     {
-        return 'github';
+        return ['Accept' => 'application/vnd.github+json'];
     }
 
-    public function connection(): Connection
+    protected function authenticator(): Authenticator
     {
-        return $this->connection;
-    }
-
-    public function request(ConnectorRequest $request): ConnectorResponse
-    {
-        // Credentials are resolved here, per request, so a rotated token
-        // is used by the next call and this cached instance holds none.
-        $options = $this->authenticator->authenticate(
-            $request->options,
-            $this->credentials->credentials($this->connection),
-        );
-
-        try {
-            $response = $this->http
-                ->baseUrl(self::BASE_URL)
-                ->acceptJson()
-                ->send($request->method, $request->uri, $options);
-        } catch (ConnectionException $exception) {
-            // Deliberately omits request options: they carry credentials.
-            throw new TransportException(
-                message: 'Unable to connect to GitHub.',
-                previous: $exception,
-            );
-        }
-
-        return new ConnectorResponse(
-            status: $response->status(),
-            headers: $response->headers(),
-            body: $response->json(),
-        );
+        return new BearerTokenAuthenticator('token', 'LARAFLOW_GITHUB_TOKEN');
     }
 }

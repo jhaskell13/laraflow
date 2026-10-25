@@ -14,6 +14,8 @@ use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\CredentialProvider;
 use Laraflow\Integration\Credentials;
 use Laraflow\Integration\Github\GithubConnector;
+use Laraflow\Integration\Http\HttpOptions;
+use Laraflow\Integration\Http\LaravelHttpTransport;
 use Laraflow\Tests\TestCase;
 
 class GithubConnectorTest extends TestCase
@@ -33,7 +35,7 @@ class GithubConnectorTest extends TestCase
 
         Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
             && $request->url() === 'https://api.github.com/repos/example/laraflow?per_page=5'
-            && $request->hasHeader('Accept', 'application/json')
+            && $request->hasHeader('Accept', 'application/vnd.github+json')
             && $request->hasHeader('Authorization', 'Bearer test-token'));
     }
 
@@ -79,8 +81,6 @@ class GithubConnectorTest extends TestCase
 
     protected function connector(): GithubConnector
     {
-        $connection = new Connection('github', 'default');
-
         $credentials = new class implements CredentialProvider
         {
             public function credentials(Connection $connection): Credentials
@@ -89,6 +89,11 @@ class GithubConnectorTest extends TestCase
             }
         };
 
-        return new GithubConnector($connection, $credentials, $this->app->make(HttpClient::class));
+        return new GithubConnector(
+            new Connection('github', 'default'),
+            $credentials,
+            new LaravelHttpTransport($this->app->make(HttpClient::class)),
+            new HttpOptions,
+        );
     }
 }
