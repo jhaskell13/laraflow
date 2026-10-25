@@ -10,11 +10,8 @@ use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
-use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepCompleted;
-use Laraflow\Events\WorkflowStepFailed;
-use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -29,7 +26,6 @@ use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
-use Laraflow\Workflow\Policy\StepPolicy;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -52,6 +48,8 @@ class WorkflowRunner
     protected ErrorRedactor $redactor;
 
     protected StepResolver $steps;
+
+    protected OutcomeRecorder $outcomes;
 
     public function __construct(
         protected ExecutionRepository $repository,
@@ -82,6 +80,16 @@ class WorkflowRunner
         $this->policies = $policies ?? new PolicyResolver;
         $this->redactor = $redactor ?? new PassthroughRedactor;
         $this->steps = new StepResolver($container);
+
+        $this->outcomes = new OutcomeRecorder(
+            repository: $repository,
+            logger: $logger,
+            events: $events,
+            maxErrorLength: $maxErrorLength,
+            includeErrorMessages: $includeErrorMessages,
+            clock: $this->clock,
+            redactor: $this->redactor,
+        );
     }
 
     /**
@@ -206,10 +214,7 @@ class WorkflowRunner
 
         if ($execution->isCancelled() && $execution->cancelledAt !== null) {
             $this->event(new WorkflowExecutionCancelled(
-                executionId: $execution->id,
-                workflow: $execution->workflow,
-                correlationId: $execution->correlationId,
-                tenantId: $execution->tenantId,
+                ...$this->outcomes->identity($execution),
                 cancelledAt: $execution->cancelledAt,
                 reason: $execution->cancelReason,
                 durationMs: $execution->durationMs(),
@@ -234,10 +239,7 @@ class WorkflowRunner
         $execution->markRunning($startedAt);
 
         $this->event(new WorkflowExecutionStarted(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
+            ...$this->outcomes->identity($execution),
             startedAt: $execution->startedAt ?? $startedAt,
             // Measured against this claim, not the first start: a
             // recovered execution's wait is the wait since it was last
@@ -291,7 +293,7 @@ class WorkflowRunner
                 $policy = $this->policies->forStep($step, $workflow);
             } catch (Throwable $exception) {
                 $this->startStep($execution, $stepExecution, $context, $startedAt, null);
-                $this->persistFailure($execution, $stepExecution, $exception);
+                $this->outcomes->failure($execution, $stepExecution, $exception);
 
                 throw $exception;
             }
@@ -312,18 +314,18 @@ class WorkflowRunner
                     $stepExecution->attempts,
                 );
 
-                if ($this->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
+                if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
                     return $execution;
                 }
 
                 if ($failurePolicy === FailurePolicy::Continue) {
-                    $this->persistStepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+                    $this->outcomes->stepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
                     $firstFailure ??= $timeout;
 
                     continue;
                 }
 
-                $this->persistFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+                $this->outcomes->failure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
 
                 throw $timeout;
             }
@@ -371,10 +373,7 @@ class WorkflowRunner
                 $this->repository->checkpoint($execution, $stepExecution, $attempt);
 
                 $this->event(new WorkflowStepCompleted(
-                    executionId: $execution->id,
-                    workflow: $execution->workflow,
-                    correlationId: $execution->correlationId,
-                    tenantId: $execution->tenantId,
+                    ...$this->outcomes->identity($execution),
                     step: $stepExecution->step,
                     position: $stepExecution->position,
                     attempt: $stepExecution->attempts,
@@ -389,7 +388,7 @@ class WorkflowRunner
                 // persist would be trustworthy, including a failure.
                 throw $exception;
             } catch (Throwable $exception) {
-                if ($this->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
+                if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
                     // The retry is durably scheduled: step and execution
                     // are `retrying` with the claim released. Nothing has
                     // terminally failed, so nothing is thrown — a caller
@@ -402,20 +401,20 @@ class WorkflowRunner
                     // The workflow declared its steps independent: record
                     // this failure, keep going, and fail the execution —
                     // with this first exception — once everything ran.
-                    $this->persistStepFailure($execution, $stepExecution, $exception);
+                    $this->outcomes->stepFailure($execution, $stepExecution, $exception);
                     $firstFailure ??= $exception;
 
                     continue;
                 }
 
-                $this->persistFailure($execution, $stepExecution, $exception);
+                $this->outcomes->failure($execution, $stepExecution, $exception);
 
                 throw $exception;
             }
         }
 
         if ($firstFailure !== null) {
-            $this->failExecution($execution, $firstFailure);
+            $this->outcomes->executionFailure($execution, $firstFailure);
 
             throw $firstFailure;
         }
@@ -425,10 +424,7 @@ class WorkflowRunner
         $this->repository->release($execution);
 
         $this->event(new WorkflowExecutionCompleted(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
+            ...$this->outcomes->identity($execution),
             completedAt: $completedAt,
             durationMs: $execution->durationMs(),
         ));
@@ -459,10 +455,7 @@ class WorkflowRunner
         $this->repository->release($execution);
 
         $this->event(new WorkflowExecutionCancelled(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
+            ...$this->outcomes->identity($execution),
             cancelledAt: $cancelledAt,
             reason: $fresh->cancelReason,
             durationMs: $execution->durationMs(),
@@ -496,292 +489,11 @@ class WorkflowRunner
         $this->logging?->enterStep($stepExecution);
 
         $this->event(new WorkflowStepStarted(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
+            ...$this->outcomes->identity($execution),
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $stepExecution->attempts,
         ));
-    }
-
-    /**
-     * If the policy allows another attempt after this failure, persist
-     * step and execution as `retrying` with next_retry_at, append the
-     * failed attempt to history, and release the claim. Returns false
-     * when the policy refuses, leaving the terminal path to the caller.
-     *
-     * If the retry state itself cannot be persisted, this logs the
-     * storage failure and rethrows the *original* step exception — it
-     * must not fall through to persistFailure(), because the step may
-     * already be durably `retrying` and marking it failed from there
-     * would replace a real diagnosis with a state-machine error. The
-     * claim stays held, so stale-claim recovery picks the execution up,
-     * the same contract persistFailure() has for its own storage
-     * failures.
-     */
-    protected function scheduleRetry(
-        WorkflowExecution $execution,
-        StepExecution $stepExecution,
-        StepPolicy $policy,
-        Throwable $exception,
-        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
-    ): bool {
-        $attempt = $stepExecution->attempts;
-
-        if (! $policy->shouldRetry($exception, $attempt)) {
-            return false;
-        }
-
-        $error = $this->errorMessage($exception);
-        $failedAt = $this->now();
-
-        // Seeded by execution and position: one logical retry always
-        // lands on the same instant, different executions spread apart.
-        $delay = $policy->delaySeconds($attempt, "{$execution->id}:{$stepExecution->position}");
-        $nextRetryAt = $failedAt->modify("+{$delay} seconds");
-
-        $record = new StepAttempt(
-            executionId: $execution->id,
-            stepExecutionId: $stepExecution->id,
-            attempt: $attempt,
-            status: $attemptStatus,
-            error: $error,
-            errorClass: $exception::class,
-            startedAt: $stepExecution->startedAt,
-            endedAt: $failedAt,
-            nextRetryAt: $nextRetryAt,
-        );
-
-        try {
-            $stepExecution->markRetrying($error, $exception::class, $failedAt, $nextRetryAt);
-            $this->repository->saveStep($stepExecution, $record);
-
-            $execution->markRetrying($error, $exception::class, $nextRetryAt);
-            $this->repository->release($execution);
-        } catch (Throwable $storageFailure) {
-            $this->logger->error('Laraflow could not persist a scheduled retry.', [
-                'execution_id' => $execution->id,
-                'step' => $stepExecution->step,
-                'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
-                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
-            ]);
-
-            throw $exception;
-        }
-
-        $eventError = $this->includeErrorMessages ? $error : null;
-
-        $this->event(new WorkflowStepFailed(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            step: $stepExecution->step,
-            position: $stepExecution->position,
-            attempt: $attempt,
-            errorClass: $exception::class,
-            error: $eventError,
-            durationMs: $record->durationMs(),
-        ));
-
-        $this->event(new WorkflowStepRetryScheduled(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            step: $stepExecution->step,
-            position: $stepExecution->position,
-            attempt: $attempt,
-            maxAttempts: $policy->maxAttempts,
-            errorClass: $exception::class,
-            error: $eventError,
-            nextRetryAt: $nextRetryAt,
-            delaySeconds: $delay,
-        ));
-
-        return true;
-    }
-
-    /**
-     * Persist one step's terminal failure (with its attempt history) and
-     * announce it, leaving the execution running — the continue-on-failure
-     * path. If the persistence itself fails, the storage failure is
-     * logged and the step's exception thrown: with storage down there is
-     * nothing trustworthy to continue with.
-     */
-    protected function persistStepFailure(
-        WorkflowExecution $execution,
-        StepExecution $stepExecution,
-        Throwable $exception,
-        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
-    ): void {
-        $error = $this->errorMessage($exception);
-        $failedAt = $this->now();
-
-        $record = new StepAttempt(
-            executionId: $execution->id,
-            stepExecutionId: $stepExecution->id,
-            attempt: $stepExecution->attempts,
-            status: $attemptStatus,
-            error: $error,
-            errorClass: $exception::class,
-            startedAt: $stepExecution->startedAt,
-            endedAt: $failedAt,
-        );
-
-        try {
-            $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, $record);
-        } catch (Throwable $storageFailure) {
-            $this->logger->error('Laraflow could not persist a workflow failure.', [
-                'execution_id' => $execution->id,
-                'step' => $stepExecution->step,
-                'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
-                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
-            ]);
-
-            throw $exception;
-        }
-
-        $this->event(new WorkflowStepFailed(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            step: $stepExecution->step,
-            position: $stepExecution->position,
-            attempt: $stepExecution->attempts,
-            errorClass: $exception::class,
-            error: $this->includeErrorMessages ? $error : null,
-            durationMs: $record->durationMs(),
-        ));
-    }
-
-    /**
-     * Terminal execution failure at the end of a continue-on-failure
-     * run: the first step failure is what the execution records and what
-     * the caller is thrown. Storage-failure semantics match
-     * persistFailure(): log, keep the claim, let recovery own it.
-     */
-    protected function failExecution(WorkflowExecution $execution, Throwable $exception): void
-    {
-        $error = $this->errorMessage($exception);
-        $failedAt = $this->now();
-
-        try {
-            $execution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->release($execution);
-        } catch (Throwable $storageFailure) {
-            $this->logger->error('Laraflow could not persist a workflow failure.', [
-                'execution_id' => $execution->id,
-                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
-                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
-            ]);
-
-            return;
-        }
-
-        $this->event(new WorkflowExecutionFailed(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            errorClass: $exception::class,
-            error: $this->includeErrorMessages ? $error : null,
-            failedAt: $failedAt,
-            durationMs: $execution->durationMs(),
-        ));
-    }
-
-    /**
-     * Persist a step failure and the execution's failed state. If the
-     * persistence itself fails, the original step exception still
-     * propagates; the storage failure is logged instead of replacing it.
-     */
-    protected function persistFailure(
-        WorkflowExecution $execution,
-        StepExecution $stepExecution,
-        Throwable $exception,
-        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed
-    ): void {
-        $error = $this->errorMessage($exception);
-        $failedAt = $this->now();
-
-        $record = new StepAttempt(
-            executionId: $execution->id,
-            stepExecutionId: $stepExecution->id,
-            attempt: $stepExecution->attempts,
-            status: $attemptStatus,
-            error: $error,
-            errorClass: $exception::class,
-            startedAt: $stepExecution->startedAt,
-            endedAt: $failedAt,
-        );
-
-        try {
-            $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, $record);
-
-            $execution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->release($execution);
-        } catch (Throwable $storageFailure) {
-            $this->logger->error('Laraflow could not persist a workflow failure.', [
-                'execution_id' => $execution->id,
-                'step' => $stepExecution->step,
-                'position' => $stepExecution->position,
-                'original_exception' => $exception::class.': '.$this->errorMessage($exception),
-                'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
-            ]);
-
-            // Events describe durable state; none exists to describe.
-            return;
-        }
-
-        $eventError = $this->includeErrorMessages ? $error : null;
-
-        $this->event(new WorkflowStepFailed(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            step: $stepExecution->step,
-            position: $stepExecution->position,
-            attempt: $stepExecution->attempts,
-            errorClass: $exception::class,
-            error: $eventError,
-            durationMs: $record->durationMs(),
-        ));
-
-        $this->event(new WorkflowExecutionFailed(
-            executionId: $execution->id,
-            workflow: $execution->workflow,
-            correlationId: $execution->correlationId,
-            tenantId: $execution->tenantId,
-            errorClass: $exception::class,
-            error: $eventError,
-            failedAt: $failedAt,
-            durationMs: $execution->durationMs(),
-        ));
-    }
-
-    /**
-     * The one place an exception becomes text Laraflow retains: redacted
-     * first (laraflow.errors.redactor), then truncated. Every persisted
-     * error column, attempt-history row, log record, and failure event
-     * goes through here, so nothing the redactor strips can leak out a
-     * side door. The thrown exception itself is untouched.
-     */
-    protected function errorMessage(Throwable $exception): string
-    {
-        return mb_substr(
-            $this->redactor->redact($exception, $exception->getMessage()),
-            0,
-            $this->maxErrorLength,
-        );
     }
 
     /**
