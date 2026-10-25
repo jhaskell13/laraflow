@@ -62,17 +62,20 @@ class LinkHeaderPaginator implements Paginator
             return null;
         }
 
-        foreach (explode(',', $header) as $candidate) {
-            if (preg_match('/<\s*([^>]+)\s*>\s*;(.*)$/', trim($candidate), $matches) !== 1) {
-                continue;
-            }
+        // Each link is `<url>` followed by `; param=value` pairs up to
+        // the next `<`. Not split on commas: a URL may contain one
+        // (`?ids=1,2`), and so may a quoted parameter value.
+        if (preg_match_all('/<([^>]+)>((?:\s*;\s*[^;<]+)*)/', $header, $links, PREG_SET_ORDER) === 0) {
+            return null;
+        }
 
-            if (preg_match('/rel\s*=\s*"?([^";]+)"?/i', $matches[2], $relation) !== 1) {
+        foreach ($links as [, $url, $parameters]) {
+            if (preg_match('/rel\s*=\s*"?([^";,]+)"?/i', $parameters, $relation) !== 1) {
                 continue;
             }
 
             if (strcasecmp(trim($relation[1]), $this->relation) === 0) {
-                return trim($matches[1]);
+                return trim($url);
             }
         }
 

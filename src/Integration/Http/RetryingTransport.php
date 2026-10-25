@@ -37,7 +37,7 @@ final class RetryingTransport implements HttpTransport
                 $response = $this->inner->send($request, $options);
             } catch (TransportException $exception) {
                 if (! $this->policy->shouldRetryFailure($request, $attempt)) {
-                    throw $exception;
+                    throw $exception->afterAttempts($attempt);
                 }
 
                 $this->sleeper->sleep($this->policy->delayMs($attempt, null, $seed));

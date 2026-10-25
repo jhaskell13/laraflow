@@ -9,6 +9,7 @@ use Laraflow\Exceptions\Connector\ClientErrorException;
 use Laraflow\Exceptions\Connector\NotFoundException;
 use Laraflow\Exceptions\Connector\RateLimitedException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
+use Laraflow\Exceptions\Connector\ResponseDecodingException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -50,10 +51,21 @@ class SlackErrorMapper extends StatusErrorMapper
             return parent::map($request, $response, $connection);
         }
 
-        $body = $response->json();
-
         // Not every Slack endpoint answers with an envelope (file
-        // downloads, and anything behind a proxy that rewrote it).
+        // downloads, and anything behind a proxy that rewrote it), and a
+        // mapper decides whether a response is an error — it does not
+        // throw. A declared-JSON body that will not decode is left for
+        // body() to report when the caller reads it.
+        if (! $response->isJson()) {
+            return null;
+        }
+
+        try {
+            $body = $response->json();
+        } catch (ResponseDecodingException) {
+            return null;
+        }
+
         if (! is_array($body) || ! array_key_exists('ok', $body) || $body['ok'] !== false) {
             return null;
         }

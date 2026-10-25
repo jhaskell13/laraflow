@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Integration\Http;
 
 use DateTimeImmutable;
+use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -45,7 +46,13 @@ final class ObservingTransport implements HttpTransport
         try {
             $response = $this->inner->send($request, $options);
         } catch (Throwable $exception) {
-            $this->observer->failed($this->connection, $request, $exception, $this->elapsed($startedAt));
+            $this->observer->failed(
+                $this->connection,
+                $request,
+                $exception,
+                $this->elapsed($startedAt),
+                $exception instanceof TransportException ? $exception->attempts : 1,
+            );
 
             throw $exception;
         } finally {

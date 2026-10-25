@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Integration;
 
 use Generator;
+use InvalidArgumentException;
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
 use Laraflow\Exceptions\Connector\PaginationException;
@@ -168,6 +169,10 @@ abstract class HttpConnector implements Connector
         $paginator ??= $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
         $limit = $maxPages ?? $this->options->maxPages;
         $page = 0;
+
+        if ($limit < 1) {
+            throw new InvalidArgumentException('maxPages must be at least 1.');
+        }
 
         while (true) {
             $response = $this->request($request)->throw();
