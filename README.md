@@ -283,6 +283,55 @@ vendor/bin/testbench laraflow:prune --prune-attempts-after=1 --delete-after=7 --
 
 The dry run predicts the real run exactly — compare the two reports. Note what survives: a `failed` execution past the delete bound is still there, because failed work can still be recovered and is only ever removed by `--delete-failed-after`, which you did not pass.
 
+**12 · Connectors**
+
+Two connectors ship — GitHub and Slack — and `laraflow:connectors` shows how each is configured without printing a credential:
+
+```bash
+vendor/bin/testbench laraflow:connectors
+vendor/bin/testbench laraflow:connectors --check    # exits non-zero if a connector cannot be built
+```
+
+```
+| Connector | Connection | Base URL                | API version | Timeout | Retries | Rate limit | Credentials |
+| github    | default    | https://api.github.com  | 2022-11-28  | 30s     | off     | off        | none        |
+| slack     | default    | https://slack.com/api   | unversioned | 30s     | off     | off        | none        |
+```
+
+`playground:call` sends one real request through a connector and shows what the framework did with it — the mapped error, the wire attempts, the duration, and the events it announced. With no token configured, the first request is where the missing credential is reported:
+
+```bash
+vendor/bin/testbench playground:call github /user
+```
+
+```
+   ERROR  ConnectorConfigurationException: laraflow.integrations.github.connections.default.credentials.token is not set. Set LARAFLOW_GITHUB_TOKEN or configure it directly.
+```
+
+Give it a token and the same command talks to GitHub. A deliberately wrong path shows an error being **returned**, mapped, and announced rather than thrown:
+
+```bash
+export LARAFLOW_GITHUB_TOKEN=ghp_your_token
+vendor/bin/testbench playground:call github /user
+vendor/bin/testbench playground:call github /repos/no-such-owner/no-such-repo
+```
+
+```
+  Event ................................ ConnectorRequestSent
+    status ............................................. 404
+    successful .......................................... no
+    attempts ............................................. 1
+    duration ......................................... 212 ms
+
+  Connector .............................. github [default]
+  Request ............ GET /repos/no-such-owner/no-such-repo
+  Status ............................................... 404
+  Mapped error ............................ NotFoundException
+  Message  Connector [github:default] received 404 for GET /repos/no-such-owner/no-such-repo: Not Found
+```
+
+Note the message: the path, never the query string, and nothing the authenticator added.
+
 ---
 
 The `laraflow:*` commands are registered in any application that installs the package; they are experimental, and documented in [docs/public-api.md](docs/public-api.md). The `playground:*` commands are **not** part of the package — they live in this repository's `workbench/` directory, because a traffic generator has no business being installable into an application.

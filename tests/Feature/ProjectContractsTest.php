@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\File;
 use Laraflow\Tests\TestCase;
 use ReflectionClass;
 use ReflectionParameter;
+use SensitiveParameter;
 
 /**
  * Holds the project's documentation and its code to each other.
@@ -248,6 +249,91 @@ class ProjectContractsTest extends TestCase
             (int) config('laraflow.queue.timeout'),
             'queue.timeout must stay below execution.stale_after.',
         );
+    }
+
+    public function test_every_connector_authority_ships_off(): void
+    {
+        // Milestone 5's additions to the most repeated claim in the
+        // documentation: nothing retries, throttles, or spends a
+        // provider's budget until an application opts in.
+        $this->assertSame(1, (int) config('laraflow.http.retries.max_attempts'), 'Transport retries must ship disabled.');
+        $this->assertNull(config('laraflow.http.rate_limit'), 'Client-side rate limiting must ship disabled.');
+        $this->assertSame(100, (int) config('laraflow.http.pagination.max_pages'), 'The page budget is the documented one.');
+        $this->assertSame(3600, (int) config('laraflow.retry.max_suggested_delay'), 'The suggested-delay cap is the documented one.');
+        $this->assertLessThanOrEqual(
+            (int) config('laraflow.http.retries.max_retry_after'),
+            5,
+            'A Retry-After beyond a few seconds must be left to the durable path.',
+        );
+
+        foreach (['github', 'slack'] as $connector) {
+            $this->assertNull(
+                config("laraflow.integrations.{$connector}.connections.default.credentials.token"),
+                "The bundled {$connector} connector must ship without a credential.",
+            );
+        }
+    }
+
+    public function test_every_connector_exception_is_documented(): void
+    {
+        $doc = (string) file_get_contents($this->path('docs/public-api.md'));
+        $undocumented = [];
+
+        foreach (File::files($this->path('src/Exceptions/Connector')) as $file) {
+            $class = 'Laraflow\\Exceptions\\Connector\\'.$file->getFilenameWithoutExtension();
+
+            if (! str_contains($doc, '`'.$class.'`')) {
+                $undocumented[] = $class;
+            }
+        }
+
+        $this->assertSame([], $undocumented, 'A connector exception an application can catch is not in public-api.md.');
+    }
+
+    public function test_every_transport_marks_the_authenticated_request_sensitive(): void
+    {
+        // By the time a transport sees the request its options carry the
+        // credential; the attribute is what keeps it out of Laraflow's
+        // own stack frames.
+        $missing = [];
+
+        foreach (File::allFiles($this->path('src')) as $file) {
+            $class = 'Laraflow\\'.str_replace(['/', '.php'], ['\\', ''], mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1));
+
+            if (! class_exists($class) || ! is_subclass_of($class, \Laraflow\Integration\Http\HttpTransport::class)) {
+                continue;
+            }
+
+            $parameter = (new ReflectionClass($class))->getMethod('send')->getParameters()[0];
+
+            if ($parameter->getAttributes(SensitiveParameter::class) === []) {
+                $missing[] = $class;
+            }
+        }
+
+        $this->assertSame([], $missing, 'An HttpTransport::send() does not mark its request #[SensitiveParameter].');
+    }
+
+    public function test_connector_events_carry_no_request_or_response_content(): void
+    {
+        $forbidden = ['headers', 'options', 'body', 'raw', 'query', 'json', 'uri', 'url', 'response', 'request'];
+        $offenders = [];
+
+        foreach (File::files($this->path('src/Events')) as $file) {
+            if (! str_starts_with($file->getFilename(), 'Connector')) {
+                continue;
+            }
+
+            $class = 'Laraflow\\Events\\'.$file->getFilenameWithoutExtension();
+
+            foreach ((new ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
+                if (in_array(strtolower($parameter->getName()), $forbidden, true)) {
+                    $offenders[] = "{$class} carries {$parameter->getName()}";
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'A connector event carries request or response content.');
     }
 
     public function test_the_repository_contract_is_fully_implemented_everywhere(): void
