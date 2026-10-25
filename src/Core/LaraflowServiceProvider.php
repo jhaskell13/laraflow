@@ -35,6 +35,8 @@ use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\RetentionPolicy;
+use Laraflow\Workflow\RetentionService;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -149,6 +151,20 @@ class LaraflowServiceProvider extends ServiceProvider
             bus: $app->make(Bus::class),
             config: $app->make(Config::class),
             events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
+        ));
+
+        $this->app->singleton(RetentionPolicy::class, function (Container $app): RetentionPolicy {
+            /** @var Config $config */
+            $config = $app->make(Config::class);
+
+            $retention = $config->get('laraflow.retention', []);
+
+            return RetentionPolicy::fromArray(is_array($retention) ? $retention : []);
+        });
+
+        $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
+            repository: $app->make(ExecutionRepository::class),
             clock: $app->make(ClockInterface::class),
         ));
 

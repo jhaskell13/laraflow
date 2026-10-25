@@ -9,6 +9,7 @@ use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\Policy\PolicyResolver;
+use Laraflow\Workflow\RetentionPolicy;
 
 class ConfigTest extends TestCase
 {
@@ -53,6 +54,40 @@ class ConfigTest extends TestCase
         // The fast path ships on: punctual retries out of the box, with
         // the recovery scan as the safety net either way.
         $this->assertTrue((bool) config('laraflow.retry.dispatch_delayed'));
+    }
+
+    public function test_retention_is_entirely_disabled_by_default(): void
+    {
+        // Retention is irreversible. Nothing is removed until the
+        // application says what it wants kept.
+        $this->assertNull(config('laraflow.retention.scrub_after_days'));
+        $this->assertNull(config('laraflow.retention.prune_attempts_after_days'));
+        $this->assertNull(config('laraflow.retention.delete_after_days'));
+        $this->assertNull(config('laraflow.retention.delete_failed_after_days'));
+
+        $this->assertSame(1000, (int) config('laraflow.retention.limit'));
+        $this->assertSame(100, (int) config('laraflow.retention.chunk'));
+
+        $this->assertFalse($this->app->make(RetentionPolicy::class)->isEnabled());
+    }
+
+    public function test_the_retention_policy_is_built_from_configuration(): void
+    {
+        config([
+            'laraflow.retention.scrub_after_days' => 30,
+            'laraflow.retention.delete_after_days' => 90,
+            'laraflow.retention.limit' => 250,
+        ]);
+
+        $this->app->forgetInstance(RetentionPolicy::class);
+
+        $policy = $this->app->make(RetentionPolicy::class);
+
+        $this->assertSame(30, $policy->scrubAfterDays);
+        $this->assertSame(90, $policy->deleteAfterDays);
+        $this->assertSame(250, $policy->limit);
+        $this->assertNull($policy->deleteFailedAfterDays, 'Failed work needs its own explicit bound.');
+        $this->assertTrue($policy->isEnabled());
     }
 
     public function test_logging_configuration_defaults(): void

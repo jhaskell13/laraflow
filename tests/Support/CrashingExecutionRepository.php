@@ -9,6 +9,7 @@ use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionPage;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\RetentionTier;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
@@ -95,6 +96,26 @@ class CrashingExecutionRepository implements ExecutionRepository
         $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {
             $this->inner->checkpoint($execution, $step, $attempt);
         });
+    }
+
+    public function retentionCandidates(RetentionTier $tier, array $statuses, DateTimeImmutable $finishedBefore, int $limit, ?string $workflow = null, ?string $tenantId = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->retentionCandidates($tier, $statuses, $finishedBefore, $limit, $workflow, $tenantId));
+    }
+
+    public function scrubPayloads(array $ids, array $statuses, DateTimeImmutable $finishedBefore, DateTimeImmutable $scrubbedAt): int
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->scrubPayloads($ids, $statuses, $finishedBefore, $scrubbedAt));
+    }
+
+    public function pruneAttempts(array $ids, array $statuses, DateTimeImmutable $finishedBefore): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->pruneAttempts($ids, $statuses, $finishedBefore));
+    }
+
+    public function deleteExecutions(array $ids, array $statuses, DateTimeImmutable $finishedBefore): int
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->deleteExecutions($ids, $statuses, $finishedBefore));
     }
 
     public function recordDispatch(int|string $id, DateTimeImmutable $dispatchedAt, ?DateTimeImmutable $availableAt = null): void

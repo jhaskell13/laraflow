@@ -200,6 +200,89 @@ interface ExecutionRepository
     ): void;
 
     /**
+     * Finished executions eligible for one retention tier, oldest
+     * finish first.
+     *
+     * Implementations must require a non-null `finished_at` at or
+     * before $finishedBefore and a status in $statuses, and must apply
+     * the tier's own self-limiting predicate — otherwise a scheduled
+     * run rescans work it has already done and never reaches anything
+     * newer:
+     *
+     * - `ScrubPayloads`: only executions not already scrubbed.
+     * - `PruneAttempts`: only executions that still have attempt rows.
+     * - `Delete`: none needed; deleted rows cannot match again.
+     *
+     * @param  list<ExecutionStatus>  $statuses
+     * @param  int  $limit  Hard upper bound on rows returned.
+     * @return WorkflowExecution[] ordered by finished_at ascending, at most $limit.
+     */
+    public function retentionCandidates(
+        RetentionTier $tier,
+        array $statuses,
+        DateTimeImmutable $finishedBefore,
+        int $limit,
+        ?string $workflow = null,
+        ?string $tenantId = null
+    ): array;
+
+    /**
+     * Clear the input, context snapshot, and step outputs of the given
+     * executions, and stamp `payloads_scrubbed_at`.
+     *
+     * $statuses and $finishedBefore are re-applied as a guard in the
+     * same statement: an execution claimed between the scan and this
+     * call has `status = running` and a null `finished_at`, so it is
+     * silently left alone rather than having its payloads removed
+     * underneath a running worker.
+     *
+     * @param  list<int|string>  $ids
+     * @param  list<ExecutionStatus>  $statuses
+     * @return int Executions actually scrubbed; fewer than count($ids) means
+     *             the rest no longer qualified.
+     */
+    public function scrubPayloads(
+        array $ids,
+        array $statuses,
+        DateTimeImmutable $finishedBefore,
+        DateTimeImmutable $scrubbedAt
+    ): int;
+
+    /**
+     * Delete the attempt history of the given executions, under the
+     * same guard as scrubPayloads().
+     *
+     * @param  list<int|string>  $ids
+     * @param  list<ExecutionStatus>  $statuses
+     * @return array{executions: int, rows: int} Executions that qualified, and
+     *                                           attempt rows removed.
+     */
+    public function pruneAttempts(
+        array $ids,
+        array $statuses,
+        DateTimeImmutable $finishedBefore
+    ): array;
+
+    /**
+     * Delete the given executions and everything belonging to them,
+     * under the same guard as scrubPayloads().
+     *
+     * Implementations must leave no orphaned step or attempt rows, and
+     * must not rely on the database enforcing the declared cascade:
+     * SQLite only does so when the connection asks for it, and an
+     * application may not have.
+     *
+     * @param  list<int|string>  $ids
+     * @param  list<ExecutionStatus>  $statuses
+     * @return int Executions actually deleted.
+     */
+    public function deleteExecutions(
+        array $ids,
+        array $statuses,
+        DateTimeImmutable $finishedBefore
+    ): int;
+
+    /**
      * Record that the execution was handed to the queue at $dispatchedAt
      * and asked to become runnable at $availableAt — the same instant
      * for an immediate push, later for a delayed retry. Queue lag is

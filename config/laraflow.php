@@ -194,6 +194,62 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Retention
+    |--------------------------------------------------------------------------
+    |
+    | How long finished executions are kept, and in what form. Applied
+    | by the laraflow:prune command, which you schedule; Laraflow never
+    | prunes on its own.
+    |
+    | Every bound is null by default. Retention is irreversible, and a
+    | package that quietly began deleting your execution history on
+    | upgrade would be indefensible. Nothing is removed until you say
+    | what you want kept.
+    |
+    | All bounds count from finished_at — when the execution stopped —
+    | so a long-running execution is never pruned for having started a
+    | long time ago. Executions that are pending, running, or retrying
+    | are invisible to retention: a retry waiting out its backoff is
+    | future work, not old work.
+    |
+    | scrub_after_days: clear the input, context, and step outputs of
+    | completed and cancelled executions, keeping the record itself as
+    | an audit trail of what ran and when. Use this when payloads carry
+    | personal data that should outlive neither its purpose nor your
+    | retention policy. Never applied to failed executions: they need
+    | their input and context to be re-executable.
+    |
+    | prune_attempts_after_days: delete the append-only attempt history
+    | (laraflow_step_attempts), which is the table that grows without
+    | bound under retry policies. Applies to every finished execution,
+    | failed included: the step row keeps the latest attempt's status
+    | and error, and the retry budget reads the step's counter rather
+    | than this table, so nothing becomes unrecoverable.
+    |
+    | delete_after_days: delete completed and cancelled executions
+    | outright, with their steps and attempts.
+    |
+    | delete_failed_after_days: the same for failed executions, kept
+    | separate on purpose. A failed execution can still be recovered,
+    | so discarding one should be a decision you took, not a side
+    | effect of configuring general retention.
+    |
+    | limit: most executions handled per tier per run. chunk: how many
+    | are written at once.
+    |
+    */
+
+    'retention' => [
+        'scrub_after_days' => env('LARAFLOW_RETENTION_SCRUB_AFTER_DAYS'),
+        'prune_attempts_after_days' => env('LARAFLOW_RETENTION_PRUNE_ATTEMPTS_AFTER_DAYS'),
+        'delete_after_days' => env('LARAFLOW_RETENTION_DELETE_AFTER_DAYS'),
+        'delete_failed_after_days' => env('LARAFLOW_RETENTION_DELETE_FAILED_AFTER_DAYS'),
+        'limit' => env('LARAFLOW_RETENTION_LIMIT', 1000),
+        'chunk' => env('LARAFLOW_RETENTION_CHUNK', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Errors
     |--------------------------------------------------------------------------
     |
