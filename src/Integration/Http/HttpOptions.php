@@ -27,6 +27,7 @@ final readonly class HttpOptions
      * @param  array<string, string>  $headers  Sent with every request; a request's own headers win.
      * @param  TransportPolicy  $retries  In-attempt wire retries; disabled unless configured.
      * @param  RateLimitPolicy|null  $rateLimit  A ceiling on wire attempts per connection; none unless configured.
+     * @param  int  $maxPages  Pages one pagination may fetch before it refuses to continue.
      */
     public function __construct(
         public ?string $baseUrl = null,
@@ -35,7 +36,12 @@ final readonly class HttpOptions
         public array $headers = [],
         public TransportPolicy $retries = new TransportPolicy,
         public ?RateLimitPolicy $rateLimit = null,
+        public int $maxPages = 100,
     ) {
+        if ($maxPages < 1) {
+            throw new InvalidArgumentException('pagination.max_pages must be at least 1.');
+        }
+
         if ($timeoutSeconds <= 0.0) {
             throw new InvalidArgumentException('The HTTP timeout must be greater than zero seconds.');
         }
@@ -69,6 +75,7 @@ final readonly class HttpOptions
             connectTimeoutSeconds: (float) ($setting('connect_timeout') ?? 10.0),
             retries: TransportPolicy::fromArray(is_array($retries) ? $retries : []),
             rateLimit: RateLimitPolicy::fromArray(is_array($rateLimit) ? $rateLimit : null),
+            maxPages: (int) ($setting('pagination.max_pages') ?? 100),
         );
     }
 
@@ -105,6 +112,7 @@ final readonly class HttpOptions
                 headers: array_merge($this->headers, array_map('strval', $headers)),
                 retries: TransportPolicy::fromArray($retries, $this->retries),
                 rateLimit: RateLimitPolicy::fromArray($rateLimit, $this->rateLimit),
+                maxPages: (int) (self::floatOrNull($connection->get('max_pages')) ?? $this->maxPages),
             );
         } catch (InvalidArgumentException $exception) {
             throw new ConnectorConfigurationException("{$connection->path()}: {$exception->getMessage()}", previous: $exception);
@@ -113,7 +121,7 @@ final readonly class HttpOptions
 
     public function withBaseUrl(?string $baseUrl): self
     {
-        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $this->rateLimit);
+        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $this->rateLimit, $this->maxPages);
     }
 
     /**
@@ -121,17 +129,17 @@ final readonly class HttpOptions
      */
     public function withHeaders(array $headers): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries, $this->rateLimit);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries, $this->rateLimit, $this->maxPages);
     }
 
     public function withRetries(TransportPolicy $retries): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $retries, $this->rateLimit);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $retries, $this->rateLimit, $this->maxPages);
     }
 
     public function withRateLimit(?RateLimitPolicy $rateLimit): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $rateLimit);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $rateLimit, $this->maxPages);
     }
 
     /**

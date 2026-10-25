@@ -369,6 +369,14 @@ return [
         // due, without holding a worker. Set it on a connection for one
         // account, or here for every connection.
         'rate_limit' => null,
+
+        // Paging through a provider's results. max_pages bounds one
+        // pagination; reaching it is an error, not a quiet stop, because
+        // a short list that looks complete is the worst outcome a
+        // paginator can produce. A connection's max_pages overrides it.
+        'pagination' => [
+            'max_pages' => env('LARAFLOW_HTTP_MAX_PAGES', 100),
+        ],
     ],
 
     /*
@@ -433,6 +441,14 @@ return [
         // due, without holding a worker. Set it on a connection for one
         // account, or here for every connection.
         'rate_limit' => null,
+
+        // Paging through a provider's results. max_pages bounds one
+        // pagination; reaching it is an error, not a quiet stop, because
+        // a short list that looks complete is the worst outcome a
+        // paginator can produce. A connection's max_pages overrides it.
+        'pagination' => [
+            'max_pages' => env('LARAFLOW_HTTP_MAX_PAGES', 100),
+        ],
     ],
 
     /*

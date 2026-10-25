@@ -8,6 +8,8 @@ use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
 use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\HttpConnector;
+use Laraflow\Integration\Pagination\LinkHeaderPaginator;
+use Laraflow\Integration\Pagination\Paginator;
 
 /**
  * @experimental Prototype connector, kept experimental until the first release.
@@ -37,5 +39,10 @@ class GithubConnector extends HttpConnector
     protected function errorMapper(): ErrorMapper
     {
         return new GithubErrorMapper;
+    }
+
+    protected function paginator(): ?Paginator
+    {
+        return new LinkHeaderPaginator;
     }
 }

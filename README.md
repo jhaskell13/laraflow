@@ -408,6 +408,8 @@ return [
         // A per-connection ceiling Laraflow holds itself to: null, or
         // ['max' => 60, 'per' => 60, 'max_wait' => 0].
         'rate_limit' => null,
+        // Reaching this is an error, not a quiet stop.
+        'pagination' => ['max_pages' => env('LARAFLOW_HTTP_MAX_PAGES', 100)],
     ],
 
     'integrations' => [
@@ -861,6 +863,18 @@ app(LaraflowManager::class)->register('crm', CrmConnector::class);
 A connection can enable **transport retries** — repeating one request inside a step attempt for a dropped connection or a momentary 503 — with `'retries' => ['max_attempts' => 3]`. They are off by default, measured in milliseconds, and never wait for a long `Retry-After`: that is returned to the step so its own retry policy can wait durably, without holding a worker. A `POST` is repeated only when the provider says it was never processed (429) or you mark the request `->asIdempotent()`. The two loops are specified together in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md#transport-retries-are-the-inner-loop).
 
 **Rate limits** work in both directions. A provider's `429` with `Retry-After` becomes a `RateLimitedException`, and because it implements `SuggestsRetryDelay`, a step that throws it is retried durably *when the provider said* — up to `retry.max_suggested_delay` — rather than on the policy's guess. And a connection's own `'rate_limit' => ['max' => 60, 'per' => 60]` is a ceiling Laraflow holds itself to, shared by every worker through the cache, keyed per connection so one tenant's account never throttles another's; when the budget is spent the request fails before reaching the provider with `ThrottledException`, which suggests the wait the same way.
+
+**Paging** is lazy and bounded. Declare a `paginator()` on the connector and call `pages()` for responses or `items()` for the items across them; both are generators, so a long result set never exists in memory at once and stopping early fetches nothing more:
+
+```php
+foreach ($github->items(new ConnectorRequest('GET', '/repos')) as $repo) {
+    Repository::sync($repo);   // handle each one; do not collect them
+}
+```
+
+Three shapes ship: `LinkHeaderPaginator` (GitHub), `CursorPaginator` (Slack), and `PagePaginator`. Reaching the page budget — `max_pages` on the connection, or `laraflow.http.pagination.max_pages` — raises `PaginationException` rather than stopping quietly, because a short list that looks complete is worse than an error. A next-page link pointing at a host the connection never named is refused too: the request carries your credentials.
+
+Do not accumulate pages into a step's output. A result set big enough to need paging is big enough to meet `execution.max_payload_bytes`; handle each item as it arrives, or store identifiers.
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 

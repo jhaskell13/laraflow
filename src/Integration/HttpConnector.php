@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Laraflow\Integration;
 
+use Generator;
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Exceptions\Connector\PaginationException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
 use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\StatusErrorMapper;
 use Laraflow\Integration\Http\TransportPipeline;
+use Laraflow\Integration\Pagination\Paginator;
 
 /**
  * Base class for connectors that speak HTTP, which is most of them.
@@ -96,6 +99,83 @@ abstract class HttpConnector implements Connector
     }
 
     /**
+     * Every page of a paginated request, fetched one at a time.
+     *
+     * A generator, so a caller that stops early fetches no more, and a
+     * long result set never exists in memory at once. Each page is
+     * thrown on failure: paging past an error would silently return a
+     * short list.
+     *
+     * The page budget (`maxPages`, a connection's `max_pages`, or
+     * `laraflow.http.pagination.max_pages`) is a **refusal**, not a
+     * quiet stop — see PaginationException::limitReached().
+     *
+     * @return Generator<int, ConnectorResponse>
+     *
+     * @throws PaginationException
+     * @throws RequestFailedException
+     */
+    public function pages(ConnectorRequest $request, ?int $maxPages = null): Generator
+    {
+        $paginator = $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
+        $limit = $maxPages ?? $this->options->maxPages;
+        $page = 0;
+
+        while (true) {
+            $response = $this->request($request)->throw();
+            $page++;
+
+            yield $response;
+
+            $next = $paginator->next($request, $response);
+
+            if ($next === null) {
+                return;
+            }
+
+            $this->assertSameHost($next);
+
+            if ($next->method === $request->method && $next->uri === $request->uri && $next->options === $request->options) {
+                throw PaginationException::notAdvancing($this->connection, $page);
+            }
+
+            if ($page >= $limit) {
+                throw PaginationException::limitReached($this->connection, $limit);
+            }
+
+            $request = $next;
+        }
+    }
+
+    /**
+     * Every item of every page, flattened, one at a time.
+     *
+     * Do not collect these into a step's output: a result set large
+     * enough to need paging is large enough to meet
+     * `laraflow.execution.max_payload_bytes`. Handle each item, or
+     * store identifiers.
+     *
+     * @return Generator<int, mixed>
+     *
+     * @throws PaginationException
+     * @throws RequestFailedException
+     */
+    public function items(ConnectorRequest $request, ?int $maxPages = null): Generator
+    {
+        $paginator = $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
+
+        foreach ($this->pages($request, $maxPages) as $page) {
+            // Yielded one at a time rather than `yield from`, which
+            // would repeat each page's own keys: a caller doing
+            // iterator_to_array() would then keep only the last page's
+            // worth, silently.
+            foreach ($paginator->items($page) as $item) {
+                yield $item;
+            }
+        }
+    }
+
+    /**
      * The provider's API root. A connection's `base_url` overrides it.
      */
     abstract protected function baseUrl(): ?string;
@@ -118,6 +198,38 @@ abstract class HttpConnector implements Connector
     protected function authenticator(): Authenticator
     {
         return new BearerTokenAuthenticator;
+    }
+
+    /**
+     * How the provider says there is more. Null — the default — means
+     * pages() and items() are not available on this connector.
+     */
+    protected function paginator(): ?Paginator
+    {
+        return null;
+    }
+
+    /**
+     * A next-page link may be absolute, and the transport sends an
+     * absolute URL as given rather than against the base URL. The
+     * request carries an Authorization header, so a link to a host this
+     * connection never named is refused rather than followed.
+     *
+     * @throws PaginationException
+     */
+    protected function assertSameHost(ConnectorRequest $request): void
+    {
+        $host = parse_url($request->uri, PHP_URL_HOST);
+
+        if (! is_string($host) || $host === '') {
+            return;
+        }
+
+        $expected = $this->options->host();
+
+        if ($expected !== null && strcasecmp($host, $expected) !== 0) {
+            throw PaginationException::foreignHost($this->connection, $expected, $host);
+        }
     }
 
     /**
