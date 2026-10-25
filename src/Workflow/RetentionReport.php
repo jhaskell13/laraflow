@@ -49,20 +49,6 @@ readonly class RetentionReport
         );
     }
 
-    public function asDryRun(): self
-    {
-        return new self(
-            scanned: $this->scanned,
-            scrubbed: $this->scrubbed,
-            attemptExecutions: $this->attemptExecutions,
-            attemptRows: $this->attemptRows,
-            deleted: $this->deleted,
-            deletedFailed: $this->deletedFailed,
-            skipped: $this->skipped,
-            dryRun: true,
-        );
-    }
-
     /**
      * Executions acted on, across every tier. An execution scrubbed and
      * then having its attempts pruned counts in both tiers, because two

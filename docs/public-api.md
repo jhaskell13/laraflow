@@ -51,6 +51,7 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 | `Laraflow\Workflow\RetentionPolicy` | Public | How long finished executions are kept and in what form: `scrubAfterDays`, `pruneAttemptsAfterDays`, `deleteAfterDays`, `deleteFailedAfterDays`, plus `limit`/`chunk`. Every bound is null by default. Validated at construction; `warnings()` reports valid-but-probably-wrong combinations. |
 | `Laraflow\Workflow\RetentionTier` | Public | Enum: `scrub_payloads`, `prune_attempts`, `delete`. |
 | `Laraflow\Workflow\RetentionService` | Internal | Engine behind `laraflow:prune`. Use the command. |
+| `Laraflow\Workflow\RetentionRun` | Internal | State carried between a retention run's tiers: policy, clock instant, scope, accumulating report, and the executions the delete tier accounted for. |
 | `Laraflow\Workflow\RetentionReport` | Internal | Counts returned by one retention run. |
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
 | `Laraflow\Workflow\WorkflowResolver` | Internal | Resolves the workflow class recorded on an execution. |

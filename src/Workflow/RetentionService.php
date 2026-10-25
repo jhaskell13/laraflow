@@ -65,28 +65,17 @@ class RetentionService
         ?string $workflow = null,
         ?string $tenantId = null,
     ): RetentionReport {
-        $report = new RetentionReport(dryRun: $dryRun);
-
         if (! $policy->isEnabled()) {
-            return $report;
+            return new RetentionReport(dryRun: $dryRun);
         }
 
-        $now = $this->clock->now();
+        $run = new RetentionRun($policy, $this->clock->now(), $dryRun, $workflow, $tenantId);
 
-        // Under a dry run the delete tier removes nothing, so the later
-        // tiers would still see rows a real run would have destroyed
-        // and report work that would never happen. Carrying the
-        // would-be-deleted ids forward keeps a dry run's numbers equal
-        // to the run it is predicting, which is the only reason to
-        // trust one.
-        /** @var list<int|string> $deleted */
-        $deleted = [];
+        $this->deleteTier($run);
+        $this->attemptsTier($run);
+        $this->scrubTier($run);
 
-        $report = $this->deleteTier($policy, $report, $now, $dryRun, $workflow, $tenantId, $deleted);
-        $report = $this->attemptsTier($policy, $report, $now, $dryRun, $workflow, $tenantId, $deleted);
-        $report = $this->scrubTier($policy, $report, $now, $dryRun, $workflow, $tenantId, $deleted);
-
-        return $dryRun ? $report->asDryRun() : $report;
+        return $run->report;
     }
 
     /**
@@ -97,21 +86,11 @@ class RetentionService
      * answer different questions. A completed execution is finished
      * work; a failed one is work that could still be recovered, and
      * discarding it must be a decision an operator took on purpose.
-     *
-     * @param  list<int|string>  $deleted  Receives the ids removed — or, under
-     *                                     a dry run, the ids that would have been.
      */
-    protected function deleteTier(
-        RetentionPolicy $policy,
-        RetentionReport $report,
-        DateTimeImmutable $now,
-        bool $dryRun,
-        ?string $workflow,
-        ?string $tenantId,
-        array &$deleted,
-    ): RetentionReport {
+    protected function deleteTier(RetentionRun $run): void
+    {
         foreach ([false, true] as $failed) {
-            $cutoff = $policy->cutoff(RetentionTier::Delete, $now, $failed);
+            $cutoff = $run->cutoff(RetentionTier::Delete, $failed);
 
             if ($cutoff === null) {
                 continue;
@@ -121,23 +100,20 @@ class RetentionService
                 ? [ExecutionStatus::Failed]
                 : [ExecutionStatus::Completed, ExecutionStatus::Cancelled];
 
-            $candidates = $this->repository->retentionCandidates(
-                RetentionTier::Delete,
-                $statuses,
-                $cutoff,
-                $policy->limit,
-                $workflow,
-                $tenantId,
-            );
+            $candidates = $this->scan($run, RetentionTier::Delete, $statuses, $cutoff);
 
-            $report = $report->with(scanned: count($candidates));
+            // Later tiers skip these whether or not this run wrote
+            // anything, which is what keeps a dry run's numbers equal
+            // to the run it predicts.
+            $run->accountFor($candidates);
+            $run->record(scanned: count($candidates));
 
-            if ($candidates === [] || $dryRun) {
-                foreach ($candidates as $candidate) {
-                    $deleted[] = $candidate->id;
-                }
+            if ($candidates === []) {
+                continue;
+            }
 
-                $report = $report->with(
+            if ($run->dryRun) {
+                $run->record(
                     deleted: $failed ? 0 : count($candidates),
                     deletedFailed: $failed ? count($candidates) : 0,
                 );
@@ -145,18 +121,16 @@ class RetentionService
                 continue;
             }
 
-            foreach ($this->chunks($candidates, $policy->chunk) as $ids) {
+            foreach ($run->chunks($candidates) as $ids) {
                 $affected = $this->repository->deleteExecutions($ids, $statuses, $cutoff);
 
-                $report = $report->with(
+                $run->record(
                     deleted: $failed ? 0 : $affected,
                     deletedFailed: $failed ? $affected : 0,
                     skipped: count($ids) - $affected,
                 );
             }
         }
-
-        return $report;
     }
 
     /**
@@ -167,61 +141,42 @@ class RetentionService
      * difference is resumability: the retry budget reads the step row's
      * attempt counter, which this does not touch, while input and
      * context are what a re-execution actually needs.
-     *
-     * @param  list<int|string>  $deleted  Ids the delete tier accounted for.
      */
-    protected function attemptsTier(
-        RetentionPolicy $policy,
-        RetentionReport $report,
-        DateTimeImmutable $now,
-        bool $dryRun,
-        ?string $workflow,
-        ?string $tenantId,
-        array $deleted = [],
-    ): RetentionReport {
-        $cutoff = $policy->cutoff(RetentionTier::PruneAttempts, $now);
+    protected function attemptsTier(RetentionRun $run): void
+    {
+        $cutoff = $run->cutoff(RetentionTier::PruneAttempts);
 
         if ($cutoff === null) {
-            return $report;
+            return;
         }
 
         $statuses = [ExecutionStatus::Completed, ExecutionStatus::Cancelled, ExecutionStatus::Failed];
+        $candidates = $run->remaining($this->scan($run, RetentionTier::PruneAttempts, $statuses, $cutoff));
 
-        $candidates = $this->repository->retentionCandidates(
-            RetentionTier::PruneAttempts,
-            $statuses,
-            $cutoff,
-            $policy->limit,
-            $workflow,
-            $tenantId,
-        );
-
-        $candidates = $this->except($candidates, $deleted);
-
-        $report = $report->with(scanned: count($candidates));
+        $run->record(scanned: count($candidates));
 
         if ($candidates === []) {
-            return $report;
+            return;
         }
 
-        if ($dryRun) {
+        if ($run->dryRun) {
             // Rows are left at zero: counting them would mean reading
             // the history this run is not touching, and an estimate an
             // operator might act on is worse than an honest absence.
-            return $report->with(attemptExecutions: count($candidates));
+            $run->record(attemptExecutions: count($candidates));
+
+            return;
         }
 
-        foreach ($this->chunks($candidates, $policy->chunk) as $ids) {
+        foreach ($run->chunks($candidates) as $ids) {
             $pruned = $this->repository->pruneAttempts($ids, $statuses, $cutoff);
 
-            $report = $report->with(
+            $run->record(
                 attemptExecutions: $pruned['executions'],
                 attemptRows: $pruned['rows'],
                 skipped: count($ids) - $pruned['executions'],
             );
         }
-
-        return $report;
     }
 
     /**
@@ -232,90 +187,57 @@ class RetentionService
      * as re-executable and can no longer be re-executed. That failure
      * would surface much later, as a workflow running against an empty
      * context, and be very hard to trace back to a retention setting.
-     *
-     * @param  list<int|string>  $deleted  Ids the delete tier accounted for.
      */
-    protected function scrubTier(
-        RetentionPolicy $policy,
-        RetentionReport $report,
-        DateTimeImmutable $now,
-        bool $dryRun,
-        ?string $workflow,
-        ?string $tenantId,
-        array $deleted = [],
-    ): RetentionReport {
-        $cutoff = $policy->cutoff(RetentionTier::ScrubPayloads, $now);
+    protected function scrubTier(RetentionRun $run): void
+    {
+        $cutoff = $run->cutoff(RetentionTier::ScrubPayloads);
 
         if ($cutoff === null) {
-            return $report;
+            return;
         }
 
         $statuses = [ExecutionStatus::Completed, ExecutionStatus::Cancelled];
+        $candidates = $run->remaining($this->scan($run, RetentionTier::ScrubPayloads, $statuses, $cutoff));
 
-        $candidates = $this->repository->retentionCandidates(
-            RetentionTier::ScrubPayloads,
-            $statuses,
-            $cutoff,
-            $policy->limit,
-            $workflow,
-            $tenantId,
-        );
-
-        $candidates = $this->except($candidates, $deleted);
-
-        $report = $report->with(scanned: count($candidates));
+        $run->record(scanned: count($candidates));
 
         if ($candidates === []) {
-            return $report;
+            return;
         }
 
-        if ($dryRun) {
-            return $report->with(scrubbed: count($candidates));
+        if ($run->dryRun) {
+            $run->record(scrubbed: count($candidates));
+
+            return;
         }
 
-        foreach ($this->chunks($candidates, $policy->chunk) as $ids) {
-            $affected = $this->repository->scrubPayloads($ids, $statuses, $cutoff, $now);
+        foreach ($run->chunks($candidates) as $ids) {
+            $affected = $this->repository->scrubPayloads($ids, $statuses, $cutoff, $run->now);
 
-            $report = $report->with(
+            $run->record(
                 scrubbed: $affected,
                 skipped: count($ids) - $affected,
             );
         }
-
-        return $report;
     }
 
     /**
-     * Drop candidates a dry run has already counted as deleted. A real
-     * run needs no filtering: those rows are gone.
-     *
-     * @param  WorkflowExecution[]  $candidates
-     * @param  list<int|string>  $deleted
-     * @return list<WorkflowExecution>
+     * @param  list<ExecutionStatus>  $statuses
+     * @return WorkflowExecution[]
      */
-    protected function except(array $candidates, array $deleted): array
-    {
-        if ($deleted === []) {
-            return array_values($candidates);
-        }
-
-        return array_values(array_filter(
-            $candidates,
-            fn (WorkflowExecution $execution): bool => ! in_array($execution->id, $deleted, strict: false),
-        ));
-    }
-
-    /**
-     * @param  WorkflowExecution[]  $candidates
-     * @return list<list<int|string>>
-     */
-    protected function chunks(array $candidates, int $size): array
-    {
-        $ids = array_map(
-            fn (WorkflowExecution $execution): int|string => $execution->id,
-            $candidates,
+    protected function scan(
+        RetentionRun $run,
+        RetentionTier $tier,
+        array $statuses,
+        DateTimeImmutable $cutoff,
+    ): array {
+        return $this->repository->retentionCandidates(
+            $tier,
+            $statuses,
+            $cutoff,
+            $run->policy->limit,
+            $run->workflow,
+            $run->tenantId,
         );
-
-        return array_chunk($ids, max(1, $size));
     }
 }
