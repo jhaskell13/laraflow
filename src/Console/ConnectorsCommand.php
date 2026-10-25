@@ -75,7 +75,7 @@ class ConnectorsCommand extends Command
         }
 
         if ($rows !== []) {
-            $this->table(['Connector', 'Connection', 'Base URL', 'Timeout', 'Retries', 'Rate limit', 'Credentials'], $rows);
+            $this->table(['Connector', 'Connection', 'Base URL', 'API version', 'Timeout', 'Retries', 'Rate limit', 'Credentials'], $rows);
         }
 
         return $this->report($problems);
@@ -92,11 +92,11 @@ class ConnectorsCommand extends Command
         string $connection,
         array &$problems,
     ): array {
-        $row = [$name, $connection, '-', '-', '-', '-', '-'];
+        $row = [$name, $connection, '-', '-', '-', '-', '-', '-'];
 
         try {
             $resolved = $laraflow->connection($name, $connection);
-            $row[6] = $this->credentials($credentials, $resolved);
+            $row[7] = $this->credentials($credentials, $resolved);
         } catch (Throwable $exception) {
             $problems[] = [$name, $connection, $exception];
 
@@ -119,9 +119,10 @@ class ConnectorsCommand extends Command
 
         $options = $connector->options();
         $row[2] = $options->baseUrl ?? '-';
-        $row[3] = rtrim(rtrim(number_format($options->timeoutSeconds, 1, '.', ''), '0'), '.').'s';
-        $row[4] = $options->retries->enabled() ? $options->retries->maxAttempts.' attempts' : 'off';
-        $row[5] = $options->rateLimit === null
+        $row[3] = $connector->providerApiVersion() ?? 'unversioned';
+        $row[4] = rtrim(rtrim(number_format($options->timeoutSeconds, 1, '.', ''), '0'), '.').'s';
+        $row[5] = $options->retries->enabled() ? $options->retries->maxAttempts.' attempts' : 'off';
+        $row[6] = $options->rateLimit === null
             ? 'off'
             : "{$options->rateLimit->maxRequests}/{$options->rateLimit->perSeconds}s";
 

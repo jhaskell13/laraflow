@@ -52,6 +52,8 @@ class ConnectorsCommandTest extends TestCase
         $this->assertStringContainsString('3 attempts', $output);
         $this->assertStringContainsString('30/60s', $output);
         $this->assertStringContainsString('off', $output, 'A connection without retries says so.');
+        $this->assertStringContainsString('2022-11-28', $output, 'The pinned GitHub API version.');
+        $this->assertStringContainsString('unversioned', $output, 'A provider without versions says so.');
     }
 
     public function test_it_names_credentials_without_printing_them(): void

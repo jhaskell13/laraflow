@@ -45,6 +45,28 @@ class GithubConnectorTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer test-token'));
     }
 
+    public function test_it_pins_the_api_version_it_was_written_against(): void
+    {
+        Http::fake(['api.github.com/*' => Http::response([])]);
+
+        $connector = $this->connector();
+        $connector->request(new ConnectorRequest('GET', '/user'));
+
+        $this->assertSame(GithubConnector::API_VERSION, $connector->providerApiVersion());
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('X-GitHub-Api-Version', GithubConnector::API_VERSION));
+    }
+
+    public function test_a_connection_may_pin_another_api_version(): void
+    {
+        Http::fake(['api.github.com/*' => Http::response([])]);
+
+        $connector = $this->connector(new Connection('github', 'default', ['api_version' => '2030-01-01']));
+        $connector->request(new ConnectorRequest('GET', '/user'));
+
+        $this->assertSame('2030-01-01', $connector->providerApiVersion());
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('X-GitHub-Api-Version', '2030-01-01'));
+    }
+
     public function test_connection_failure_is_translated_without_leaking_credentials(): void
     {
         Http::fake([
@@ -115,7 +137,7 @@ class GithubConnectorTest extends TestCase
         $this->assertInstanceOf(AuthenticationFailedException::class, $response->error());
     }
 
-    protected function connector(): GithubConnector
+    protected function connector(?Connection $connection = null): GithubConnector
     {
         $credentials = new class implements CredentialProvider
         {
@@ -126,7 +148,7 @@ class GithubConnectorTest extends TestCase
         };
 
         return new GithubConnector(
-            new Connection('github', 'default'),
+            $connection ?? new Connection('github', 'default'),
             $credentials,
             new LaravelHttpTransport($this->app->make(HttpClient::class)),
             new HttpOptions,

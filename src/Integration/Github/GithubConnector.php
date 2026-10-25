@@ -18,6 +18,13 @@ class GithubConnector extends HttpConnector
 {
     public const BASE_URL = 'https://api.github.com';
 
+    /**
+     * The REST API version this connector is written and tested against.
+     * GitHub selects it per request by header; a connection may pin
+     * another with `api_version`.
+     */
+    public const API_VERSION = '2022-11-28';
+
     protected function baseUrl(): ?string
     {
         return self::BASE_URL;
@@ -29,6 +36,16 @@ class GithubConnector extends HttpConnector
     protected function headers(): array
     {
         return ['Accept' => 'application/vnd.github+json'];
+    }
+
+    protected function apiVersion(): ?string
+    {
+        return self::API_VERSION;
+    }
+
+    protected function apiVersionHeader(): ?string
+    {
+        return 'X-GitHub-Api-Version';
     }
 
     protected function authenticator(): Authenticator

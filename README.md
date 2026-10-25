@@ -897,6 +897,8 @@ Three shapes ship: `LinkHeaderPaginator` (GitHub), `CursorPaginator` (Slack), an
 
 Do not accumulate pages into a step's output. A result set big enough to need paging is big enough to meet `execution.max_payload_bytes`; handle each item as it arrives, or store identifiers.
 
+A connector declares the **provider API version** it was written against and sends it where the provider wants it — GitHub's `X-GitHub-Api-Version: 2022-11-28` — and a connection may pin another with `api_version`, per account. What that promises, and what it cannot, is in [docs/compatibility.md](docs/compatibility.md#provider-apis).
+
 Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — and nothing else, no headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.

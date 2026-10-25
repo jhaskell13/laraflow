@@ -30,6 +30,15 @@ Milestone 6 of the roadmap promotes every "expected to work" entry to "tested" b
 - Milestone 4 adds indexes on `correlation_id`, `tenant_id`, `created_at`, `(workflow, status)`, and `(status, finished_at)` so that every listing filter and every retention scan is served from an index. The `GROUP BY` behind `stepProgress()` uses the existing foreign-key index on `laraflow_step_executions`.
 - Milestone 1 adds row-level compare-and-set updates for execution claiming. These use standard `UPDATE ... WHERE` semantics and do not require advisory locks or `SELECT ... FOR UPDATE`, so they work on every engine above, including SQLite's single-writer model.
 
+## Provider APIs
+
+Connectors talk to services Laraflow does not control, so a second compatibility surface exists: the provider's API. The expectations:
+
+- **A connector declares the version it was written against** (`HttpConnector::apiVersion()`), sends it where the provider selects versions by header (`apiVersionHeader()`), and `laraflow:connectors` displays it. The bundled GitHub connector pins `2022-11-28`. A provider without versions — Slack — declares none and is shown as *unversioned*; its methods are added and deprecated individually, and the connector tracks "current".
+- **A connection may pin another version** with `api_version`, to move onto a new one early or stay on an old one while an application catches up. The pin is per account, so one connection can be tested against a new version while the rest stay put.
+- **"Tested" means tested against recorded shapes, not live.** Connector tests fake HTTP and run without credentials or network, so they prove the connector handles the responses the provider documented for that version. They cannot prove the provider still sends them. A provider changing its API under a pinned version is a defect report Laraflow wants, fixed in a patch release; a connector moving to a newer provider version is a minor release, noted in the changelog with what changed.
+- **Pre-1.0, bundled connectors are experimental**, and a provider's own deprecation may force a change that would otherwise be breaking. Those are announced in the changelog like any other breaking change.
+
 ## Dropping support
 
 - A PHP or Laravel version is dropped only in a **minor** release before 1.0, or a **major** release after 1.0, and is announced in the changelog.

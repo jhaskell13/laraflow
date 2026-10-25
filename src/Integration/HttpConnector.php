@@ -42,6 +42,11 @@ abstract class HttpConnector implements Connector
 
     protected ErrorMapper $errors;
 
+    /**
+     * The provider API version in use, if the provider has versions.
+     */
+    protected ?string $apiVersion;
+
     public function __construct(
         protected Connection $connection,
         protected CredentialProvider $credentials,
@@ -55,6 +60,20 @@ abstract class HttpConnector implements Connector
             ->withBaseUrl($this->baseUrl())
             ->withHeaders($this->headers())
             ->forConnection($connection);
+
+        // The connection may pin another version of the provider's API
+        // than the class was written against — to move early onto a new
+        // one, or to stay on an old one while an application catches up.
+        $pinned = $connection->get('api_version');
+        $this->apiVersion = is_string($pinned) && trim($pinned) !== '' ? $pinned : $this->apiVersion();
+
+        $header = $this->apiVersionHeader();
+
+        if ($this->apiVersion !== null && $header !== null) {
+            // Under the connection's own headers: an explicit header
+            // beats an implicit one.
+            $this->options = $this->options->withHeaders([$header => $this->apiVersion]);
+        }
 
         $this->authenticator = $this->authenticator();
         $this->errors = $this->errorMapper();
@@ -81,6 +100,16 @@ abstract class HttpConnector implements Connector
     public function options(): HttpOptions
     {
         return $this->options;
+    }
+
+    /**
+     * The provider API version requests are made against: the
+     * connection's `api_version` if pinned, else the version this class
+     * was written for, else null for a provider without versions.
+     */
+    public function providerApiVersion(): ?string
+    {
+        return $this->apiVersion;
     }
 
     /**
@@ -209,6 +238,28 @@ abstract class HttpConnector implements Connector
     protected function headers(): array
     {
         return [];
+    }
+
+    /**
+     * The provider API version this connector was written against, or
+     * null for a provider that does not version its API. Declaring it
+     * is how a connector states what it was tested against; see
+     * docs/connectors.md on compatibility expectations.
+     */
+    protected function apiVersion(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * The header the version is sent in, when the provider selects
+     * versions by header (`X-GitHub-Api-Version`, `Stripe-Version`).
+     * Null when the version lives in the URL or is not sent at all; the
+     * connector then puts it in baseUrl() itself.
+     */
+    protected function apiVersionHeader(): ?string
+    {
+        return null;
     }
 
     /**

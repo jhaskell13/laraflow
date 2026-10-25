@@ -174,6 +174,17 @@ class SlackConnectorTest extends TestCase
         iterator_to_array($slack->items($slack->read('users.list'), paginator: $slack->listing('members')));
     }
 
+    public function test_slack_is_unversioned_and_says_so(): void
+    {
+        Http::fake(['slack.com/*' => Http::response(['ok' => true])]);
+
+        $slack = $this->slack();
+        $slack->request($slack->read('auth.test'));
+
+        $this->assertNull($slack->providerApiVersion());
+        Http::assertSent(fn (Request $request): bool => ! $request->hasHeader('X-Slack-Api-Version'));
+    }
+
     public function test_it_serves_several_workspaces_from_one_class(): void
     {
         config(['laraflow.integrations.slack.connections' => [

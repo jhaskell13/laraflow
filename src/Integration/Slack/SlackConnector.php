@@ -81,6 +81,16 @@ class SlackConnector extends HttpConnector
         return ['Accept' => 'application/json'];
     }
 
+    /**
+     * Slack's Web API is not versioned: methods are added and
+     * deprecated individually, announced on its changelog. There is no
+     * version to pin, so the connector tracks "current" and says so.
+     */
+    protected function apiVersion(): ?string
+    {
+        return null;
+    }
+
     protected function authenticator(): Authenticator
     {
         return new BearerTokenAuthenticator('token', 'LARAFLOW_SLACK_TOKEN');
