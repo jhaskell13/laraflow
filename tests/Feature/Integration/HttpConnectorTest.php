@@ -20,8 +20,11 @@ use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\StatusErrorMapper;
+use Laraflow\Integration\Http\TransportPipeline;
 use Laraflow\Integration\HttpConnector;
+use Laraflow\Support\Sleeper;
 use Laraflow\Tests\Support\FakeHttpConnector;
+use Laraflow\Tests\Support\RecordingSleeper;
 use Laraflow\Tests\TestCase;
 
 class HttpConnectorTest extends TestCase
@@ -181,7 +184,7 @@ class HttpConnectorTest extends TestCase
 
     public function test_a_connector_supplies_the_mapper_that_knows_its_provider(): void
     {
-        $this->laraflow()->register('okfalse', fn (Connection $connection): Connector => new class($connection, $this->app->make(CredentialProvider::class), $this->app->make(HttpTransport::class), $this->app->make(HttpOptions::class)) extends HttpConnector
+        $this->laraflow()->register('okfalse', fn (Connection $connection): Connector => new class($connection, $this->app->make(CredentialProvider::class), $this->app->make(HttpTransport::class), $this->app->make(HttpOptions::class), $this->app->make(TransportPipeline::class)) extends HttpConnector
         {
             protected function baseUrl(): ?string
             {
@@ -214,6 +217,34 @@ class HttpConnectorTest extends TestCase
         $this->assertTrue($response->failed(), 'A 200 the mapper rejects is a failure.');
         $this->assertInstanceOf(ClientErrorException::class, $response->error());
         $this->assertStringContainsString('channel_not_found', (string) $response->error()?->getMessage());
+    }
+
+    public function test_transport_retries_are_off_by_default(): void
+    {
+        Http::fake(['crm.example/*' => Http::sequence()->push('busy', 503)->push(['id' => 1])]);
+
+        $response = $this->laraflow()->connector('crm')->request(new ConnectorRequest('GET', '/contacts/1'));
+
+        $this->assertSame(503, $response->status());
+        $this->assertSame(1, $response->attempts());
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_connection_can_enable_transport_retries(): void
+    {
+        config(['laraflow.integrations.crm.connections.default.retries' => ['max_attempts' => 3, 'base_delay_ms' => 1, 'jitter' => 0]]);
+        $this->app->instance(Sleeper::class, $sleeper = new RecordingSleeper);
+        $this->app->forgetInstance(TransportPipeline::class);
+        $this->laraflow()->forget('crm');
+
+        Http::fake(['crm.example/*' => Http::sequence()->push('busy', 503)->push('busy', 503)->push(['id' => 1])]);
+
+        $response = $this->laraflow()->connector('crm')->request(new ConnectorRequest('GET', '/contacts/1'));
+
+        $this->assertSame(200, $response->status());
+        $this->assertSame(3, $response->attempts());
+        $this->assertSame([1, 2], $sleeper->sleeps);
+        Http::assertSentCount(3);
     }
 
     protected function laraflow(): LaraflowManager

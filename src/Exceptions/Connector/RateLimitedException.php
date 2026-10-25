@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Laraflow\Exceptions\Connector;
 
-use DateTimeImmutable;
 use DateTimeInterface;
 
 /**
@@ -33,23 +32,6 @@ class RateLimitedException extends RequestFailedException
      */
     public function retryAfterSeconds(DateTimeInterface $now): ?int
     {
-        $value = $this->retryAfter();
-
-        if ($value === null) {
-            return null;
-        }
-
-        if (preg_match('/^\d+$/', $value) === 1) {
-            return (int) $value;
-        }
-
-        $until = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value)
-            ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value);
-
-        if ($until === false) {
-            return null;
-        }
-
-        return max(0, $until->getTimestamp() - $now->getTimestamp());
+        return $this->response->retryAfterSeconds($now);
     }
 }

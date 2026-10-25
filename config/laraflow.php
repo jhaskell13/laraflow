@@ -326,11 +326,33 @@ return [
     |
     | connect_timeout: establishing the connection alone, in seconds.
     |
+    | retries: repeating one wire request inside a single step attempt,
+    | for a dropped connection or a momentary 503. Off by default
+    | (max_attempts = 1). This is the inner loop and it holds a worker
+    | while it waits, so it is measured in milliseconds; a step's own
+    | retry policy is the durable outer loop, and the two are kept from
+    | multiplying: a Retry-After longer than max_retry_after is not
+    | waited for here but returned, so the step can fail and retry
+    | durably with the provider's own schedule. A request that is not
+    | idempotent is repeated only on 429 (never processed) or when the
+    | caller marked it safe with asIdempotent().
+    |
     */
 
     'http' => [
         'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
         'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+
+        'retries' => [
+            'max_attempts' => env('LARAFLOW_HTTP_RETRY_ATTEMPTS', 1),
+            'base_delay_ms' => 200,
+            'multiplier' => 2.0,
+            'max_delay_ms' => 2000,
+            'jitter' => 0.2,
+            'statuses' => [429, 500, 502, 503, 504],
+            'transport_failures' => true,
+            'max_retry_after' => 5,
+        ],
     ],
 
     /*
@@ -358,11 +380,33 @@ return [
     |
     | connect_timeout: establishing the connection alone, in seconds.
     |
+    | retries: repeating one wire request inside a single step attempt,
+    | for a dropped connection or a momentary 503. Off by default
+    | (max_attempts = 1). This is the inner loop and it holds a worker
+    | while it waits, so it is measured in milliseconds; a step's own
+    | retry policy is the durable outer loop, and the two are kept from
+    | multiplying: a Retry-After longer than max_retry_after is not
+    | waited for here but returned, so the step can fail and retry
+    | durably with the provider's own schedule. A request that is not
+    | idempotent is repeated only on 429 (never processed) or when the
+    | caller marked it safe with asIdempotent().
+    |
     */
 
     'http' => [
         'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
         'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+
+        'retries' => [
+            'max_attempts' => env('LARAFLOW_HTTP_RETRY_ATTEMPTS', 1),
+            'base_delay_ms' => 200,
+            'multiplier' => 2.0,
+            'max_delay_ms' => 2000,
+            'jitter' => 0.2,
+            'statuses' => [429, 500, 502, 503, 504],
+            'transport_failures' => true,
+            'max_retry_after' => 5,
+        ],
     ],
 
     /*
@@ -385,8 +429,10 @@ return [
     |                GitHub organisation or a per-environment account is a
     |                second entry here, not a second class.
     |
-    | A connection may also set base_url, timeout, connect_timeout, and
-    | headers, overriding the connector class and the `http` section above.
+    | A connection may also set base_url, timeout, connect_timeout, headers,
+    | and retries, overriding the connector class and the `http` section
+    | above, and throw_on_error to have request() throw a mapped error
+    | rather than return the failed response.
     |
     | Within a connection, `credentials` holds the secrets. They are read
     | when a request is built, not when the connector is constructed, so

@@ -21,6 +21,7 @@ use Laraflow\Integration\Credentials;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\LaravelHttpTransport;
+use Laraflow\Integration\Http\TransportPipeline;
 use Laraflow\Tests\TestCase;
 
 class GithubConnectorTest extends TestCase
@@ -129,6 +130,7 @@ class GithubConnectorTest extends TestCase
             $credentials,
             new LaravelHttpTransport($this->app->make(HttpClient::class)),
             new HttpOptions,
+            $this->app->make(TransportPipeline::class),
         );
     }
 }

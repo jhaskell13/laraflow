@@ -183,6 +183,22 @@ Laraflow never rewrites durable state underneath a live worker, and **cannot int
 
 Manual **retry** is unchanged from Milestone 2: `laraflow:execute <id>`, now with `--now` for a scheduled retry. It remains deliberately unbounded — the operator override.
 
+## Transport retries are the inner loop
+
+A connector may repeat one wire request *inside* a single step attempt — for a dropped connection or a momentary 503 — under a `TransportPolicy` (`laraflow.http.retries`, or a connection's `retries`). This is a different thing from the step's retry policy, and the two are kept from multiplying by construction:
+
+| | Transport retry (inner) | Step retry (outer) |
+|---|---|---|
+| Ships | **Off** (`max_attempts` = 1) | **Off** (`max_attempts` = 1) |
+| Holds the worker | Yes — measured in milliseconds | No — durable `retrying` state, worker released |
+| Retries | 429, 500, 502, 503, 504, and no-response failures | Whatever the step's policy says |
+| Honours `Retry-After` | Up to `max_retry_after` seconds (5); a longer one **returns the response** | Yes, via the exception's suggested delay, up to `retry.max_suggested_delay` |
+| Repeats a non-idempotent request | Only on 429 (never processed), or when the caller marked it `asIdempotent()` | Always — the step runs again; use `idempotencyKey()` |
+
+So a provider that says "wait 600 seconds" is never waited for in-process. The transport returns the 429, the step calls `throw()` (or the connection sets `throw_on_error`) and fails with `RateLimitedException`, and the step policy schedules a durable retry for when the provider said. A step that enables transport retries without a step policy gets a few quick re-tries and then a normal failure; one that enables both gets the quick re-tries inside each durable attempt, bounded on both axes.
+
+Keep `http.timeout × retries.max_attempts` below the step's deadline, or the attempt will be classified as timed out while a retry is still waiting.
+
 ## Two bounds, two jobs
 
 With retry policy in place there are two attempt-related bounds. They are different on purpose:

@@ -27,11 +27,14 @@ use Laraflow\Integration\CredentialProvider;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\LaravelHttpTransport;
+use Laraflow\Integration\Http\TransportPipeline;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
+use Laraflow\Support\Sleeper;
+use Laraflow\Support\SystemSleeper;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -64,6 +67,8 @@ class LaraflowServiceProvider extends ServiceProvider
         // every connector through its own; HttpOptions holds the
         // fleet-wide defaults each connection starts from.
         $this->app->singleton(HttpTransport::class, LaravelHttpTransport::class);
+        $this->app->singleton(Sleeper::class, SystemSleeper::class);
+        $this->app->singleton(TransportPipeline::class);
         $this->app->singleton(HttpOptions::class, fn (Container $app): HttpOptions => HttpOptions::fromConfig($app->make(Config::class)));
 
         // Bound by interface so an application can source credentials

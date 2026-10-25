@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Integration;
 
+use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Support\Arr;
 use JsonException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
@@ -41,6 +43,7 @@ final class ConnectorResponse
         array $headers = [],
         private readonly string $raw = '',
         private readonly ?RequestFailedException $error = null,
+        private readonly int $attempts = 1,
     ) {
         $normalised = [];
 
@@ -170,7 +173,46 @@ final class ConnectorResponse
 
     public function withError(?RequestFailedException $error): self
     {
-        return new self($this->status, $this->headers, $this->raw, $error);
+        return new self($this->status, $this->headers, $this->raw, $error, $this->attempts);
+    }
+
+    /**
+     * How many wire attempts produced this response; 1 unless a
+     * transport retry policy repeated the request.
+     */
+    public function attempts(): int
+    {
+        return $this->attempts;
+    }
+
+    public function withAttempts(int $attempts): self
+    {
+        return new self($this->status, $this->headers, $this->raw, $this->error, $attempts);
+    }
+
+    /**
+     * The provider's requested wait from `Retry-After`, in seconds: a
+     * delay-seconds value as is, an HTTP-date measured from $now (zero
+     * once past). Null when absent or unusable.
+     */
+    public function retryAfterSeconds(DateTimeInterface $now): ?int
+    {
+        $value = $this->header('Retry-After');
+
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+
+        $value = trim($value);
+
+        if (preg_match('/^\d+$/', $value) === 1) {
+            return (int) $value;
+        }
+
+        $until = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value)
+            ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value);
+
+        return $until === false ? null : max(0, $until->getTimestamp() - $now->getTimestamp());
     }
 
     /**

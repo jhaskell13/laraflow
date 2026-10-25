@@ -11,6 +11,7 @@ use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\StatusErrorMapper;
+use Laraflow\Integration\Http\TransportPipeline;
 
 /**
  * Base class for connectors that speak HTTP, which is most of them.
@@ -40,6 +41,7 @@ abstract class HttpConnector implements Connector
         protected CredentialProvider $credentials,
         protected HttpTransport $transport,
         HttpOptions $defaults,
+        protected TransportPipeline $pipeline,
     ) {
         // Class defaults first, then the connection's overrides, so a
         // connection can point the same class at another host.
@@ -78,7 +80,7 @@ abstract class HttpConnector implements Connector
             $this->credentials->credentials($this->connection),
         ));
 
-        $response = $this->transport()->send($authenticated, $this->options);
+        $response = $this->pipeline->through($this->transport(), $this->options)->send($authenticated, $this->options);
 
         // The mapper sees the request as the caller made it, so nothing
         // the authenticator added can reach an exception message.
@@ -136,8 +138,10 @@ abstract class HttpConnector implements Connector
     }
 
     /**
-     * The transport in use. Override to route one connector through
-     * something other than the container's binding.
+     * The base transport. Override to route one connector through
+     * something other than the container's binding; the retry and
+     * rate-limit behaviour the options enable is layered on top of
+     * whatever this returns.
      */
     protected function transport(): HttpTransport
     {

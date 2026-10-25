@@ -391,6 +391,18 @@ return [
         // a connection may override them.
         'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
         'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
+        // In-attempt wire retries: off. The step's retry policy is the
+        // durable loop; this one holds the worker, so it stays short.
+        'retries' => [
+            'max_attempts' => env('LARAFLOW_HTTP_RETRY_ATTEMPTS', 1),
+            'base_delay_ms' => 200,
+            'multiplier' => 2.0,
+            'max_delay_ms' => 2000,
+            'jitter' => 0.2,
+            'statuses' => [429, 500, 502, 503, 504],
+            'transport_failures' => true,
+            'max_retry_after' => 5,
+        ],
     ],
 
     'integrations' => [
@@ -840,6 +852,8 @@ A package registers from its own service provider instead, with the class or a c
 ```php
 app(LaraflowManager::class)->register('crm', CrmConnector::class);
 ```
+
+A connection can enable **transport retries** — repeating one request inside a step attempt for a dropped connection or a momentary 503 — with `'retries' => ['max_attempts' => 3]`. They are off by default, measured in milliseconds, and never wait for a long `Retry-After`: that is returned to the step so its own retry policy can wait durably, without holding a worker. A `POST` is repeated only when the provider says it was never processed (429) or you mark the request `->asIdempotent()`. The two loops are specified together in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md#transport-retries-are-the-inner-loop).
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 

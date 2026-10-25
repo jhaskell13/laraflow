@@ -25,12 +25,14 @@ final readonly class HttpOptions
      * @param  float  $timeoutSeconds  Whole-request bound, connection included.
      * @param  float  $connectTimeoutSeconds  Bound on establishing the connection alone.
      * @param  array<string, string>  $headers  Sent with every request; a request's own headers win.
+     * @param  TransportPolicy  $retries  In-attempt wire retries; disabled unless configured.
      */
     public function __construct(
         public ?string $baseUrl = null,
         public float $timeoutSeconds = 30.0,
         public float $connectTimeoutSeconds = 10.0,
         public array $headers = [],
+        public TransportPolicy $retries = new TransportPolicy,
     ) {
         if ($timeoutSeconds <= 0.0) {
             throw new InvalidArgumentException('The HTTP timeout must be greater than zero seconds.');
@@ -57,24 +59,32 @@ final readonly class HttpOptions
             return $value === '' ? null : $value;
         };
 
+        $retries = $config->get('laraflow.http.retries', []);
+
         return new self(
             timeoutSeconds: (float) ($setting('timeout') ?? 30.0),
             connectTimeoutSeconds: (float) ($setting('connect_timeout') ?? 10.0),
+            retries: TransportPolicy::fromArray(is_array($retries) ? $retries : []),
         );
     }
 
     /**
      * These options overridden by whatever the connection configures:
-     * `base_url`, `timeout`, `connect_timeout`, `headers`.
+     * `base_url`, `timeout`, `connect_timeout`, `headers`, `retries`.
      *
      * @throws ConnectorConfigurationException
      */
     public function forConnection(Connection $connection): self
     {
         $headers = $connection->get('headers', []);
+        $retries = $connection->get('retries', []);
 
         if (! is_array($headers)) {
             throw new ConnectorConfigurationException("{$connection->path()}.headers must be an array of header name => value.");
+        }
+
+        if (! is_array($retries)) {
+            throw new ConnectorConfigurationException("{$connection->path()}.retries must be an array of retry settings.");
         }
 
         try {
@@ -83,6 +93,7 @@ final readonly class HttpOptions
                 timeoutSeconds: self::floatOrNull($connection->get('timeout')) ?? $this->timeoutSeconds,
                 connectTimeoutSeconds: self::floatOrNull($connection->get('connect_timeout')) ?? $this->connectTimeoutSeconds,
                 headers: array_merge($this->headers, array_map('strval', $headers)),
+                retries: TransportPolicy::fromArray($retries, $this->retries),
             );
         } catch (InvalidArgumentException $exception) {
             throw new ConnectorConfigurationException("{$connection->path()}: {$exception->getMessage()}", previous: $exception);
@@ -91,7 +102,7 @@ final readonly class HttpOptions
 
     public function withBaseUrl(?string $baseUrl): self
     {
-        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers);
+        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries);
     }
 
     /**
@@ -99,7 +110,12 @@ final readonly class HttpOptions
      */
     public function withHeaders(array $headers): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers));
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries);
+    }
+
+    public function withRetries(TransportPolicy $retries): self
+    {
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $retries);
     }
 
     /**
