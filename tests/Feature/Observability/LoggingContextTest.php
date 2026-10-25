@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Feature\Observability;
 
 use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\Facades\Context;
+use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\StepOne;
@@ -83,8 +84,8 @@ class LoggingContextTest extends TestCase
         $seen = [];
 
         $this->app->make('events')->listen(
-            \Laraflow\Events\WorkflowStepStarted::class,
-            function (\Laraflow\Events\WorkflowStepStarted $event) use (&$seen): void {
+            WorkflowStepStarted::class,
+            function (WorkflowStepStarted $event) use (&$seen): void {
                 $seen[$event->position] = Context::get('laraflow.step');
             },
         );
@@ -260,10 +261,11 @@ class LoggingContextTest extends TestCase
         // the context repository is the framework's, not the package's.
         $logging = new LoggingContext(null);
 
+        // Entering and leaving without a repository must not throw.
+        $this->expectNotToPerformAssertions();
+
         $logging->enter($this->runner()->start(new TwoStepWorkflow));
         $logging->leave();
-
-        $this->assertTrue(true, 'Entering and leaving without a repository must not throw.');
     }
 
     /**

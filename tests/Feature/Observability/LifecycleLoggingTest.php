@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Observability;
 
+use Laraflow\Events\LifecycleLogger;
 use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\SecretiveWorkflow;
 use Laraflow\Tests\Support\StepTwo;
@@ -137,7 +138,7 @@ class LifecycleLoggingTest extends TestCase
 
         $this->app->make('events')->listen(
             'Laraflow\Events\*',
-            [\Laraflow\Events\LifecycleLogger::class, 'handle'],
+            [LifecycleLogger::class, 'handle'],
         );
     }
 

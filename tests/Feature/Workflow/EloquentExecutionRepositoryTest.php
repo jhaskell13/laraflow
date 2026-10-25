@@ -17,6 +17,7 @@ use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\WorkflowExecution;
 
 class EloquentExecutionRepositoryTest extends TestCase
 {
@@ -638,7 +639,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         string $dueAt,
         string $now,
         string $workflow = 'SyncCustomerWorkflow',
-    ): \Laraflow\Workflow\WorkflowExecution {
+    ): WorkflowExecution {
         Date::setTestNow($now);
 
         $repository = $this->repository();

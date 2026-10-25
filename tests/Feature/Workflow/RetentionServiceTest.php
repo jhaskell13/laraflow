@@ -120,12 +120,11 @@ class RetentionServiceTest extends TestCase
 
         $this->assertSame(2, $report->deleted);
         $this->assertSame(0, $report->deletedFailed);
-        $this->assertSame(
-            [$recent->id],
-            WorkflowExecutionModel::query()->pluck('id')->all(),
-        );
-        $this->assertNotNull($completed->id);
-        $this->assertNotNull($cancelled->id);
+        $survivors = WorkflowExecutionModel::query()->pluck('id')->all();
+
+        $this->assertSame([$recent->id], $survivors);
+        $this->assertNotContains($completed->id, $survivors);
+        $this->assertNotContains($cancelled->id, $survivors);
     }
 
     public function test_failed_work_is_not_deleted_by_the_general_bound(): void
@@ -182,10 +181,9 @@ class RetentionServiceTest extends TestCase
 
         $this->service()->prune(new RetentionPolicy(deleteAfterDays: 90));
 
-        $this->assertSame(0, WorkflowExecutionModel::query()->count());
+        $this->assertNull(WorkflowExecutionModel::query()->find($doomed->id));
         $this->assertSame(0, StepExecutionModel::query()->count());
         $this->assertSame(0, StepAttemptModel::query()->count());
-        $this->assertNotNull($doomed->id);
     }
 
     // ------------------------------------------------------------------
@@ -204,10 +202,8 @@ class RetentionServiceTest extends TestCase
 
         // The record of what ran survives, including the step row's own
         // attempt counter, which is what the retry budget reads.
-        $this->assertSame(1, WorkflowExecutionModel::query()->count());
-        $step = StepExecutionModel::query()->sole();
-        $this->assertSame(3, $step->attempts);
-        $this->assertNotNull($execution->id);
+        $this->assertNotNull(WorkflowExecutionModel::query()->find($execution->id));
+        $this->assertSame(3, StepExecutionModel::query()->sole()->attempts);
     }
 
     public function test_attempt_pruning_covers_failed_executions(): void

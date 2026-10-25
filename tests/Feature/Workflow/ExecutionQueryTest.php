@@ -15,6 +15,7 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepAttemptStatus;
+use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -506,7 +507,7 @@ class ExecutionQueryTest extends TestCase
     protected function attempt(
         ExecutionRepository $repository,
         WorkflowExecution $execution,
-        \Laraflow\Workflow\StepExecution $step,
+        StepExecution $step,
         int $attempt,
         StepAttemptStatus $status,
     ): void {

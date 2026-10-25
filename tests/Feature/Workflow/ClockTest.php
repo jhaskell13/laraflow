@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Clock;
 use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\FixedClock;
+use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionRepository;
@@ -107,7 +108,7 @@ class ClockTest extends TestCase
 
         $execution = $repository->create(
             workflow: TwoStepWorkflow::class,
-            steps: [\Laraflow\Tests\Support\StepOne::class],
+            steps: [StepOne::class],
         );
 
         $repository->claim($execution->id, 'first-worker', 300);

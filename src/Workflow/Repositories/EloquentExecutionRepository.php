@@ -6,8 +6,6 @@ namespace Laraflow\Workflow\Repositories;
 
 use Closure;
 use DateTimeImmutable;
-use Illuminate\Database\Eloquent\Builder;
-use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -15,15 +13,12 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Support\Clock;
-use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionOptions;
-use Laraflow\Workflow\ExecutionPage;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
-use Laraflow\Workflow\RetentionTier;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepExecution;
@@ -36,6 +31,14 @@ use Psr\Clock\ClockInterface;
  */
 class EloquentExecutionRepository implements ExecutionRepository
 {
+    // The contract is deliberately one interface — see
+    // docs/public-api.md — but its 22 methods answer four different
+    // questions. Grouping the implementation by question keeps each
+    // group's shared invariants next to the methods that rely on them.
+    use Concerns\AppliesRetention;
+    use Concerns\QueriesExecutions;
+    use Concerns\ScansForRecovery;
+
     protected ClockInterface $clock;
 
     public function __construct(?ClockInterface $clock = null)
@@ -175,161 +178,6 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->all();
     }
 
-    public function list(
-        ExecutionFilter $filter,
-        int $limit = 50,
-        ?string $cursor = null
-    ): ExecutionPage {
-        $limit = max(1, min(self::MAX_PAGE_SIZE, $limit));
-
-        $query = $this->filtered($filter);
-
-        if ($cursor !== null) {
-            // Keyset: strictly past the last id of the previous page, in
-            // whichever direction the filter orders. Only a cursor this
-            // repository issued — a bare id — is accepted; anything
-            // else is a caller bug, not a page to guess at.
-            if (! ctype_digit($cursor)) {
-                throw new InvalidArgumentException(
-                    "Malformed execution cursor [{$cursor}]: pass back the nextCursor a previous page returned."
-                );
-            }
-
-            $query->where('id', $filter->oldestFirst ? '>' : '<', (int) $cursor);
-        }
-
-        // Fetch one past the page to learn whether another exists, so
-        // the last page never needs a second round trip to discover it
-        // is the last.
-        $models = $query
-            ->orderBy('id', $filter->oldestFirst ? 'asc' : 'desc')
-            ->limit($limit + 1)
-            ->get();
-
-        $hasMore = $models->count() > $limit;
-        $models = $models->take($limit);
-
-        $executions = array_values($models
-            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
-            ->all());
-
-        return new ExecutionPage(
-            executions: $executions,
-            nextCursor: $hasMore && $executions !== [] ? (string) end($executions)->id : null,
-            limit: $limit,
-        );
-    }
-
-    public function count(
-        ExecutionFilter $filter
-    ): int {
-        return $this->filtered($filter)->count();
-    }
-
-    public function stepProgress(
-        array $ids
-    ): array {
-        if ($ids === []) {
-            return [];
-        }
-
-        $completed = StepStatus::Completed->value;
-
-        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int}> $rows */
-        $rows = StepExecutionModel::query()
-            ->selectRaw('workflow_execution_id, count(*) as total')
-            ->selectRaw('sum(case when status = ? then 1 else 0 end) as completed', [$completed])
-            ->whereIn('workflow_execution_id', $ids)
-            ->groupBy('workflow_execution_id')
-            ->get();
-
-        $progress = [];
-
-        foreach ($rows as $row) {
-            $progress[(string) $row->workflow_execution_id] = [
-                'total' => (int) $row->total,
-                'completed' => (int) $row->completed,
-            ];
-        }
-
-        return $progress;
-    }
-
-    public function attemptHistory(
-        WorkflowExecution $execution
-    ): array {
-        // Ordered by the owning step's position rather than by
-        // step_execution_id: ids happen to ascend with position because
-        // the plan is created in one transaction, but the order a caller
-        // sees should rest on the column that means it.
-        return StepAttemptModel::query()
-            ->where('workflow_execution_id', $execution->id)
-            ->orderBy(
-                StepExecutionModel::query()
-                    ->select('position')
-                    ->whereColumn('laraflow_step_executions.id', 'laraflow_step_attempts.step_execution_id')
-            )
-            ->orderBy('attempt')
-            ->get()
-            ->map(fn (StepAttemptModel $model): StepAttempt => $this->attemptToDomain($model))
-            ->all();
-    }
-
-    public function stale(
-        DateTimeImmutable $claimedBefore,
-        int $limit = 100,
-        ?string $workflow = null
-    ): array {
-        return WorkflowExecutionModel::query()
-            ->where('status', ExecutionStatus::Running->value)
-            ->where(function ($query) use ($claimedBefore) {
-                $query
-                    ->whereNull('claimed_at')
-                    ->orWhere('claimed_at', '<=', $claimedBefore);
-            })
-            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
-            ->orderBy('id')
-            ->limit(max(1, $limit))
-            ->get()
-            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
-            ->all();
-    }
-
-    public function pendingBefore(
-        DateTimeImmutable $createdBefore,
-        int $limit = 100,
-        ?string $workflow = null
-    ): array {
-        return WorkflowExecutionModel::query()
-            ->where('status', ExecutionStatus::Pending->value)
-            ->where('created_at', '<=', $createdBefore)
-            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
-            ->orderBy('id')
-            ->limit(max(1, $limit))
-            ->get()
-            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
-            ->all();
-    }
-
-    public function dueForRetry(
-        DateTimeImmutable $dueBefore,
-        int $limit = 100,
-        ?string $workflow = null,
-        ?string $tenantId = null
-    ): array {
-        return WorkflowExecutionModel::query()
-            ->where('status', ExecutionStatus::Retrying->value)
-            ->where('next_retry_at', '<=', $dueBefore)
-            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
-            ->when($tenantId !== null, fn ($query) => $query->where('tenant_id', $tenantId))
-            ->orderBy('next_retry_at')
-            ->orderBy('id')
-            ->limit(max(1, $limit))
-            ->get()
-            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
-            ->all();
-    }
-
     public function saveStep(
         StepExecution $step,
         ?StepAttempt $attempt = null
@@ -370,141 +218,6 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // a worker without the claim must not persist anything.
                 throw ClaimLostException::forId($execution->id);
             }
-        });
-    }
-
-    public function retentionCandidates(
-        RetentionTier $tier,
-        array $statuses,
-        DateTimeImmutable $finishedBefore,
-        int $limit,
-        ?string $workflow = null,
-        ?string $tenantId = null
-    ): array {
-        $attempts = (new StepAttemptModel)->getTable();
-        $executions = (new WorkflowExecutionModel)->getTable();
-
-        return $this->finishedBefore($statuses, $finishedBefore)
-            // Self-limiting predicates. Without these a scheduled run
-            // rescans the oldest executions every time, spends its
-            // limit on work already done, and never reaches newer rows.
-            ->when(
-                $tier === RetentionTier::ScrubPayloads,
-                fn (Builder $query) => $query->whereNull('payloads_scrubbed_at'),
-            )
-            ->when(
-                $tier === RetentionTier::PruneAttempts,
-                fn (Builder $query) => $query->whereExists(
-                    fn ($sub) => $sub
-                        ->selectRaw('1')
-                        ->from($attempts)
-                        ->whereColumn("{$attempts}.workflow_execution_id", "{$executions}.id"),
-                ),
-            )
-            ->when($workflow !== null, fn (Builder $query) => $query->where('workflow', $workflow))
-            ->when($tenantId !== null, fn (Builder $query) => $query->where('tenant_id', $tenantId))
-            // Oldest finish first: retention works forward through
-            // history, so a run that hits its limit has still made
-            // progress at the end that matters.
-            ->orderBy('finished_at')
-            ->orderBy('id')
-            ->limit(max(1, $limit))
-            ->get()
-            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
-            ->all();
-    }
-
-    public function scrubPayloads(
-        array $ids,
-        array $statuses,
-        DateTimeImmutable $finishedBefore,
-        DateTimeImmutable $scrubbedAt
-    ): int {
-        if ($ids === []) {
-            return 0;
-        }
-
-        return $this->transaction(function () use ($ids, $statuses, $finishedBefore, $scrubbedAt): int {
-            // The guarded update runs first and decides which ids are
-            // still eligible, so the step wipe below can never touch an
-            // execution a worker reclaimed in the meantime.
-            $eligible = $this->stillEligible($ids, $statuses, $finishedBefore);
-
-            if ($eligible === []) {
-                return 0;
-            }
-
-            $scrubbed = $this->finishedBefore($statuses, $finishedBefore)
-                ->whereIn('id', $eligible)
-                ->update([
-                    'input' => null,
-                    'context' => null,
-                    'payloads_scrubbed_at' => $scrubbedAt,
-                ]);
-
-            StepExecutionModel::query()
-                ->whereIn('workflow_execution_id', $eligible)
-                ->update([
-                    'input' => null,
-                    'output' => null,
-                ]);
-
-            return $scrubbed;
-        });
-    }
-
-    public function pruneAttempts(
-        array $ids,
-        array $statuses,
-        DateTimeImmutable $finishedBefore
-    ): array {
-        if ($ids === []) {
-            return ['executions' => 0, 'rows' => 0];
-        }
-
-        return $this->transaction(function () use ($ids, $statuses, $finishedBefore): array {
-            $eligible = $this->stillEligible($ids, $statuses, $finishedBefore);
-
-            if ($eligible === []) {
-                return ['executions' => 0, 'rows' => 0];
-            }
-
-            $rows = StepAttemptModel::query()
-                ->whereIn('workflow_execution_id', $eligible)
-                ->delete();
-
-            return ['executions' => count($eligible), 'rows' => $rows];
-        });
-    }
-
-    public function deleteExecutions(
-        array $ids,
-        array $statuses,
-        DateTimeImmutable $finishedBefore
-    ): int {
-        if ($ids === []) {
-            return 0;
-        }
-
-        return $this->transaction(function () use ($ids, $statuses, $finishedBefore): int {
-            $deleted = $this->finishedBefore($statuses, $finishedBefore)
-                ->whereIn('id', $ids)
-                ->delete();
-
-            if ($deleted === 0) {
-                return 0;
-            }
-
-            // Remove children whose parent is now gone, rather than
-            // children of the ids we asked about: the guard may have
-            // spared some, and those must keep their steps. Expressed
-            // as "no surviving parent" so it is correct either way, and
-            // whether or not the engine enforced the declared cascade —
-            // SQLite does so only when the connection asks.
-            $this->deleteOrphansOf(StepAttemptModel::class, $ids);
-            $this->deleteOrphansOf(StepExecutionModel::class, $ids);
-
-            return $deleted;
         });
     }
 
@@ -583,17 +296,6 @@ class EloquentExecutionRepository implements ExecutionRepository
         }
 
         throw ExecutionNotCancellableException::forStatus($id, $current->status);
-    }
-
-    public function attempts(
-        StepExecution $step
-    ): array {
-        return StepAttemptModel::query()
-            ->where('step_execution_id', $step->id)
-            ->orderBy('attempt')
-            ->get()
-            ->map(fn (StepAttemptModel $model): StepAttempt => $this->attemptToDomain($model))
-            ->all();
     }
 
     public function release(
@@ -677,98 +379,6 @@ class EloquentExecutionRepository implements ExecutionRepository
         }
 
         throw ExecutionNotRunnableException::forStatus($id, $status);
-    }
-
-    /**
-     * The one place a filter becomes SQL, shared by list() and count()
-     * so the two can never disagree about what matches. Each criterion
-     * maps to an indexed column (see the executions migration); adding
-     * one here without an index there is a regression the migration
-     * test exists to catch.
-     *
-     * @return Builder<WorkflowExecutionModel>
-     */
-    protected function filtered(ExecutionFilter $filter): Builder
-    {
-        return WorkflowExecutionModel::query()
-            ->when($filter->workflows !== null, fn (Builder $q) => $q->whereIn('workflow', $filter->workflows ?? []))
-            ->when($filter->statuses !== null, fn (Builder $q) => $q->whereIn(
-                'status',
-                array_map(fn (ExecutionStatus $status): string => $status->value, $filter->statuses ?? []),
-            ))
-            ->when($filter->correlationId !== null, fn (Builder $q) => $q->where('correlation_id', $filter->correlationId))
-            ->when($filter->tenantId !== null, fn (Builder $q) => $q->where('tenant_id', $filter->tenantId))
-            // Half-open windows: inclusive start, exclusive end.
-            ->when($filter->createdAfter !== null, fn (Builder $q) => $q->where('created_at', '>=', $filter->createdAfter))
-            ->when($filter->createdBefore !== null, fn (Builder $q) => $q->where('created_at', '<', $filter->createdBefore))
-            ->when($filter->finishedAfter !== null, fn (Builder $q) => $q->where('finished_at', '>=', $filter->finishedAfter))
-            ->when($filter->finishedBefore !== null, fn (Builder $q) => $q->where('finished_at', '<', $filter->finishedBefore));
-    }
-
-    /**
-     * The retention guard, as a query: a status that has actually
-     * finished, and a finish at or before the cutoff.
-     *
-     * Every retention scan and every retention write is built from this
-     * one method, so a scan and the write that follows it can never
-     * disagree about what "eligible" means. Claiming an execution sets
-     * `status = running` and clears `finished_at`, so a reclaimed row
-     * fails this predicate and is left alone.
-     *
-     * @param  list<ExecutionStatus>  $statuses
-     * @return Builder<WorkflowExecutionModel>
-     */
-    protected function finishedBefore(array $statuses, DateTimeImmutable $finishedBefore): Builder
-    {
-        return WorkflowExecutionModel::query()
-            ->whereIn('status', array_map(
-                fn (ExecutionStatus $status): string => $status->value,
-                $statuses,
-            ))
-            ->whereNotNull('finished_at')
-            ->where('finished_at', '<=', $finishedBefore);
-    }
-
-    /**
-     * Which of $ids still satisfy the guard, read inside the caller's
-     * transaction so the writes that follow act on exactly this set.
-     *
-     * @param  list<int|string>  $ids
-     * @param  list<ExecutionStatus>  $statuses
-     * @return list<int|string>
-     */
-    protected function stillEligible(array $ids, array $statuses, DateTimeImmutable $finishedBefore): array
-    {
-        /** @var list<int|string> $eligible */
-        $eligible = $this->finishedBefore($statuses, $finishedBefore)
-            ->whereIn('id', $ids)
-            ->pluck('id')
-            ->all();
-
-        return $eligible;
-    }
-
-    /**
-     * Delete rows of $model among $ids whose parent execution no longer
-     * exists.
-     *
-     * @param  class-string<StepAttemptModel|StepExecutionModel>  $model
-     * @param  list<int|string>  $ids
-     */
-    protected function deleteOrphansOf(string $model, array $ids): void
-    {
-        $executions = (new WorkflowExecutionModel)->getTable();
-        $child = (new $model)->getTable();
-
-        $model::query()
-            ->whereIn('workflow_execution_id', $ids)
-            ->whereNotExists(
-                fn ($sub) => $sub
-                    ->selectRaw('1')
-                    ->from($executions)
-                    ->whereColumn("{$executions}.id", "{$child}.workflow_execution_id"),
-            )
-            ->delete();
     }
 
     protected function attemptToDomain(StepAttemptModel $model): StepAttempt

@@ -6,6 +6,7 @@ namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
+use Laraflow\Support\Duration;
 
 /**
  * Read-only handle describing one persisted workflow execution.
@@ -159,13 +160,7 @@ class WorkflowExecution
      */
     public function durationMs(): ?int
     {
-        if ($this->startedAt === null || $this->finishedAt === null) {
-            return null;
-        }
-
-        $ms = ((float) $this->finishedAt->format('U.u') - (float) $this->startedAt->format('U.u')) * 1000;
-
-        return max(0, (int) round($ms));
+        return Duration::between($this->startedAt, $this->finishedAt);
     }
 
     /**

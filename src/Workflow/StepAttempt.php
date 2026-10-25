@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
+use Laraflow\Support\Duration;
 
 /**
  * One finished attempt of a step, destined for the append-only history
@@ -37,12 +38,6 @@ readonly class StepAttempt
      */
     public function durationMs(): ?int
     {
-        if ($this->startedAt === null || $this->endedAt === null) {
-            return null;
-        }
-
-        $ms = ((float) $this->endedAt->format('U.u') - (float) $this->startedAt->format('U.u')) * 1000;
-
-        return max(0, (int) round($ms));
+        return Duration::between($this->startedAt, $this->endedAt);
     }
 }

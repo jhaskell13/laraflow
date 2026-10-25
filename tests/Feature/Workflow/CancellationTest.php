@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
+use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Tests\Support\ArrayLogger;
@@ -229,7 +230,7 @@ class CancellationTest extends TestCase
 
     public function test_cancelling_an_unknown_execution_fails_clearly(): void
     {
-        $this->expectException(\Laraflow\Exceptions\Workflow\ExecutionNotFoundException::class);
+        $this->expectException(ExecutionNotFoundException::class);
 
         $this->app->make(WorkflowRunner::class)->cancel(999999);
     }

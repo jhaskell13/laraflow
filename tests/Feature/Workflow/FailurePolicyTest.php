@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowExecutionCompleted;
 use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowStepFailed;
+use Laraflow\Tests\Support\BadOutputStep;
 use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepThree;
@@ -134,7 +135,7 @@ class FailurePolicyTest extends TestCase
 
     public function test_multiple_failures_are_each_recorded_but_the_first_is_thrown(): void
     {
-        PolicyWorkflow::$steps = [StepTwo::class, StepOne::class, \Laraflow\Tests\Support\BadOutputStep::class];
+        PolicyWorkflow::$steps = [StepTwo::class, StepOne::class, BadOutputStep::class];
         StepTwo::$failTimes = 1;
 
         try {
