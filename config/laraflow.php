@@ -321,9 +321,39 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Integrations
+    |--------------------------------------------------------------------------
+    |
+    | One entry per connector. Each holds up to three keys and nothing
+    | else — a setting left anywhere else is refused with the path it
+    | should move to, rather than silently read by nothing:
+    |
+    |   connector    The class implementing Laraflow\Integration\Connector.
+    |                Declaring it here registers the connector at boot;
+    |                a package may call LaraflowManager::register() from
+    |                its own provider instead and omit it.
+    |   default      The connection used when a caller names none.
+    |                Defaults to "default".
+    |   connections  One account per entry: name => settings. The same
+    |                connector class serves every connection, so a second
+    |                GitHub organisation or a per-environment account is a
+    |                second entry here, not a second class.
+    |
+    | Keep credentials in .env, not in a published copy of this file.
+    |
+    */
+
     'integrations' => [
         'github' => [
-            'token' => env('LARAFLOW_GITHUB_TOKEN'),
+            'connector' => Laraflow\Integration\Github\GithubConnector::class,
+            'default' => env('LARAFLOW_GITHUB_CONNECTION', 'default'),
+            'connections' => [
+                'default' => [
+                    'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                ],
+            ],
         ],
     ],
 

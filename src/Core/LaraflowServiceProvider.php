@@ -8,11 +8,9 @@ use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
-use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
-use Laraflow\Auth\GithubTokenAuthenticator;
 use Laraflow\Console\CancelCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
@@ -23,9 +21,7 @@ use Laraflow\Console\ShowCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\LifecycleLogger;
-use Laraflow\Integration\ConnectorFactory;
-use Laraflow\Integration\ConnectorManager;
-use Laraflow\Integration\Github\GithubConnector;
+use Laraflow\Integration\ConnectorRegistry;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
@@ -51,10 +47,13 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../../config/laraflow.php', 'laraflow');
 
         // Stateless services with resolvable constructors are autowired.
-        $this->app->singleton(ConnectorFactory::class);
-        $this->app->singleton(ConnectorManager::class);
         $this->app->singleton(LaraflowManager::class);
         $this->app->singleton(WorkflowResolver::class);
+
+        $this->app->singleton(ConnectorRegistry::class, fn (Container $app): ConnectorRegistry => new ConnectorRegistry(
+            $app,
+            $app->make(Config::class),
+        ));
 
         // Bound by interface so an application (or a test) can replace the
         // package's source of time wholesale.
@@ -253,20 +252,39 @@ class LaraflowServiceProvider extends ServiceProvider
     }
 
     /**
-     * Bundled connectors are registered as lazy factories: configuration is
-     * read and credentials validated only when the connector is first used.
+     * Register every connector the configuration declares a class for.
+     *
+     * The bundled GitHub connector is registered this way too, as one
+     * `laraflow.integrations` entry among any the application adds —
+     * there is no privileged path for connectors that ship with the
+     * package. Registration validates the class and nothing more:
+     * connections are read and credentials checked when a connector is
+     * first resolved.
      */
     protected function registerConnectors(): void
     {
         /** @var LaraflowManager $laraflow */
         $laraflow = $this->app->make(LaraflowManager::class);
 
-        $laraflow->register('github', fn (): GithubConnector => new GithubConnector(
-            new GithubTokenAuthenticator(
-                (string) $this->config()->get('laraflow.integrations.github.token', '')
-            ),
-            $this->app->make(HttpClient::class),
-        ));
+        $integrations = $this->config()->get('laraflow.integrations', []);
+
+        if (! is_array($integrations)) {
+            throw new InvalidArgumentException('laraflow.integrations must be an array.');
+        }
+
+        foreach ($integrations as $name => $section) {
+            if (! is_array($section) || ! isset($section['connector'])) {
+                continue;
+            }
+
+            $class = $section['connector'];
+
+            if (! is_string($class)) {
+                throw new InvalidArgumentException("laraflow.integrations.{$name}.connector must be a class name.");
+            }
+
+            $laraflow->register((string) $name, $class);
+        }
     }
 
     protected function config(): Config

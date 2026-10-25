@@ -8,8 +8,8 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
-use Laraflow\Auth\GithubTokenAuthenticator;
 use Laraflow\Exceptions\TransportException;
+use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Tests\TestCase;
@@ -78,7 +78,7 @@ class GithubConnectorTest extends TestCase
     protected function connector(): GithubConnector
     {
         return new GithubConnector(
-            new GithubTokenAuthenticator('test-token'),
+            new Connection('github', 'default', ['token' => 'test-token']),
             $this->app->make(HttpClient::class),
         );
     }

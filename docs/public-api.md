@@ -99,15 +99,15 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 
 | Class | Level | Notes |
 |-------|-------|-------|
-| `Laraflow\Core\LaraflowManager` | Public | `register(name, factory)`, `connector(name)`, `has(name)`. Factories run lazily, once; instances are cached for the application lifetime. |
+| `Laraflow\Core\LaraflowManager` | Public | `register(name, class-string|closure)`, `connector(name, ?connection)`, `has(name)`, `connectors()`, `connections(name)`, `forget(?name, ?connection)`. A class-string is built through the container with the resolved `Connection` passed as `$connection`; a closure receives it. Instances are built on first use and cached per connection until `forget()`. **Breaking in Milestone 5:** `connector()` gained the optional connection name; closures receive a `Connection`. |
+| `Laraflow\Integration\Connection` | Public | One named account on one connector: `connector`, `name`, `config`, `get()`, `has()`, `require(key, ?envHint)` (blank counts as missing; throws `ConnectorConfigurationException` naming the path), `path()`, `key()` (`github:default`). |
 | `Laraflow\Integration\Connector` | Public (contract) | `name()` and `request(ConnectorRequest): ConnectorResponse`. |
 | `Laraflow\Integration\ConnectorRequest` | Public | Immutable (`readonly`) value object: method, uri, options. |
 | `Laraflow\Integration\ConnectorResponse` | Public | Immutable (`readonly`) value object: status, headers, body, `successful()` (2xx), `failed()`. |
 | `Laraflow\Auth\Authenticator` | Public (contract) | `authenticate(array $options): array`. |
 | `Laraflow\Auth\GithubTokenAuthenticator` | Public | Bearer-token authenticator. Rejects an empty token at construction with `ConnectorException`. |
-| `Laraflow\Integration\Github\GithubConnector` | Experimental | Prototype; HTTP behaviour not yet configurable. Takes an `Authenticator` and Laravel's HTTP client factory. |
-| `Laraflow\Integration\ConnectorFactory` | Internal | Used by `LaraflowManager`. |
-| `Laraflow\Integration\ConnectorManager` | Internal | Instance cache used by `LaraflowManager`. |
+| `Laraflow\Integration\Github\GithubConnector` | Experimental | Prototype; HTTP behaviour not yet configurable. Takes its `Connection` and Laravel's HTTP client factory; reads `token` from the connection. |
+| `Laraflow\Integration\ConnectorRegistry` | Internal | Definitions, configured connections, and the instance cache behind `LaraflowManager`. Replaced `ConnectorFactory` and `ConnectorManager` in Milestone 5. |
 
 ## Exceptions
 
@@ -116,7 +116,9 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | `Laraflow\Exceptions\LaraflowException` | Public. Base class for all package exceptions. |
 | `Laraflow\Exceptions\ConnectorException` | Public. Base class for connector exceptions; also thrown directly for configuration problems such as a missing token. |
 | `Laraflow\Exceptions\ConnectorNotRegisteredException` | Public. Unknown connector name. |
-| `Laraflow\Exceptions\InvalidConnectorException` | Public. A connector factory returned something that is not a `Connector`. |
+| `Laraflow\Exceptions\InvalidConnectorException` | Public. A registered class is not a `Connector`, or a factory returned something that is not one. |
+| `Laraflow\Exceptions\ConnectorConfigurationException` | Public. The `laraflow.integrations` section cannot be used as written: a required setting is missing or blank, a key sits at the wrong level, or a name is invalid. Always names the configuration path. |
+| `Laraflow\Exceptions\ConnectionNotConfiguredException` | Public. A connector was asked for a connection its configuration does not declare; names the configured ones. |
 | `Laraflow\Exceptions\TransportException` | Public. Thrown when a connector cannot reach its service. Never includes request options (they carry credentials). |
 | `Laraflow\Exceptions\Workflow\WorkflowException` | Public. Base class for workflow/lifecycle exceptions. |
 | `Laraflow\Exceptions\Workflow\ExecutionNotFoundException` | Public. Unknown execution id. |
@@ -140,7 +142,8 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | Item | Level | Notes |
 |------|-------|-------|
 | `Laraflow\Core\LaraflowServiceProvider` | Public | Auto-discovered. |
-| `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `execution.max_payload_bytes` (default `null` — no limit), `integrations.github.token` | Public | |
+| `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `execution.max_payload_bytes` (default `null` — no limit) | Public | |
+| `config/laraflow.php` key `integrations.{connector}` holding `connector`, `default`, and `connections.{name}` — and nothing else | Public | Declaring `connector` registers the class at boot. A setting at the connector level (the Milestone 0 `integrations.github.token`) is refused with the path it belongs at. **Breaking in Milestone 5:** `integrations.github.token` moved to `integrations.github.connections.default.token`. |
 | `config/laraflow.php` keys `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `abandon_after_attempts`, `pending_after`), `events.include_error_messages` | Public | Defaults and their rationale in [docs/queue-and-recovery.md](queue-and-recovery.md). `queue.tries` defaults to 1 and `recovery.pending_after` to null (pending scan disabled), deliberately. **Breaking in Milestone 3:** `recovery.max_attempts` was renamed `recovery.abandon_after_attempts`. |
 | `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |

@@ -7,21 +7,24 @@ namespace Laraflow\Tests\Feature\Integration;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Laraflow\Core\LaraflowManager;
+use Laraflow\Exceptions\ConnectionNotConfiguredException;
+use Laraflow\Exceptions\ConnectorConfigurationException;
 use Laraflow\Exceptions\ConnectorException;
 use Laraflow\Exceptions\ConnectorNotRegisteredException;
+use Laraflow\Exceptions\InvalidConnectorException;
 use Laraflow\Integration\Connector;
-use Laraflow\Integration\ConnectorFactory;
-use Laraflow\Integration\ConnectorManager;
+use Laraflow\Integration\ConnectorRegistry;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Integration\Github\GithubConnector;
+use Laraflow\Tests\Support\RecordingConnector;
 use Laraflow\Tests\TestCase;
 
 class LaravelIntegrationTest extends TestCase
 {
     public function test_core_services_are_container_singletons(): void
     {
-        foreach ([ConnectorFactory::class, ConnectorManager::class, LaraflowManager::class] as $abstract) {
+        foreach ([ConnectorRegistry::class, LaraflowManager::class] as $abstract) {
             $this->assertSame(
                 $this->app->make($abstract),
                 $this->app->make($abstract),
@@ -40,6 +43,72 @@ class LaravelIntegrationTest extends TestCase
 
         $this->assertTrue($laraflow->has('crm'));
         $this->assertSame($connector, $laraflow->connector('crm'));
+        $this->assertContains('crm', $laraflow->connectors());
+    }
+
+    public function test_an_application_can_register_a_connector_class_in_configuration(): void
+    {
+        config(['laraflow.integrations.crm' => [
+            'connector' => RecordingConnector::class,
+            'connections' => ['default' => ['region' => 'eu']],
+        ]]);
+
+        // Boot again: configuration-driven registration happens in boot().
+        $this->app->register(\Laraflow\Core\LaraflowServiceProvider::class, force: true);
+
+        $connector = $this->app->make(LaraflowManager::class)->connector('crm');
+
+        $this->assertInstanceOf(RecordingConnector::class, $connector);
+        $this->assertSame('eu', $connector->connection->get('region'));
+    }
+
+    public function test_a_misnamed_connector_class_in_configuration_fails_at_boot(): void
+    {
+        config(['laraflow.integrations.crm' => ['connector' => 'App\\Nope']]);
+
+        $this->expectException(InvalidConnectorException::class);
+
+        $this->app->register(\Laraflow\Core\LaraflowServiceProvider::class, force: true);
+    }
+
+    public function test_named_connections_share_one_connector_class(): void
+    {
+        config(['laraflow.integrations.github.connections' => [
+            'default' => ['token' => 'default-token'],
+            'enterprise' => ['token' => 'enterprise-token'],
+        ]]);
+
+        Http::fake(['api.github.com/*' => Http::response([])]);
+
+        $laraflow = $this->app->make(LaraflowManager::class);
+
+        $this->assertSame(['default', 'enterprise'], $laraflow->connections('github'));
+
+        $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
+        $laraflow->connector('github', 'enterprise')->request(new ConnectorRequest('GET', '/user'));
+
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer default-token'));
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer enterprise-token'));
+    }
+
+    public function test_an_unknown_connection_is_refused(): void
+    {
+        $this->expectException(ConnectionNotConfiguredException::class);
+
+        $this->app->make(LaraflowManager::class)->connector('github', 'staging');
+    }
+
+    public function test_the_milestone_0_token_layout_is_refused_with_guidance(): void
+    {
+        config(['laraflow.integrations.github' => ['connector' => GithubConnector::class, 'token' => 'ghp_x']]);
+
+        try {
+            $this->app->make(LaraflowManager::class)->connector('github');
+            $this->fail('Expected ConnectorConfigurationException.');
+        } catch (ConnectorConfigurationException $exception) {
+            $this->assertStringContainsString('laraflow.integrations.github.connections.default', $exception->getMessage());
+            $this->assertStringNotContainsString('ghp_x', $exception->getMessage());
+        }
     }
 
     public function test_connectors_are_built_lazily_and_cached(): void
@@ -72,7 +141,7 @@ class LaravelIntegrationTest extends TestCase
 
     public function test_the_bundled_github_connector_uses_the_configured_token(): void
     {
-        config(['laraflow.integrations.github.token' => 'configured-token']);
+        config(['laraflow.integrations.github.connections.default.token' => 'configured-token']);
 
         Http::fake(['api.github.com/*' => Http::response(['login' => 'octocat'])]);
 
@@ -96,7 +165,7 @@ class LaravelIntegrationTest extends TestCase
      */
     public function test_a_built_connector_keeps_the_credentials_it_was_built_with(): void
     {
-        config(['laraflow.integrations.github.token' => 'first-token']);
+        config(['laraflow.integrations.github.connections.default.token' => 'first-token']);
 
         Http::fake(['api.github.com/*' => Http::response([])]);
 
@@ -104,7 +173,7 @@ class LaravelIntegrationTest extends TestCase
 
         $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
 
-        config(['laraflow.integrations.github.token' => 'rotated-token']);
+        config(['laraflow.integrations.github.connections.default.token' => 'rotated-token']);
 
         $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
 
@@ -114,7 +183,7 @@ class LaravelIntegrationTest extends TestCase
 
     public function test_the_bundled_github_connector_fails_clearly_when_no_token_is_configured(): void
     {
-        config(['laraflow.integrations.github.token' => null]);
+        config(['laraflow.integrations.github.connections.default.token' => null]);
 
         try {
             $this->app->make(LaraflowManager::class)->connector('github');

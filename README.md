@@ -387,8 +387,16 @@ return [
     ],
 
     'integrations' => [
+        // One entry per connector: the class, the default connection, and
+        // one named connection per account. Nothing else is accepted here.
         'github' => [
-            'token' => env('LARAFLOW_GITHUB_TOKEN'),
+            'connector' => \Laraflow\Integration\Github\GithubConnector::class,
+            'default' => env('LARAFLOW_GITHUB_CONNECTION', 'default'),
+            'connections' => [
+                'default' => [
+                    'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                ],
+            ],
         ],
     ],
 ];
@@ -729,6 +737,19 @@ if ($response->successful()) {
 
 `ConnectorResponse` exposes `status()`, `headers()`, `body()`, `successful()`, and `failed()`. Connection failures throw `Laraflow\Exceptions\TransportException`.
 
+A connector serves any number of **connections** — one per account. Add a second entry under `connections` and name it when resolving; the same class serves both:
+
+```php
+'connections' => [
+    'default' => ['token' => env('LARAFLOW_GITHUB_TOKEN')],
+    'enterprise' => ['token' => env('GHE_TOKEN')],
+],
+```
+
+```php
+$laraflow->connector('github', 'enterprise')->request(...);
+```
+
 ### Writing your own
 
 Implement `Laraflow\Integration\Connector`, and optionally an `Authenticator` to inject credentials into request options. Laraflow ships only the GitHub authenticator today, so `CrmTokenAuthenticator` below is a class you write:
@@ -770,16 +791,31 @@ class CrmConnector implements Connector
 }
 ```
 
-Register it in one of your application's service providers. Connectors are built lazily and cached for the lifetime of the application:
+Register it either by naming the class in configuration — it is built through the container, with its `Laraflow\Integration\Connection` passed as `$connection` — or from one of your service providers with a closure that receives the connection. Connectors are built on first use and cached per connection:
+
+```php
+// config/laraflow.php
+'integrations' => [
+    'crm' => [
+        'connector' => \App\Integrations\CrmConnector::class,
+        'connections' => [
+            'default' => ['token' => env('CRM_TOKEN')],
+        ],
+    ],
+],
+```
 
 ```php
 use Laraflow\Core\LaraflowManager;
+use Laraflow\Integration\Connection;
 
 public function boot(): void
 {
     app(LaraflowManager::class)->register(
         'crm',
-        fn () => new CrmConnector(new CrmTokenAuthenticator(config('services.crm.token'))),
+        fn (Connection $connection) => new CrmConnector(
+            new CrmTokenAuthenticator((string) $connection->require('token', 'CRM_TOKEN')),
+        ),
     );
 }
 ```

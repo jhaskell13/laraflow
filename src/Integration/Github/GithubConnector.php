@@ -7,7 +7,9 @@ namespace Laraflow\Integration\Github;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Laraflow\Auth\Authenticator;
+use Laraflow\Auth\GithubTokenAuthenticator;
 use Laraflow\Exceptions\TransportException;
+use Laraflow\Integration\Connection;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -19,10 +21,21 @@ class GithubConnector implements Connector
 {
     public const BASE_URL = 'https://api.github.com';
 
+    protected Authenticator $authenticator;
+
     public function __construct(
-        protected Authenticator $authenticator,
+        protected Connection $connection,
         protected HttpClient $http,
-    ) {}
+    ) {
+        $token = $connection->require('token', 'LARAFLOW_GITHUB_TOKEN');
+
+        $this->authenticator = new GithubTokenAuthenticator((string) $token);
+    }
+
+    public function connection(): Connection
+    {
+        return $this->connection;
+    }
 
     public function name(): string
     {
