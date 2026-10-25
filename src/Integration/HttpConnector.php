@@ -80,7 +80,9 @@ abstract class HttpConnector implements Connector
             $this->credentials->credentials($this->connection),
         ));
 
-        $response = $this->pipeline->through($this->transport(), $this->options)->send($authenticated, $this->options);
+        $response = $this->pipeline
+            ->through($this->transport(), $this->options, $this->connection)
+            ->send($authenticated, $this->options);
 
         // The mapper sees the request as the caller made it, so nothing
         // the authenticator added can reach an exception message.

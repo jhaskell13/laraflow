@@ -9,6 +9,7 @@ use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
+use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\PassthroughRedactor;
@@ -50,6 +51,7 @@ class OutcomeRecorder
         protected bool $includeErrorMessages = true,
         ?ClockInterface $clock = null,
         ?ErrorRedactor $redactor = null,
+        protected int $maxSuggestedRetryDelaySeconds = 3600,
     ) {
         $this->clock = $clock ?? new Clock;
         $this->redactor = $redactor ?? new PassthroughRedactor;
@@ -80,6 +82,19 @@ class OutcomeRecorder
         // Seeded by execution and position: one logical retry always
         // lands on the same instant, different executions spread apart.
         $delay = $policy->delaySeconds($attempt, "{$execution->id}:{$stepExecution->position}");
+
+        // A provider that said when to come back is believed, up to the
+        // configured cap, and never undercut by our own backoff: the
+        // policy's delay protects the dependency, the suggestion is the
+        // dependency protecting itself.
+        if ($exception instanceof SuggestsRetryDelay) {
+            $suggested = $exception->suggestedRetryDelaySeconds($failedAt);
+
+            if ($suggested !== null) {
+                $delay = max($delay, min($suggested, $this->maxSuggestedRetryDelaySeconds));
+            }
+        }
+
         $nextRetryAt = $failedAt->modify("+{$delay} seconds");
 
         $record = $this->attempt($execution, $stepExecution, $attemptStatus, $error, $exception, $failedAt, $nextRetryAt);

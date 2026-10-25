@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace Laraflow\Exceptions\Connector;
 
 use DateTimeInterface;
+use Laraflow\Exceptions\SuggestsRetryDelay;
 
 /**
  * The provider asked us to slow down: 429, or a provider-specific
  * signal a connector's mapper recognises.
  *
- * Carries the provider's own wait, when it gave one, so a retry can
- * honour it rather than guess.
+ * Carries the provider's own wait, when it gave one, and offers it to
+ * the runner as the retry delay, so a durable retry lands when the
+ * provider said rather than when a backoff guessed.
  */
-class RateLimitedException extends RequestFailedException
+class RateLimitedException extends RequestFailedException implements SuggestsRetryDelay
 {
     /**
      * The `Retry-After` header as sent: delay-seconds or an HTTP-date.
@@ -33,5 +35,13 @@ class RateLimitedException extends RequestFailedException
     public function retryAfterSeconds(DateTimeInterface $now): ?int
     {
         return $this->response->retryAfterSeconds($now);
+    }
+
+    /**
+     * The provider's wait is the retry delay the runner should honour.
+     */
+    public function suggestedRetryDelaySeconds(DateTimeInterface $now): ?int
+    {
+        return $this->retryAfterSeconds($now);
     }
 }

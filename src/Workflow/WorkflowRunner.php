@@ -83,6 +83,7 @@ class WorkflowRunner
             includeErrorMessages: $this->options->includeErrorMessages,
             clock: $this->clock,
             redactor: $redactor ?? new PassthroughRedactor,
+            maxSuggestedRetryDelaySeconds: $this->options->maxSuggestedRetryDelaySeconds,
         );
     }
 

@@ -92,6 +92,12 @@ return [
         'max_delay' => env('LARAFLOW_RETRY_MAX_DELAY', 300),
         'jitter' => env('LARAFLOW_RETRY_JITTER', 0.2),
         'dispatch_delayed' => env('LARAFLOW_RETRY_DISPATCH_DELAYED', true),
+
+        // The longest retry delay an exception may ask for by implementing
+        // SuggestsRetryDelay — a provider's Retry-After on a 429, or
+        // Laraflow's own throttle. Honoured up to this many seconds, and
+        // never shorter than the policy's own backoff.
+        'max_suggested_delay' => env('LARAFLOW_RETRY_MAX_SUGGESTED_DELAY', 3600),
     ],
 
     /*
@@ -353,6 +359,16 @@ return [
             'transport_failures' => true,
             'max_retry_after' => 5,
         ],
+
+        // A ceiling Laraflow holds itself to, per connection, counted in
+        // the cache so every worker shares it: ['max' => 60, 'per' => 60,
+        // 'max_wait' => 0]. Null: no ceiling. When the budget is spent, a
+        // wait up to max_wait seconds is served in-process; a longer one
+        // fails the request with ThrottledException, which suggests the
+        // wait so a step with a retry policy comes back when a slot is
+        // due, without holding a worker. Set it on a connection for one
+        // account, or here for every connection.
+        'rate_limit' => null,
     ],
 
     /*
@@ -407,6 +423,16 @@ return [
             'transport_failures' => true,
             'max_retry_after' => 5,
         ],
+
+        // A ceiling Laraflow holds itself to, per connection, counted in
+        // the cache so every worker shares it: ['max' => 60, 'per' => 60,
+        // 'max_wait' => 0]. Null: no ceiling. When the budget is spent, a
+        // wait up to max_wait seconds is served in-process; a longer one
+        // fails the request with ThrottledException, which suggests the
+        // wait so a step with a retry policy comes back when a slot is
+        // due, without holding a worker. Set it on a connection for one
+        // account, or here for every connection.
+        'rate_limit' => null,
     ],
 
     /*

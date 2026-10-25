@@ -325,6 +325,8 @@ return [
         // Deliver due retries via a delayed queue job; laraflow:recover
         // remains the safety net either way.
         'dispatch_delayed' => env('LARAFLOW_RETRY_DISPATCH_DELAYED', true),
+        // Cap on a retry delay an exception suggests (a provider's Retry-After).
+        'max_suggested_delay' => env('LARAFLOW_RETRY_MAX_SUGGESTED_DELAY', 3600),
     ],
 
     'timeout' => [
@@ -403,6 +405,9 @@ return [
             'transport_failures' => true,
             'max_retry_after' => 5,
         ],
+        // A per-connection ceiling Laraflow holds itself to: null, or
+        // ['max' => 60, 'per' => 60, 'max_wait' => 0].
+        'rate_limit' => null,
     ],
 
     'integrations' => [
@@ -854,6 +859,8 @@ app(LaraflowManager::class)->register('crm', CrmConnector::class);
 ```
 
 A connection can enable **transport retries** — repeating one request inside a step attempt for a dropped connection or a momentary 503 — with `'retries' => ['max_attempts' => 3]`. They are off by default, measured in milliseconds, and never wait for a long `Retry-After`: that is returned to the step so its own retry policy can wait durably, without holding a worker. A `POST` is repeated only when the provider says it was never processed (429) or you mark the request `->asIdempotent()`. The two loops are specified together in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md#transport-retries-are-the-inner-loop).
+
+**Rate limits** work in both directions. A provider's `429` with `Retry-After` becomes a `RateLimitedException`, and because it implements `SuggestsRetryDelay`, a step that throws it is retried durably *when the provider said* — up to `retry.max_suggested_delay` — rather than on the policy's guess. And a connection's own `'rate_limit' => ['max' => 60, 'per' => 60]` is a ceiling Laraflow holds itself to, shared by every worker through the cache, keyed per connection so one tenant's account never throttles another's; when the budget is spent the request fails before reaching the provider with `ThrottledException`, which suggests the wait the same way.
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 

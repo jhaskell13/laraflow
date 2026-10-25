@@ -30,18 +30,26 @@ readonly class RunnerOptions
      *                                      message, or only the exception class.
      * @param  int|null  $maxPayloadBytes  Largest a single durable payload may
      *                                     be; null leaves the only limit the database's.
+     * @param  int  $maxSuggestedRetryDelaySeconds  Longest retry delay an exception
+     *                                              implementing SuggestsRetryDelay may ask for; a
+     *                                              provider's Retry-After is honoured up to this.
      */
     public function __construct(
         public int $staleAfterSeconds = 300,
         public int $maxErrorLength = 65535,
         public bool $includeErrorMessages = true,
         public ?int $maxPayloadBytes = null,
+        public int $maxSuggestedRetryDelaySeconds = 3600,
     ) {
         if ($maxPayloadBytes !== null && $maxPayloadBytes < 1) {
             throw new InvalidArgumentException(
                 'laraflow.execution.max_payload_bytes must be at least 1 byte, or null for no limit. '
                 .'A limit of zero would reject every payload, including an empty one.'
             );
+        }
+
+        if ($maxSuggestedRetryDelaySeconds < 0) {
+            throw new InvalidArgumentException('laraflow.retry.max_suggested_delay cannot be negative.');
         }
 
         // Only max_payload_bytes is validated here, because only it
@@ -66,6 +74,7 @@ readonly class RunnerOptions
             maxErrorLength: (int) (self::setting($config, 'laraflow.execution.max_error_length') ?? 65535),
             includeErrorMessages: (bool) ($config->get('laraflow.events.include_error_messages') ?? true),
             maxPayloadBytes: $payload === null ? null : (int) $payload,
+            maxSuggestedRetryDelaySeconds: (int) (self::setting($config, 'laraflow.retry.max_suggested_delay') ?? 3600),
         );
     }
 

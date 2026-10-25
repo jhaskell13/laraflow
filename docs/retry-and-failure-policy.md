@@ -66,6 +66,8 @@ Delay after a failure on attempt *n* is `baseDelaySeconds × multiplier^(n−1)`
 
 **Jitter is deterministic**, derived by hashing `"{executionId}:{stepPosition}"` with the attempt number rather than drawn from randomness. One logical retry always lands on the same instant — reproducible in a test, explainable in production — while different executions still spread apart.
 
+**An exception may know better.** When the step's exception implements `Laraflow\Exceptions\SuggestsRetryDelay` — a connector's `RateLimitedException` carrying the provider's `Retry-After`, Laraflow's own `ThrottledException`, or any application exception that chooses to — the retry is scheduled no sooner than the suggestion, up to `retry.max_suggested_delay` (default 3600 seconds), and never sooner than the policy's own delay. The policy's backoff protects the dependency; the suggestion is the dependency protecting itself, and it is believed within a bound an operator chose. The attempt still counts against the budget.
+
 When the jitter window would cross the ceiling it **slides down to fit** rather than being clipped against it. Clipping would land every upward-jittered execution on exactly `max_delay` — roughly half of them, bunched on one instant, in precisely the situation jitter exists to prevent (many executions that have all backed off to the ceiling together). `max_delay` remains a genuine maximum.
 
 ### What is never retried
@@ -195,6 +197,8 @@ A connector may repeat one wire request *inside* a single step attempt — for a
 | Honours `Retry-After` | Up to `max_retry_after` seconds (5); a longer one **returns the response** | Yes, via the exception's suggested delay, up to `retry.max_suggested_delay` |
 | Repeats a non-idempotent request | Only on 429 (never processed), or when the caller marked it `asIdempotent()` | Always — the step runs again; use `idempotencyKey()` |
 
+Rate limiting has a proactive side too: a connection's `rate_limit` (`max` per `per` seconds) is a ceiling Laraflow holds itself to, counted in the cache so every worker shares it. A wait up to `max_wait` seconds is served in-process; a longer one fails the request with `ThrottledException` *before anything reaches the provider*, and that exception suggests the wait — so with a step policy the execution simply comes back when a slot is due. Without one it fails, which is the honest outcome: a throttle without a retry turns bursts into failures, and the documentation says so rather than the worker sleeping through them.
+
 So a provider that says "wait 600 seconds" is never waited for in-process. The transport returns the 429, the step calls `throw()` (or the connection sets `throw_on_error`) and fails with `RateLimitedException`, and the step policy schedules a durable retry for when the provider said. A step that enables transport retries without a step policy gets a few quick re-tries and then a normal failure; one that enables both gets the quick re-tries inside each durable attempt, bounded on both axes.
 
 Keep `http.timeout × retries.max_attempts` below the step's deadline, or the attempt will be classified as timed out while a retry is still waiting.
@@ -273,6 +277,7 @@ Know what you are opting into: later steps see earlier checkpoints but **no outp
     'max_delay' => 300,
     'jitter' => 0.2,               // fraction, deterministic
     'dispatch_delayed' => true,    // queue fast path for due retries
+    'max_suggested_delay' => 3600, // cap on a SuggestsRetryDelay (Retry-After, throttle)
 ],
 'timeout' => [
     'step' => null,                // default per-attempt deadline; null = none

@@ -24,6 +24,7 @@
     "require": {
         "php": "^8.2",
         "illuminate/bus": "^12.0",
+        "illuminate/cache": "^12.0",
         "illuminate/console": "^12.0",
         "illuminate/container": "^12.0",
         "illuminate/contracts": "^12.0",

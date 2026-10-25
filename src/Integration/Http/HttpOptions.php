@@ -26,6 +26,7 @@ final readonly class HttpOptions
      * @param  float  $connectTimeoutSeconds  Bound on establishing the connection alone.
      * @param  array<string, string>  $headers  Sent with every request; a request's own headers win.
      * @param  TransportPolicy  $retries  In-attempt wire retries; disabled unless configured.
+     * @param  RateLimitPolicy|null  $rateLimit  A ceiling on wire attempts per connection; none unless configured.
      */
     public function __construct(
         public ?string $baseUrl = null,
@@ -33,6 +34,7 @@ final readonly class HttpOptions
         public float $connectTimeoutSeconds = 10.0,
         public array $headers = [],
         public TransportPolicy $retries = new TransportPolicy,
+        public ?RateLimitPolicy $rateLimit = null,
     ) {
         if ($timeoutSeconds <= 0.0) {
             throw new InvalidArgumentException('The HTTP timeout must be greater than zero seconds.');
@@ -60,17 +62,20 @@ final readonly class HttpOptions
         };
 
         $retries = $config->get('laraflow.http.retries', []);
+        $rateLimit = $config->get('laraflow.http.rate_limit');
 
         return new self(
             timeoutSeconds: (float) ($setting('timeout') ?? 30.0),
             connectTimeoutSeconds: (float) ($setting('connect_timeout') ?? 10.0),
             retries: TransportPolicy::fromArray(is_array($retries) ? $retries : []),
+            rateLimit: RateLimitPolicy::fromArray(is_array($rateLimit) ? $rateLimit : null),
         );
     }
 
     /**
      * These options overridden by whatever the connection configures:
-     * `base_url`, `timeout`, `connect_timeout`, `headers`, `retries`.
+     * `base_url`, `timeout`, `connect_timeout`, `headers`, `retries`,
+     * `rate_limit`.
      *
      * @throws ConnectorConfigurationException
      */
@@ -78,6 +83,7 @@ final readonly class HttpOptions
     {
         $headers = $connection->get('headers', []);
         $retries = $connection->get('retries', []);
+        $rateLimit = $connection->get('rate_limit');
 
         if (! is_array($headers)) {
             throw new ConnectorConfigurationException("{$connection->path()}.headers must be an array of header name => value.");
@@ -87,6 +93,10 @@ final readonly class HttpOptions
             throw new ConnectorConfigurationException("{$connection->path()}.retries must be an array of retry settings.");
         }
 
+        if ($rateLimit !== null && ! is_array($rateLimit)) {
+            throw new ConnectorConfigurationException("{$connection->path()}.rate_limit must be an array with max, per, and max_wait.");
+        }
+
         try {
             return new self(
                 baseUrl: self::stringOrNull($connection->get('base_url')) ?? $this->baseUrl,
@@ -94,6 +104,7 @@ final readonly class HttpOptions
                 connectTimeoutSeconds: self::floatOrNull($connection->get('connect_timeout')) ?? $this->connectTimeoutSeconds,
                 headers: array_merge($this->headers, array_map('strval', $headers)),
                 retries: TransportPolicy::fromArray($retries, $this->retries),
+                rateLimit: RateLimitPolicy::fromArray($rateLimit, $this->rateLimit),
             );
         } catch (InvalidArgumentException $exception) {
             throw new ConnectorConfigurationException("{$connection->path()}: {$exception->getMessage()}", previous: $exception);
@@ -102,7 +113,7 @@ final readonly class HttpOptions
 
     public function withBaseUrl(?string $baseUrl): self
     {
-        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries);
+        return new self($baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $this->rateLimit);
     }
 
     /**
@@ -110,12 +121,17 @@ final readonly class HttpOptions
      */
     public function withHeaders(array $headers): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries, $this->rateLimit);
     }
 
     public function withRetries(TransportPolicy $retries): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $retries);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $retries, $this->rateLimit);
+    }
+
+    public function withRateLimit(?RateLimitPolicy $rateLimit): self
+    {
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, $this->headers, $this->retries, $rateLimit);
     }
 
     /**
