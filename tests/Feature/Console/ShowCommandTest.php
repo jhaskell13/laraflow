@@ -45,6 +45,28 @@ class ShowCommandTest extends TestCase
         $this->assertStringNotContainsString('Tenant', $output);
     }
 
+    public function test_it_reports_how_long_a_finished_execution_took(): void
+    {
+        $this->callCommand('laraflow:demo');
+
+        ['output' => $output] = $this->callCommand('laraflow:show', ['execution' => '1']);
+
+        // The stored value, not one recomputed from timestamps that
+        // hold only whole seconds.
+        $this->assertMatchesRegularExpression('/Duration .*\d+ (ms|s)/', $output);
+    }
+
+    public function test_an_unfinished_execution_reports_no_duration(): void
+    {
+        $this->app->make(WorkflowRunner::class)->start(new DemoWorkflow, [
+            'sku' => 'SKU-1', 'quantity' => 1, 'fail' => false,
+        ]);
+
+        ['output' => $output] = $this->callCommand('laraflow:show', ['execution' => '1']);
+
+        $this->assertStringNotContainsString('Duration', $output);
+    }
+
     public function test_the_attempt_history_covers_every_step_of_the_execution(): void
     {
         $this->callCommand('laraflow:demo', ['--fail' => true]);

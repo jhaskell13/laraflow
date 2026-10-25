@@ -33,6 +33,15 @@ trait DisplaysExecutions
         // alike, so this no longer has to guess which timestamp to read.
         $this->components->twoColumnDetail('<fg=gray>Finished</>', $this->formatDate($execution->finishedAt));
 
+        if (($durationMs = $execution->durationMs()) !== null) {
+            // End to end, including any time spent failed or waiting
+            // out a backoff — see docs/inspection-and-observability.md.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Duration</>',
+                $durationMs < 1000 ? "{$durationMs} ms" : sprintf('%.1f s', $durationMs / 1000),
+            );
+        }
+
         if ($execution->correlationId !== null) {
             $this->components->twoColumnDetail('<fg=gray>Correlation</>', $execution->correlationId);
         }
