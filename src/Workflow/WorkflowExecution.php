@@ -52,6 +52,7 @@ class WorkflowExecution
         public ?DateTimeImmutable $availableAt = null,
         public ?DateTimeImmutable $finishedAt = null,
         public ?DateTimeImmutable $payloadsScrubbedAt = null,
+        protected ?int $persistedDurationMs = null,
     ) {}
 
     public function markRunning(DateTimeImmutable $at): void
@@ -74,6 +75,7 @@ class WorkflowExecution
         // finished_at behind would make a re-executed failure look
         // eligible to retention while it is actively running.
         $this->finishedAt = null;
+        $this->persistedDurationMs = null;
     }
 
     public function markCompleted(DateTimeImmutable $at): void
@@ -85,6 +87,7 @@ class WorkflowExecution
         $this->status = ExecutionStatus::Completed;
         $this->completedAt = $at;
         $this->finishedAt = $at;
+        $this->persistedDurationMs = Duration::between($this->startedAt, $at);
         $this->error = null;
         $this->errorClass = null;
     }
@@ -98,6 +101,7 @@ class WorkflowExecution
         $this->status = ExecutionStatus::Failed;
         $this->failedAt = $at;
         $this->finishedAt = $at;
+        $this->persistedDurationMs = Duration::between($this->startedAt, $at);
         $this->error = $error;
         $this->errorClass = $errorClass;
     }
@@ -139,6 +143,7 @@ class WorkflowExecution
         $this->status = ExecutionStatus::Cancelled;
         $this->cancelledAt = $at;
         $this->finishedAt = $at;
+        $this->persistedDurationMs = Duration::between($this->startedAt, $at);
         $this->cancelReason = $reason;
 
         // A cancelled execution must never be picked up by the scan.
@@ -157,10 +162,16 @@ class WorkflowExecution
      * which is what an SLA measures and what a "how long did the
      * customer wait?" question means. Per-attempt compute time is on
      * the step events and in the attempt history.
+     *
+     * Captured at the finishing transition, while both instants are
+     * still in memory, and persisted. Recomputing it from the reloaded
+     * timestamps would report whole seconds, because that is all the
+     * columns hold — and so 0 ms for most executions.
      */
     public function durationMs(): ?int
     {
-        return Duration::between($this->startedAt, $this->finishedAt);
+        return $this->persistedDurationMs
+            ?? Duration::between($this->startedAt, $this->finishedAt);
     }
 
     /**

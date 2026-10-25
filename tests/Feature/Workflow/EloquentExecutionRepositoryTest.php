@@ -630,6 +630,39 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->assertNull(WorkflowExecutionModel::query()->sole()->finished_at);
     }
 
+    public function test_a_sub_second_duration_survives_a_round_trip(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $execution->startedAt = new DateTimeImmutable('2026-10-25 12:00:00.000000');
+        $execution->markCompleted(new DateTimeImmutable('2026-10-25 12:00:00.455000'));
+        $repository->release($execution);
+
+        // The timestamp columns hold whole seconds, so recomputing this
+        // after a reload would report 0 ms. The value is captured at the
+        // transition and persisted instead.
+        $this->assertSame(455, $repository->find($execution->id)->durationMs());
+        $this->assertSame(455, WorkflowExecutionModel::query()->sole()->duration_ms);
+    }
+
+    public function test_re_executing_clears_the_recorded_duration(): void
+    {
+        $repository = $this->repository();
+        $execution = $repository->create('SyncCustomerWorkflow', steps: ['LoadCustomer']);
+        $execution = $repository->claim($execution->id, 'worker', 300);
+
+        $execution->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-25 12:00:01'));
+        $repository->release($execution);
+
+        $reclaimed = $repository->claim($execution->id, 'worker-b', 300);
+
+        // It has not finished, so it has no duration to report.
+        $this->assertNull($reclaimed->durationMs());
+        $this->assertNull(WorkflowExecutionModel::query()->sole()->duration_ms);
+    }
+
     /**
      * An execution whose step failed retryably and is waiting for
      * $dueAt, built through the real repository write path: created,

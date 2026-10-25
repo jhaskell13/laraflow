@@ -45,6 +45,14 @@ return new class extends Migration
             // a three-way coalesce that no index can serve.
             $table->timestamp('finished_at')->nullable();
 
+            // Computed when the execution finishes, while both instants
+            // are still in memory. The timestamp columns hold whole
+            // seconds, so a duration derived from them after a reload
+            // reports 0 ms for anything under a second — which is most
+            // executions. The attempt history has stored its duration
+            // for the same reason since Milestone 3.
+            $table->unsignedBigInteger('duration_ms')->nullable();
+
             // When retention removed this execution's input, context, and
             // step outputs. The execution record itself survives as an
             // audit trail; the payloads it carried do not.

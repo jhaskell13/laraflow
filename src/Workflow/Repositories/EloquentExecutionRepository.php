@@ -148,8 +148,11 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'next_retry_at' => null,
                 // Mirrors markRunning(): a re-executed failure is not
                 // finished, and must not look eligible to retention
-                // while a worker is actively running it.
+                // while a worker is actively running it. The recorded
+                // duration goes with it — it described a run that this
+                // claim is superseding.
                 'finished_at' => null,
+                'duration_ms' => null,
             ]);
 
         if ($claimed === 0) {
@@ -312,6 +315,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'completed_at' => $execution->completedAt,
                 'failed_at' => $execution->failedAt,
                 'finished_at' => $execution->finishedAt,
+                'duration_ms' => $execution->durationMs(),
                 'next_retry_at' => $execution->nextRetryAt,
                 'cancel_requested_at' => $execution->cancelRequestedAt,
                 'cancelled_at' => $execution->cancelledAt,
@@ -430,6 +434,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             availableAt: $model->available_at?->toImmutable(),
             finishedAt: $model->finished_at?->toImmutable(),
             payloadsScrubbedAt: $model->payloads_scrubbed_at?->toImmutable(),
+            persistedDurationMs: $model->duration_ms,
         );
     }
 

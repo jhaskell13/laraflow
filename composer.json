@@ -49,7 +49,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Laraflow\\Tests\\": "tests/"
+            "Laraflow\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/"
         }
     },
     "scripts": {

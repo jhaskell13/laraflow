@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $dispatched_at
  * @property Carbon|null $available_at
  * @property Carbon|null $finished_at
+ * @property int|null $duration_ms
  * @property Carbon|null $payloads_scrubbed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -66,6 +67,7 @@ class WorkflowExecutionModel extends Model
         'dispatched_at',
         'available_at',
         'finished_at',
+        'duration_ms',
         'payloads_scrubbed_at',
     ];
 
@@ -95,6 +97,7 @@ class WorkflowExecutionModel extends Model
             'dispatched_at' => 'datetime',
             'available_at' => 'datetime',
             'finished_at' => 'datetime',
+            'duration_ms' => 'integer',
             'payloads_scrubbed_at' => 'datetime',
         ];
     }

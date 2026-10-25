@@ -3,6 +3,16 @@
 
 providers:
   - Laraflow\Core\LaraflowServiceProvider
+  # Playground-only: WAL and a busy timeout, so a worker, a traffic
+  # generator, and a watch command can share one SQLite file.
+  - Workbench\App\Providers\PlaygroundServiceProvider
+
+workbench:
+  # Discovers workbench/app/Console/Commands — the playground:* commands.
+  # They live there rather than in src/ because a traffic generator has
+  # no business being installable into an application.
+  discovers:
+    commands: true
 
 env:
   - DB_CONNECTION=sqlite
