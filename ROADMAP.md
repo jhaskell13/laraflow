@@ -21,7 +21,9 @@ Milestone 2 is complete (October 2026). Executions can run on a Laravel queue (`
 
 Milestone 3 is complete (October 2026). Steps can declare retry policy — attempts, capped exponential backoff with deterministic jitter, retryable-exception rules, and a per-attempt deadline — off by default. A retryable failure becomes durable `retrying` state with `next_retry_at` rather than an exception, delivered when due by a delayed queue job and, contractually, by `laraflow:recover`. Attempt history is append-only, timeouts are classified at the recovery boundary distinctly from worker loss, cancellation exists with cooperative semantics for running work, and an optional redactor governs every error message the package retains. The contract lives in `docs/retry-and-failure-policy.md`.
 
-What remains for operability is a stable querying and observability surface, and retention: listing and filtering without reaching for the internal models, pruning (the new attempt history grows unbounded), metrics hooks, and correlation identifiers. Milestone 4 addresses that.
+Milestone 4 is complete (October 2026). Applications inspect and operate executions through the `ExecutionRepository` contract alone — filtered, keyset-paginated listing with every criterion served from an index, batched reads so no listing costs a query per row — and every console command runs on that same surface, with a test reading each command's source to keep it there. Executions carry application-supplied correlation and tenant identifiers that reach steps, every lifecycle event, and Laravel's log context, which propagates into jobs a step dispatches. Events carry attempt and execution durations and queue lag measured from availability rather than dispatch. Retention is three tiers, all off by default, applied by `laraflow:prune`: scrub payloads, prune attempt history, delete — with a compare-and-set guard at every write, orphan-safe deletion that does not depend on database cascades, self-limiting scans, and a dry run that predicts the real run exactly. The contracts live in `docs/inspection-and-observability.md` and `docs/retention.md`.
+
+What remains is the connector layer and release readiness. The connector contracts are still the Milestone 0 prototype, and the schema is not frozen. Milestones 5 and 6 address those.
 
 ## Product principles
 
@@ -121,7 +123,19 @@ Completed October 2026. Three items were deliberately narrowed.
 - Operators can tell why a step will retry and when.
 - Cancellation and manual retry behavior is defined for running and terminal executions.
 
-## Milestone 4 — Querying, observability, and lifecycle management
+## Milestone 4 — Querying, observability, and lifecycle management ✅
+
+Completed October 2026. Four items were deliberately narrowed or decided.
+
+**Correlation is two indexed columns, not a metadata blob.** `correlation_id` and `tenant_id` are the identifiers; a free-form JSON column cannot be indexed portably across the four supported engines, and bounded listing was an exit criterion. Both are validated at the boundary — length, and control characters that would let an identifier forge a log line.
+
+**Metrics are enriched events, not a metrics contract.** Durations and queue lag ride on the existing lifecycle events; the documentation gives listener recipes for Prometheus, StatsD, and Pulse. Shipping no vendor integration is how "does not assume a particular monitoring vendor" was met.
+
+**No write-time payload redaction.** Input seeds the context on every `execute()` and the context is restored on recovery, so rewriting either at write time would corrupt re-runs. Retention offers post-finish scrubbing instead, and the lifecycle document says to store identifiers rather than secrets. The `errors.redactor` hook from Milestone 3 continues to govern error messages.
+
+**Retention never scrubs failed executions, and deletes them only under their own bound.** Re-executing one needs its input and context; discarding recoverable work must be a decision, not a side effect of general retention. Attempt pruning does cover failed executions, because resumability reads the step row's counter rather than the history table — and the trade-off that creates is stated in `docs/retention.md` rather than left implicit.
+
+The `ExecutionRepository` contract changed in several places (recorded in `CHANGELOG.md`); it remains one interface by decision, with the Eloquent implementation organised into per-concern traits.
 
 ### Work
 
@@ -198,7 +212,8 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 5. ~~Separate execution creation from execution, then add Laravel queue dispatch.~~ Done.
 6. ~~Add stale-execution recovery with explicit bounds.~~ Done.
 7. ~~Add bounded retry policy for failed work — attempts, backoff, timeouts, cancellation.~~ Done.
-8. Stabilize inspection/observability APIs, including retention for the attempt history, then connector contracts and release automation. Milestone 4 is the next priority.
+8. ~~Stabilize inspection/observability APIs, including retention for the attempt history.~~ Done.
+9. Harden the connector contracts, then release automation and the schema freeze. Milestone 5 is the next priority.
 
 ## Out of scope until the core is proven
 

@@ -26,7 +26,8 @@ Milestone 6 of the roadmap promotes every "expected to work" entry to "tested" b
 
 - A `json` column type. On MySQL/MariaDB/PostgreSQL this maps to native JSON; on SQLite to `TEXT`.
 - Foreign keys with cascading deletes (`laraflow_step_executions.workflow_execution_id`, and both foreign keys on `laraflow_step_attempts`). SQLite enforces these only when `foreign_key_constraints` is enabled on the connection.
-- Milestone 3 adds `laraflow_step_attempts`, one append-only row per finished step attempt. It is bounded only by your retry budgets and has no pruning yet; plan capacity accordingly until retention lands in Milestone 4.
+- `laraflow_step_attempts` holds one append-only row per finished step attempt and is the table that grows under retry policies. Retention is off by default; `laraflow:prune` bounds it once `laraflow.retention.*` is configured (see [retention.md](retention.md)). Deletion does not rely on the database enforcing the declared cascades — it works with SQLite's foreign-key enforcement off — but enabling enforcement is still recommended so the schema's own guarantees hold for every other writer.
+- Milestone 4 adds indexes on `correlation_id`, `tenant_id`, `created_at`, `(workflow, status)`, and `(status, finished_at)` so that every listing filter and every retention scan is served from an index. The `GROUP BY` behind `stepProgress()` uses the existing foreign-key index on `laraflow_step_executions`.
 - Milestone 1 adds row-level compare-and-set updates for execution claiming. These use standard `UPDATE ... WHERE` semantics and do not require advisory locks or `SELECT ... FOR UPDATE`, so they work on every engine above, including SQLite's single-writer model.
 
 ## Dropping support

@@ -159,7 +159,7 @@ php artisan laraflow:show 42 --attempts
 | StepTwo | 1       | failed    | 2026-10-23 22:53:56 | 840 ms   | 2026-10-23 22:55:56 | step two blew up |
 ```
 
-History is append-only and currently **unpruned**; growth is bounded only by your retry budgets. Retention tooling is roadmap Milestone 4.
+History is append-only, so it is the table that grows under retry policies: one row per finished attempt, `executions × steps × attempts`. It is pruned by `laraflow:prune` under `laraflow.retention.prune_attempts_after_days`, which is null by default — see [retention.md](retention.md). Pruning removes only this table; the step row keeps the latest attempt's status, error, and counter, so a pruned execution re-executes exactly as an unpruned one would.
 
 ## Cancellation
 
@@ -277,5 +277,5 @@ Every key tolerates a blank environment variable (`LARAFLOW_RETRY_MAX_ATTEMPTS=`
 - Keep `timeout.step` < `queue.timeout` < `execution.stale_after`.
 - If retry budgets exceed `recovery.abandon_after_attempts`, raise the latter.
 - Alert on `WorkflowExecutionFailed`, not `WorkflowStepFailed` — the latter fires per attempt by design.
-- Watch attempt-history growth until retention lands (Milestone 4).
+- Set `laraflow.retention.prune_attempts_after_days` and schedule `laraflow:prune`; with retries enabled the history table grows without it ([retention.md](retention.md)).
 - Use `$context->idempotencyKey()` for external calls: retries make repeated side effects **more** likely, not less.

@@ -17,7 +17,8 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
 - [Running on a queue](#running-on-a-queue)
-- [Inspecting executions](#inspecting-executions)
+- [Inspecting and correlating executions](#inspecting-and-correlating-executions)
+- [Retention](#retention)
 - [Your first connector](#your-first-connector)
 - [Current limitations](#current-limitations)
 - [Design principles](#design-principles)
@@ -206,6 +207,9 @@ return [
         // and may be reclaimed. Set it above your longest step.
         'stale_after' => env('LARAFLOW_STALE_AFTER', 300),
         'max_error_length' => env('LARAFLOW_MAX_ERROR_LENGTH', 65535),
+        // Largest a single input, output, or context snapshot may be, as
+        // JSON; null leaves the only limit the database's.
+        'max_payload_bytes' => env('LARAFLOW_MAX_PAYLOAD_BYTES'),
     ],
 
     'retry' => [
@@ -251,6 +255,27 @@ return [
         'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         // null disables recovery of never-dispatched pending executions.
         'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
+    ],
+
+    'retention' => [
+        // All null: nothing is removed until you say what to keep. Days,
+        // counted from when the execution finished. See docs/retention.md.
+        'scrub_after_days' => env('LARAFLOW_RETENTION_SCRUB_AFTER_DAYS'),
+        'prune_attempts_after_days' => env('LARAFLOW_RETENTION_PRUNE_ATTEMPTS_AFTER_DAYS'),
+        'delete_after_days' => env('LARAFLOW_RETENTION_DELETE_AFTER_DAYS'),
+        // Failed executions can still be recovered, so they have their own bound.
+        'delete_failed_after_days' => env('LARAFLOW_RETENTION_DELETE_FAILED_AFTER_DAYS'),
+        'limit' => env('LARAFLOW_RETENTION_LIMIT', 1000),
+        'chunk' => env('LARAFLOW_RETENTION_CHUNK', 100),
+    ],
+
+    'logging' => [
+        // Put the running execution's identity (laraflow.* keys) into
+        // Laravel's log context while a step runs.
+        'context' => env('LARAFLOW_LOG_CONTEXT', true),
+        // One log record per lifecycle event; off because an application
+        // already listening to events should not also pay for a line per step.
+        'lifecycle' => env('LARAFLOW_LOG_LIFECYCLE', false),
     ],
 
     'events' => [
@@ -492,9 +517,9 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 
 Queueing, retry interaction, recovery policy, and event payload safety are specified in full in [docs/queue-and-recovery.md](docs/queue-and-recovery.md).
 
-## Inspecting executions
+## Inspecting and correlating executions
 
-The stable way to read executions is through the `Laraflow\Workflow\ExecutionRepository` contract, which returns plain `WorkflowExecution` and `StepExecution` value objects:
+The stable way to read executions is the `Laraflow\Workflow\ExecutionRepository` contract, which returns plain value objects. Everything the console shows, it reads through this same contract — no command touches an Eloquent model, and a test keeps it that way.
 
 ```php
 use Laraflow\Workflow\ExecutionRepository;
@@ -503,22 +528,79 @@ $repository = app(ExecutionRepository::class);
 
 $execution = $repository->find($executionId);
 
-$execution->status;      // ExecutionStatus enum
-$execution->isFailed();  // bool
-$execution->error;       // message of the failing step, if any
-$execution->context;     // persisted context snapshot
-$execution->startedAt;   // ?DateTimeImmutable
+$execution->status;        // ExecutionStatus enum
+$execution->isFinished();  // completed, failed, or cancelled
+$execution->error;         // message of the failing step, if any
+$execution->durationMs();  // first start to finish; null while unfinished
 
 foreach ($repository->steps($execution) as $step) {
     echo "{$step->position}: {$step->step} [{$step->status->value}]";
+}
 
-    if ($step->isFailed()) {
-        echo " — {$step->error}";
-    }
+foreach ($repository->attemptHistory($execution) as $attempt) {
+    echo "{$attempt->attempt}: {$attempt->status->value} in {$attempt->durationMs()} ms";
 }
 ```
 
-The Eloquent models `WorkflowExecutionModel` and `StepExecutionModel` exist but are internal. Their table layout will change; query them only for debugging.
+### Listing and filtering
+
+Every filter is served from an index, and pages are keyset-paginated so a listing stays correct while rows are being inserted and costs the same on page 1000 as on page 1:
+
+```php
+use Laraflow\Workflow\ExecutionFilter;
+use Laraflow\Workflow\ExecutionStatus;
+
+$filter = new ExecutionFilter(
+    workflow: SyncCustomerWorkflow::class,
+    status: [ExecutionStatus::Failed, ExecutionStatus::Retrying],
+    tenantId: 'acme',
+    createdAfter: now()->subDay()->toImmutable(),
+);
+
+$page = $repository->list($filter, limit: 50);          // ExecutionPage: iterable, countable
+$next = $repository->list($filter, 50, $page->nextCursor);
+$total = $repository->count($filter);
+```
+
+### Correlation
+
+Record where an execution came from, and the identifier follows it everywhere — into steps, onto every lifecycle event, and into Laravel's log context, which propagates to any job a step dispatches:
+
+```php
+use Laraflow\Workflow\ExecutionOptions;
+
+$runner->run($workflow, $input, new ExecutionOptions(
+    correlationId: $request->header('X-Request-Id'),
+    tenantId: (string) $tenant->id,
+));
+```
+
+Inside a step, `$context->correlationId()` is what you forward to an external provider so their records and yours share one id, and a plain `Log::info()` already carries `laraflow.execution_id`, `laraflow.step`, and `laraflow.correlation_id` without you passing anything. Then:
+
+```bash
+php artisan laraflow:list --correlation=req-abc123       # find it
+php artisan laraflow:list --tenant=acme --status=failed  # a tenant's failures
+php artisan laraflow:summary                             # counts by status; exits non-zero if anything needs attention
+```
+
+Events carry `durationMs` (steps and executions) and `queueLagSeconds` (how long an execution waited for a worker, measured from when it became available rather than when it was dispatched, so a retry's own backoff is never counted). A listener turns those into whatever metrics your stack wants; Laraflow ships no vendor integration on purpose. The full contract, including how to correlate with requests, jobs, tenants, and provider calls, is in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).
+
+## Retention
+
+Nothing is removed until you say what to keep. Every bound in `laraflow.retention.*` is null by default, and you schedule the command:
+
+```php
+Schedule::command('laraflow:prune --force')->daily()->withoutOverlapping();
+```
+
+Three tiers, measured in days since the execution **finished**: scrub payloads of completed and cancelled executions (keeping the record as an audit trail), prune the attempt history (the table that grows under retry policies), and delete. Failed executions are never scrubbed — re-executing one needs its input and context — and are deleted only under their own `delete_failed_after_days`, because discarding recoverable work should be a decision rather than a side effect. Every write re-checks that the execution is still finished, so one a worker reclaimed in between is left alone; deletion leaves no orphans whether or not your database enforces the cascades; and `--dry-run` predicts the real run exactly.
+
+```bash
+php artisan laraflow:prune --dry-run                              # what would happen
+php artisan laraflow:prune --tenant=acme --scrub-after=1 --force  # a data-deletion request
+```
+
+The command exits non-zero when no bound is configured — a scheduled prune that silently does nothing looks exactly like one that is working. The contract, including the trade-off in pruning failed executions' history and an archive-before-prune recipe, is in [docs/retention.md](docs/retention.md).
 
 ## Your first connector
 
@@ -604,16 +686,17 @@ Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 3; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 4; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
 
-- **Retries are off by default.** `retry.max_attempts` ships as 1; nothing is retried until you opt in per step, per workflow, or globally.
+- **Retries and retention are off by default.** `retry.max_attempts` ships as 1 and every `retention.*` bound as null; nothing is retried and nothing is removed until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
-- **Attempt history grows unpruned.** Every finished attempt is kept in `laraflow_step_attempts`; retention and pruning tooling is Milestone 4.
 - **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
 - **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
-- **No stable querying or pruning API.** Listing and filtering executions means the internal Eloquent models or `laraflow:list`; there is no retention or pruning command yet (Milestone 4).
+- **No per-workflow aggregates.** The query API filters and counts within one scope; it has no `GROUP BY`. `laraflow:summary --workflow=` scopes the same numbers to one workflow, and a dashboard needing a breakdown should count per workflow it knows about.
+- **No write-time payload redaction.** Input seeds the context on every `execute()` and context is restored on recovery, so rewriting either at write time would corrupt re-runs. Store identifiers rather than secrets; scrub payloads after the fact with retention; redact error messages with `errors.redactor`.
+- **Metrics are events, not an integration.** Durations and queue lag are on the lifecycle events; turning them into Prometheus, StatsD, or Pulse metrics is a listener you write. Recipes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).
 - **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet (Milestone 5).
-- **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots.
+- **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots (Milestone 6).
 
 ## Design principles
 

@@ -16,8 +16,11 @@ return new class extends Migration
      * replaces. Rows are written in the same transaction as the step
      * state change they describe, so history can never disagree with it.
      *
-     * Growth is bounded only by retry policy; pruning is roadmap
-     * Milestone 4.
+     * This is the table that grows under retry policies. It is pruned
+     * by laraflow:prune under laraflow.retention.prune_attempts_after_days,
+     * and the index on workflow_execution_id below is what lets that
+     * scan ask "does this execution still have history?" without a
+     * marker column.
      */
     public function up(): void
     {

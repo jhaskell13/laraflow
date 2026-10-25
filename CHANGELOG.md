@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Milestone 4 — querying, observability, and lifecycle management
 
-*In progress.*
+Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 
 #### Added
 
@@ -39,8 +39,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Queue lag.** Every dispatch records `dispatched_at` and `available_at` on the execution (the same instant for an ordinary push; the due time for a delayed retry), and `WorkflowExecutionStarted` gains `queueLagSeconds`: the wait from availability to the claim. Measured from *availability*, not dispatch, so a retry's own backoff is never counted as time waiting for a worker. Null when the execution was never dispatched or was claimed ahead of availability — running early is not a wait of zero. `laraflow:show` reports *Dispatched*, *Available* (only when it differs — a delayed retry), and *Queue wait*, open-ended while pending and exact once claimed. The dispatch is recorded before the job is pushed, so the `sync` driver sees it too. `WorkflowExecution::queueLagSeconds(DateTimeImmutable $claimedAt)` exposes the arithmetic. Specified in `docs/queue-and-recovery.md`.
 - `WorkflowExecution` gains `correlationId`, `tenantId`, `dispatchedAt`, `availableAt`, `finishedAt`, and `payloadsScrubbedAt`. `markCompleted()`, `markFailed()`, and `markCancelled()` set `finishedAt`; `markRunning()` clears it, so a re-executed failure cannot look eligible to retention while a worker is running it. The claim and the compare-and-set cancellation path make the same writes directly.
 
+#### Decisions
+
+- **Correlation is two indexed columns, not a metadata blob.** A JSON column cannot be indexed portably across the four supported engines, and bounded listing was an exit criterion.
+- **Metrics are enriched events, not a metrics contract.** Durations and queue lag ride on the lifecycle events; the documentation gives Prometheus, StatsD, and Pulse recipes. Shipping no vendor integration is how "assumes no particular monitoring vendor" was met.
+- **Queue lag is measured from availability, not dispatch.** A delayed retry's backoff is not time spent waiting for a worker.
+- **`isFinished()`, not `isTerminal()`.** "Terminal" already means never-claimable (`completed`, `cancelled`); `failed` is re-executable yet has finished. Conflating them would let retention either skip failed work forever or delete work a worker owns.
+- **No write-time payload redaction.** Input seeds the context on every `execute()` and context is restored on recovery, so rewriting either would corrupt re-runs. Post-finish scrubbing is offered instead.
+- **Retention never scrubs failed executions, and deletes them only under their own bound.** Re-executing one needs its input and context. Attempt pruning does cover them, because the retry budget reads the step row's counter rather than the history table; the diagnostics that costs are stated as a trade-off in `docs/retention.md`.
+- **Every console command runs on the public contract.** No command touches an Eloquent model, and a test reads each one's source to keep it that way. Where the contract lacked a read a command needed — step counts for a page — the contract gained it rather than the command reaching around it.
+- **`ExecutionRepository` stays one interface.** Splitting it into persistence, query, recovery, and retention interfaces would widen what a custom implementation must know about for the benefit of three internal consumers; the Eloquent implementation is organised by concern instead.
+- **The dispatch is recorded before the queue push.** Required for the sync driver to measure its own wait; the consequence — a failed push leaves dispatch timestamps for a job that never existed — is documented in `docs/queue-and-recovery.md`, and is the case the recovery scan's `pending_after` option covers.
+
 #### Changed
 
+- **Internal structure, following a milestone-wide review:** `WorkflowRunner` (894 lines, twelve constructor arguments) was split — `StepResolver` for definition validation and step construction, `OutcomeRecorder` for the four outcome-persistence paths and the error-redaction chokepoint, `RunnerOptions` for its configured settings — leaving 512 lines with one job. `RetentionService` carries its per-run state in `RetentionRun`. `EloquentExecutionRepository` is organised into `QueriesExecutions`, `ScansForRecovery`, and `AppliesRetention` concerns. `Support\Duration` holds the arithmetic `StepAttempt` and `WorkflowExecution` shared. No behaviour changed; the suite that pinned every property passed untouched through each step.
+- **Fixed:** `laraflow:summary --tenant=` reported every tenant's due retries alongside one tenant's counts, and failed its health check because of them. **Fixed:** `laraflow:prune` rejected a malformed `--limit` or `--chunk` as "a number of days".
 - **Breaking:** `ExecutionRepository::create()` gained a trailing optional `?ExecutionOptions $options`. Custom implementations must accept and persist it; implementations that ignore it silently drop the identifiers an application supplied.
 - **`laraflow:list` runs on the public query API** and no longer touches the internal Eloquent models, gaining `--workflow`, `--correlation`, `--tenant`, `--since`, `--until`, `--cursor`, and `--oldest`; `--status` and `--workflow` are repeatable. It reports how many of the matching set the page showed — a bounded page that does not say so looks like the whole truth — and prints the command that continues it, carrying the current filter forward so following the hint cannot silently widen the query. A malformed cursor and an unparseable time are both refused with guidance rather than guessed at. `laraflow:show` gains the correlation and tenant identifiers, reads its "Finished" row from `finished_at` (so cancellation is reported like completion and failure), and reads attempt history in one query instead of one per step.
 - **Breaking:** `ExecutionRepository::dueForRetry()` gained a trailing optional `?string $tenantId`. Without it `laraflow:summary --tenant=acme` reported every tenant's due retries alongside acme's counts, and failed its health check for another tenant's work.
