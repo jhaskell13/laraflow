@@ -9,6 +9,9 @@ use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
 use Laraflow\Exceptions\Connector\PaginationException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
+use Laraflow\Exceptions\Connector\ThrottledException;
+use Laraflow\Exceptions\ConnectorConfigurationException;
+use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Http\ErrorMapper;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
@@ -81,7 +84,10 @@ abstract class HttpConnector implements Connector
     }
 
     /**
-     * @throws RequestFailedException only when throwsOnError() is true.
+     * @throws TransportException when no HTTP response was obtained.
+     * @throws ThrottledException when this connection's own rate limit refused to send.
+     * @throws ConnectorConfigurationException when a required credential is missing.
+     * @throws RequestFailedException when the provider answered with an error — only if throwsOnError().
      */
     public function request(ConnectorRequest $request): ConnectorResponse
     {
@@ -126,6 +132,7 @@ abstract class HttpConnector implements Connector
      *
      * @throws PaginationException
      * @throws RequestFailedException
+     * @throws TransportException
      */
     public function pages(ConnectorRequest $request, ?int $maxPages = null, ?Paginator $paginator = null): Generator
     {
@@ -171,6 +178,7 @@ abstract class HttpConnector implements Connector
      *
      * @throws PaginationException
      * @throws RequestFailedException
+     * @throws TransportException
      */
     public function items(ConnectorRequest $request, ?int $maxPages = null, ?Paginator $paginator = null): Generator
     {

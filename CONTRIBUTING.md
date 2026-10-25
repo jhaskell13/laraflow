@@ -48,6 +48,36 @@ Tests should prove behaviour, not just the absence of errors: assert on persiste
 - Read timestamps through Laravel's `Date` facade so `Date::setTestNow()` controls them in tests.
 - Line endings are LF; `.gitattributes` enforces this.
 
+### Contributing a connector
+
+Connectors are the one area where new code is actively wanted, and the recipe is short because the extension points do the work. Nothing below requires touching Laraflow internals — a test enforces that the bundled connectors do not either.
+
+1. **Extend `Laraflow\Integration\HttpConnector`.** Declare `baseUrl()`, and override `headers()`, `authenticator()`, `errorMapper()`, and `paginator()` only where the provider differs from the defaults. The constructor is satisfied by the container; if you need more dependencies, declare them and call `parent::__construct()`.
+2. **Never hold a credential.** Credentials are resolved per request through the `CredentialProvider`, so rotation works without a restart. Read them in `authenticate()`, not in a constructor.
+3. **Map the provider's errors onto the shared types.** Extend `StatusErrorMapper` and fall back to `parent::map()`. An application should be able to catch `NotFoundException` without knowing which provider raised it. If the provider reports failure inside a `200` — Slack does — that is exactly what the mapper is for.
+4. **Keep messages clean.** Build them from the request as the caller made it, and name the path, never the query string: a query string may carry a token.
+5. **Declare a paginator** if the provider pages, choosing from `LinkHeaderPaginator`, `CursorPaginator`, and `PagePaginator`, or write one. Paging must stay lazy and bounded.
+6. **Run the published contract test** against it, alongside your own tests for whatever is provider-specific:
+
+```php
+use Laraflow\Testing\ConnectorContract;
+
+public function test_it_meets_the_connector_contract(): void
+{
+    config(['laraflow.integrations.crm.connections.default.credentials.token' => 'secret-token']);
+
+    (new ConnectorContract)->assertHeldBy(
+        app(LaraflowManager::class)->connector('crm'),
+        credential: 'secret-token',
+        probe: new ConnectorRequest('GET', '/ping'),
+    );
+}
+```
+
+It checks the things that are easy to get subtly wrong: that the connector holds no credential, classifies every error status into the shared vocabulary, returns errors rather than throwing them, and keeps the credential and the query string out of every message. It fakes HTTP and prevents stray requests, so a connector that reached the network fails rather than passing quietly.
+
+A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
+
 ### Database migrations
 
 Until the schema is frozen (roadmap Milestone 6), edit the existing migration files in place rather than adding new ones. Mention schema changes explicitly in the changelog, because there is no upgrade path between development snapshots.

@@ -905,6 +905,18 @@ Requests go through an `HttpTransport`, Laravel's HTTP client by default — so 
 
 Steps can then type-hint `LaraflowManager` and call `->connector('crm')`.
 
+Hold your connector to the same contract the bundled ones meet. `Laraflow\Testing\ConnectorContract` ships with the package and checks what is easy to get subtly wrong — that the connector holds no credential, classifies every error status into the shared exception types, returns errors rather than throwing them, and keeps the credential and query string out of every message:
+
+```php
+(new ConnectorContract)->assertHeldBy(
+    app(LaraflowManager::class)->connector('crm'),
+    credential: 'secret-token',
+    probe: new ConnectorRequest('GET', '/ping'),
+);
+```
+
+It fakes HTTP and prevents stray requests, so it needs no credentials and no network. The full recipe is in [CONTRIBUTING.md](CONTRIBUTING.md#contributing-a-connector).
+
 ## Current limitations
 
 Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 4; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
