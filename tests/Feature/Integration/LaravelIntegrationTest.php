@@ -87,6 +87,31 @@ class LaravelIntegrationTest extends TestCase
         Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer configured-token'));
     }
 
+    /**
+     * Characterisation, recorded before Milestone 5 changes it: a
+     * connector captures its token at construction and is cached for the
+     * application lifetime, so rotating the configured credential has
+     * no effect until the process restarts. Step 3 of the milestone
+     * inverts this assertion.
+     */
+    public function test_a_built_connector_keeps_the_credentials_it_was_built_with(): void
+    {
+        config(['laraflow.integrations.github.token' => 'first-token']);
+
+        Http::fake(['api.github.com/*' => Http::response([])]);
+
+        $laraflow = $this->app->make(LaraflowManager::class);
+
+        $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
+
+        config(['laraflow.integrations.github.token' => 'rotated-token']);
+
+        $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
+
+        Http::assertSentCount(2);
+        Http::assertNotSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer rotated-token'));
+    }
+
     public function test_the_bundled_github_connector_fails_clearly_when_no_token_is_configured(): void
     {
         config(['laraflow.integrations.github.token' => null]);

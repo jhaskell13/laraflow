@@ -731,7 +731,7 @@ if ($response->successful()) {
 
 ### Writing your own
 
-Implement `Laraflow\Integration\Connector`, and optionally an `Authenticator` to inject credentials into request options:
+Implement `Laraflow\Integration\Connector`, and optionally an `Authenticator` to inject credentials into request options. Laraflow ships only the GitHub authenticator today, so `CrmTokenAuthenticator` below is a class you write:
 
 ```php
 <?php
@@ -779,7 +779,7 @@ public function boot(): void
 {
     app(LaraflowManager::class)->register(
         'crm',
-        fn () => new CrmConnector(new BearerTokenAuthenticator(config('services.crm.token'))),
+        fn () => new CrmConnector(new CrmTokenAuthenticator(config('services.crm.token'))),
     );
 }
 ```
