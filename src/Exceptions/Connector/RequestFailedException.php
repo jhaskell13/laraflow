@@ -42,7 +42,7 @@ class RequestFailedException extends ConnectorException
             $connection->key(),
             $response->status(),
             strtoupper($request->method),
-            self::pathOf($request->uri),
+            $request->path(),
             $detail === null || trim($detail) === '' ? '.' : ': '.self::truncate(trim($detail)),
         );
 
@@ -61,18 +61,6 @@ class RequestFailedException extends ConnectorException
     public function status(): int
     {
         return $this->response->status();
-    }
-
-    /**
-     * The path alone. A query string may carry a credential
-     * (`?access_token=`), and the message reaches places credentials
-     * must not.
-     */
-    protected static function pathOf(string $uri): string
-    {
-        $path = parse_url($uri, PHP_URL_PATH);
-
-        return is_string($path) && $path !== '' ? $path : '/';
     }
 
     protected static function truncate(string $detail): string

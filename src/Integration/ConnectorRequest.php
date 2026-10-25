@@ -39,6 +39,20 @@ readonly class ConnectorRequest
         return $this->idempotent ?? in_array(strtoupper($this->method), self::IDEMPOTENT_METHODS, true);
     }
 
+    /**
+     * The path alone, without scheme, host, or query string.
+     *
+     * The one form of a request's target that is safe to put in a log
+     * record, an event, or an exception message: a query string may
+     * carry a credential (`?access_token=`).
+     */
+    public function path(): string
+    {
+        $path = parse_url($this->uri, PHP_URL_PATH);
+
+        return is_string($path) && $path !== '' ? $path : '/';
+    }
+
     public function asIdempotent(bool $idempotent = true): self
     {
         return new self($this->method, $this->uri, $this->options, $idempotent);

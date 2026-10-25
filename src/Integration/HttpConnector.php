@@ -72,6 +72,15 @@ abstract class HttpConnector implements Connector
     }
 
     /**
+     * The HTTP behaviour this connector resolved for its connection.
+     * Carries no credentials; `laraflow:connectors` displays it.
+     */
+    public function options(): HttpOptions
+    {
+        return $this->options;
+    }
+
+    /**
      * @throws RequestFailedException only when throwsOnError() is true.
      */
     public function request(ConnectorRequest $request): ConnectorResponse

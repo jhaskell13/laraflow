@@ -876,6 +876,8 @@ Three shapes ship: `LinkHeaderPaginator` (GitHub), `CursorPaginator` (Slack), an
 
 Do not accumulate pages into a step's output. A result set big enough to need paging is big enough to meet `execution.max_payload_bytes`; handle each item as it arrives, or store identifiers.
 
+Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — and nothing else, no headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
+
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 
 Requests go through an `HttpTransport`, Laravel's HTTP client by default — so `Http::fake()` works in your tests and the client's middleware applies. Bind another implementation to replace it for every connector, or override `transport()` on one. A connector that is not HTTP at all implements `Laraflow\Integration\Connector` directly: `name()` and `request()`.

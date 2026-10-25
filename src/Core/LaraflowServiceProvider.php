@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Core;
 
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
@@ -12,6 +13,7 @@ use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Laraflow\Console\CancelCommand;
+use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
 use Laraflow\Console\ListCommand;
@@ -24,6 +26,7 @@ use Laraflow\Events\LifecycleLogger;
 use Laraflow\Integration\ConfigCredentialProvider;
 use Laraflow\Integration\ConnectorRegistry;
 use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\Http\ConnectorObserver;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\LaravelHttpTransport;
@@ -68,7 +71,25 @@ class LaraflowServiceProvider extends ServiceProvider
         // fleet-wide defaults each connection starts from.
         $this->app->singleton(HttpTransport::class, LaravelHttpTransport::class);
         $this->app->singleton(Sleeper::class, SystemSleeper::class);
-        $this->app->singleton(TransportPipeline::class);
+
+        $this->app->singleton(ConnectorObserver::class, function (Container $app): ConnectorObserver {
+            $options = $app->make(RunnerOptions::class);
+
+            return new ConnectorObserver(
+                events: $app->make(EventEmitter::class),
+                redactor: $app->make(ErrorRedactor::class),
+                includeErrorMessages: $options->includeErrorMessages,
+                maxErrorLength: $options->maxErrorLength,
+            );
+        });
+
+        $this->app->singleton(TransportPipeline::class, fn (Container $app): TransportPipeline => new TransportPipeline(
+            sleeper: $app->make(Sleeper::class),
+            clock: $app->make(ClockInterface::class),
+            limiter: $app->make(RateLimiter::class),
+            observer: $app->make(ConnectorObserver::class),
+            logging: $app->make(LoggingContext::class),
+        ));
         $this->app->singleton(HttpOptions::class, fn (Container $app): HttpOptions => HttpOptions::fromConfig($app->make(Config::class)));
 
         // Bound by interface so an application can source credentials
@@ -249,6 +270,7 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->commands([
             CancelCommand::class,
+            ConnectorsCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
             ListCommand::class,

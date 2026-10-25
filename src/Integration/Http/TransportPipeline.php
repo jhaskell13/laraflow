@@ -6,6 +6,7 @@ namespace Laraflow\Integration\Http;
 
 use Illuminate\Cache\RateLimiter;
 use Laraflow\Integration\Connection;
+use Laraflow\Support\LoggingContext;
 use Laraflow\Support\Sleeper;
 use Psr\Clock\ClockInterface;
 
@@ -22,11 +23,14 @@ class TransportPipeline
         protected Sleeper $sleeper,
         protected ClockInterface $clock,
         protected RateLimiter $limiter,
+        protected ConnectorObserver $observer = new ConnectorObserver,
+        protected ?LoggingContext $logging = null,
     ) {}
 
     /**
      * Throttle innermost so a retried attempt is counted like any
-     * other; retries outermost.
+     * other; retries around it; observation outermost, so one logical
+     * call is one event covering the time the caller actually waited.
      */
     public function through(HttpTransport $base, HttpOptions $options, Connection $connection): HttpTransport
     {
@@ -40,6 +44,6 @@ class TransportPipeline
             $transport = new RetryingTransport($transport, $options->retries, $this->sleeper, $this->clock);
         }
 
-        return $transport;
+        return new ObservingTransport($transport, $connection, $this->observer, $this->clock, $this->logging);
     }
 }

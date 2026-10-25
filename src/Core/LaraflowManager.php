@@ -88,6 +88,19 @@ class LaraflowManager
     }
 
     /**
+     * The resolved settings for one connection — the configured default
+     * when none is named. Carries no credentials.
+     *
+     * @throws ConnectorNotRegisteredException
+     * @throws ConnectionNotConfiguredException
+     * @throws ConnectorConfigurationException
+     */
+    public function connection(string $name, ?string $connection = null): Connection
+    {
+        return $this->registry->connection($name, $connection);
+    }
+
+    /**
      * Drop cached connector instances so the next resolution rebuilds
      * them: all of them, one connector's, or one connection's.
      */

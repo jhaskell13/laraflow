@@ -207,6 +207,28 @@ Every listener is observational: one that throws is logged and swallowed, and ca
 
 The summary deliberately has no per-workflow breakdown: that needs a `GROUP BY` the contract does not expose, and `--workflow=` scopes the same numbers through an indexed filter instead.
 
+## Connector calls
+
+Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is false for an error status, or for a `200` a connector's error mapper rejected — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, and `attempts`. `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
+
+Both carry identifiers and measurements only. The target is the **path**, never the query string, which may carry a token; there are no headers, options, or bodies on either; and the failure message passes through the configured `ErrorRedactor` and honours `events.include_error_messages`, exactly as workflow failure events do.
+
+Neither carries a correlation id, deliberately: a connector can be called from anywhere, including outside a workflow. When one is called from inside a step, Laravel's log context already holds the identifiers, so a listener reads them from there:
+
+```php
+Event::listen(function (ConnectorRequestSent $event): void {
+    Metrics::timing('provider.request', $event->durationMs, [
+        'connector' => $event->connector,
+        'status' => (string) $event->status,
+        'correlation' => Context::get('laraflow.correlation_id'),
+    ]);
+});
+```
+
+While a connector request is in flight, `laraflow.connector` and `laraflow.connection` join the log context, so an application's own log records written from a transport decorator or an HTTP middleware say where the call was going. They are restored when the request ends, including when it throws.
+
+One caution: paging a large result set fires one `ConnectorRequestSent` per page. A listener that writes a log line per event will write one per page.
+
 ## Payload size
 
 `laraflow.execution.max_payload_bytes` (default `null`) bounds a single durable payload — input, one step's output, or the context snapshot — measured as the JSON that reaches the column. Setting it does not turn a success into a failure; an oversized payload already fails, as a driver error from inside the checkpoint transaction. The limit moves that failure earlier and names it: `PayloadTooLargeException` with the path, the actual size, and the limit, never retried. Specified in [execution-lifecycle.md](execution-lifecycle.md#payload-size).

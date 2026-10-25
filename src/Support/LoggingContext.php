@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Support;
 
 use Illuminate\Log\Context\Repository as ContextRepository;
+use Laraflow\Integration\Connection;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -48,6 +49,28 @@ class LoggingContext
         self::PREFIX.'position',
         self::PREFIX.'attempt',
     ];
+
+    /**
+     * Keys published only while a connector request is in flight. Kept
+     * out of KEYS so leaving an execution does not try to restore them
+     * and entering one does not snapshot them: their lifetime is one
+     * request, nested anywhere.
+     *
+     * @var list<string>
+     */
+    public const CONNECTOR_KEYS = [
+        self::PREFIX.'connector',
+        self::PREFIX.'connection',
+    ];
+
+    /**
+     * What the connector keys held before the current request, innermost
+     * last. A connector call can nest — a step calling a connector whose
+     * transport calls another — so this is a stack like the frames.
+     *
+     * @var list<array<string, mixed>>
+     */
+    protected array $connectorFrames = [];
 
     /**
      * One snapshot per entered execution, innermost last.
@@ -97,6 +120,49 @@ class LoggingContext
     }
 
     /**
+     * Name the connector and connection being talked to, for the
+     * duration of one request, so every log record written while it is
+     * in flight — the application's own included — says where it was
+     * going.
+     */
+    public function enterConnector(Connection $connection): void
+    {
+        if ($this->context === null) {
+            return;
+        }
+
+        $this->connectorFrames[] = $this->snapshotOf(self::CONNECTOR_KEYS);
+
+        $this->context->add([
+            self::PREFIX.'connector' => $connection->connector,
+            self::PREFIX.'connection' => $connection->name,
+        ]);
+    }
+
+    /**
+     * Restore the connector keys. Called from a finally, so a failed
+     * request leaves the context as it found it.
+     */
+    public function leaveConnector(): void
+    {
+        if ($this->context === null || $this->connectorFrames === []) {
+            return;
+        }
+
+        $prior = array_pop($this->connectorFrames);
+
+        foreach (self::CONNECTOR_KEYS as $key) {
+            if (array_key_exists($key, $prior)) {
+                $this->context->add($key, $prior[$key]);
+
+                continue;
+            }
+
+            $this->context->forget($key);
+        }
+    }
+
+    /**
      * Restore the context to exactly what it was before enter().
      *
      * Called from a finally block, so it runs whether the execution
@@ -128,9 +194,18 @@ class LoggingContext
      */
     protected function snapshot(): array
     {
+        return $this->snapshotOf(self::KEYS);
+    }
+
+    /**
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    protected function snapshotOf(array $keys): array
+    {
         $snapshot = [];
 
-        foreach (self::KEYS as $key) {
+        foreach ($keys as $key) {
             if ($this->context?->has($key)) {
                 $snapshot[$key] = $this->context->get($key);
             }
