@@ -34,7 +34,8 @@ Out of scope:
 
 - Vulnerabilities in third-party dependencies (report those upstream; let us know so we can bump the constraint).
 - Issues that require an attacker to already control the application's code, configuration, or environment variables.
-- Missing hardening in features the roadmap explicitly marks as not yet implemented (for example, attempt history is not yet pruned; a table that grows because an application never schedules retention is not a package vulnerability).
+- Missing hardening in features the roadmap explicitly marks as not yet implemented (for example, connector HTTP behaviour is not configurable until Milestone 5).
+- Unbounded growth of the `laraflow_*` tables in an application that has not configured retention. Bounds ship disabled by design (see [docs/retention.md](docs/retention.md)); choosing not to set them is a capacity decision, not a package vulnerability.
 - Resource exhaustion caused by an application's own retry configuration. Retries are off by default, every bound is documented, and an infinite loop caused by an application calling `run()` repeatedly is not a package vulnerability.
 
 ## Handling of secrets in the package

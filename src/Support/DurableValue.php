@@ -8,6 +8,9 @@ use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 
 /**
+ * @internal Implementation detail; the contract it enforces is public
+ * (docs/execution-lifecycle.md), this enforcement of it is not.
+ *
  * Enforces the serialization contract for durable values.
  *
  * Workflow input, step output, and context data are persisted to JSON
