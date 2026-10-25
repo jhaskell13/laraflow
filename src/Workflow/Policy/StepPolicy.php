@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Throwable;
@@ -28,10 +29,10 @@ readonly class StepPolicy
     /**
      * Exceptions that are never retried, whatever a policy says.
      *
-     * Each is a deterministic definition or serialization fault, or a
-     * signal that this worker no longer owns the execution: another
-     * attempt can only repeat the outcome, so retrying would fill the
-     * schedule with work that cannot succeed. (The runner also handles
+     * Each is a deterministic definition, serialization, or size fault,
+     * or a signal that this worker no longer owns the execution:
+     * another attempt can only repeat the outcome, so retrying would
+     * fill the schedule with work that cannot succeed. (The runner also handles
      * ClaimLostException earlier — a worker without the claim must not
      * persist anything at all — but the policy is correct standalone.)
      *
@@ -39,6 +40,7 @@ readonly class StepPolicy
      */
     public const NEVER_RETRY = [
         UnserializableValueException::class,
+        PayloadTooLargeException::class,
         WorkflowDefinitionMismatchException::class,
         InvalidWorkflowDefinitionException::class,
         InvalidStateTransitionException::class,

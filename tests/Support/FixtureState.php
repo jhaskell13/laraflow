@@ -15,6 +15,7 @@ class FixtureState
         PolicyWorkflow::$failurePolicy = FailurePolicy::Stop;
         StepOne::$runs = 0;
         StepOne::$beforeReturn = null;
+        StepOne::$output = null;
         StepOne::$seenDeadline = null;
         StepOne::$seenCorrelationId = null;
         StepOne::$seenTenantId = null;
@@ -22,6 +23,7 @@ class FixtureState
         StepTwo::$failTimes = 0;
         StepTwo::$beforeReturn = null;
         StepTwo::$beforeRun = null;
+        StepTwo::$contextValue = null;
         StepTwo::$seenIdempotencyKeys = [];
         StepTwo::$seenContextValue = null;
         StepTwo::$seenCorrelationId = null;

@@ -6,6 +6,7 @@ namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
+use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
@@ -63,12 +64,20 @@ class WorkflowRunner
         ?PolicyResolver $policies = null,
         ?ErrorRedactor $redactor = null,
         protected ?LoggingContext $logging = null,
+        protected ?int $maxPayloadBytes = null,
     ) {
         $this->clock = $clock ?? new Clock;
 
         // The bare resolver's default policy disables retries, so a
         // runner constructed without one behaves exactly as it did
         // before retry policy existed.
+        if ($this->maxPayloadBytes !== null && $this->maxPayloadBytes < 1) {
+            throw new InvalidArgumentException(
+                'laraflow.execution.max_payload_bytes must be at least 1 byte, or null for no limit. '
+                .'A limit of zero would reject every payload, including an empty one.'
+            );
+        }
+
         $this->policies = $policies ?? new PolicyResolver;
         $this->redactor = $redactor ?? new PassthroughRedactor;
     }
@@ -89,7 +98,7 @@ class WorkflowRunner
         array $input = [],
         ?ExecutionOptions $options = null
     ): WorkflowExecution {
-        DurableValue::assert($input, 'input');
+        DurableValue::check($input, 'input', $this->maxPayloadBytes);
 
         return $this->repository->create(
             workflow: $workflow::class,
@@ -338,8 +347,11 @@ class WorkflowRunner
             try {
                 $output = $step->handle($context);
 
-                DurableValue::assert($output, 'output');
-                DurableValue::assert($context->all(), 'context');
+                // Checked before the checkpoint, so an oversized
+                // payload fails the step by name instead of surfacing
+                // as a driver error from inside the transaction.
+                DurableValue::check($output, 'output', $this->maxPayloadBytes);
+                DurableValue::check($context->all(), 'context', $this->maxPayloadBytes);
 
                 $completedAt = $this->now();
                 $stepExecution->markCompleted($output, $completedAt);

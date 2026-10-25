@@ -132,7 +132,18 @@ Everything durable — workflow input, step output, and every context value — 
 - Step output and the context snapshot are validated after `handle()` returns, **before the checkpoint**; a violation fails the step with `UnserializableValueException`, whose message names the exact path (`output.customer.loaded`) and type.
 - Live PHP objects, closures, resources, Eloquent models, and non-finite floats are rejected, never silently coerced. Store identifiers and reload.
 
-Null is a valid step output. Payload size limits are the database's (`json`/`TEXT` columns); a payload-size policy is deliberately deferred to Milestone 4 (retention/pruning).
+Null is a valid step output.
+
+### Payload size
+
+`laraflow.execution.max_payload_bytes` bounds how large a single durable payload may be — the workflow input, one step's output, or the context snapshot — measured as the JSON that reaches the column. It is **null by default**, leaving the only limit the database's.
+
+Setting it does not prevent a failure that would otherwise succeed; it changes *where and how* the failure is reported. Without a limit an oversized payload still fails, but as a driver error about a column type or a packet size, raised from inside the checkpoint transaction and hard to attribute to a step. With one, the boundary is checked before the write and the step fails with `PayloadTooLargeException` naming the path, the actual size, and the limit.
+
+- Enforced at the same three points as the type contract: **input** at `start()` (nothing is persisted), and **output** and **context** after `handle()` returns, before the checkpoint.
+- Each is measured independently, because each is written to its own column.
+- **Never retried.** The same step producing the same output will produce the same size, so it joins the deterministic faults in `StepPolicy::NEVER_RETRY`.
+- A context that grows past the limit fails the step that grew it. Earlier checkpoints are untouched and are still skipped on re-execution.
 
 ## Failure persistence
 

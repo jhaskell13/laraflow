@@ -34,11 +34,26 @@ return [
     | max_error_length: step/execution error messages are truncated to this
     | many characters before persisting.
     |
+    | max_payload_bytes: the largest a single durable payload may be —
+    | the workflow input, one step's output, or the context snapshot —
+    | measured as the JSON that reaches the column. Null (the default)
+    | means the only limit is your database's.
+    |
+    | Setting it turns a growth problem into an immediate, named error:
+    | without a limit an oversized payload still fails, but as a driver
+    | error about a column or a max_allowed_packet, raised from inside
+    | the checkpoint transaction and much harder to attribute. With one,
+    | the step fails with PayloadTooLargeException naming the boundary.
+    | The check is never retried — the same step will produce the same
+    | size — and is a sensible companion to retention: payloads you
+    | never meant to store are the ones that make a table unprunable.
+    |
     */
 
     'execution' => [
         'stale_after' => env('LARAFLOW_STALE_AFTER', 300),
         'max_error_length' => env('LARAFLOW_MAX_ERROR_LENGTH', 65535),
+        'max_payload_bytes' => env('LARAFLOW_MAX_PAYLOAD_BYTES'),
     ],
 
     /*

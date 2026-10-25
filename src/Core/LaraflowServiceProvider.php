@@ -122,6 +122,11 @@ class LaraflowServiceProvider extends ServiceProvider
             /** @var Config $config */
             $config = $app->make(Config::class);
 
+            // Blank means unset, as everywhere else: a stray
+            // LARAFLOW_MAX_PAYLOAD_BYTES= in .env must not cast to 0
+            // and reject every payload the application has.
+            $maxPayload = $this->setting($config, 'laraflow.execution.max_payload_bytes');
+
             return new WorkflowRunner(
                 repository: $app->make(ExecutionRepository::class),
                 container: $app,
@@ -134,6 +139,7 @@ class LaraflowServiceProvider extends ServiceProvider
                 policies: $app->make(PolicyResolver::class),
                 redactor: $app->make(ErrorRedactor::class),
                 logging: $app->make(LoggingContext::class),
+                maxPayloadBytes: $maxPayload === null ? null : (int) $maxPayload,
             );
         });
 

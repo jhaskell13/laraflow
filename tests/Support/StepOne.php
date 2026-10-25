@@ -28,6 +28,9 @@ class StepOne implements Step
      */
     public static ?Closure $beforeReturn = null;
 
+    /** Replaces the step's output when set, for payload-size tests. */
+    public static mixed $output = null;
+
     public function handle(WorkflowContext $context): mixed
     {
         static::$runs++;
@@ -41,6 +44,6 @@ class StepOne implements Step
             (static::$beforeReturn)();
         }
 
-        return ['n' => 1];
+        return static::$output ?? ['n' => 1];
     }
 }

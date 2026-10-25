@@ -118,6 +118,7 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | `Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException` | Public. Supplied workflow does not match the persisted plan. |
 | `Laraflow\Exceptions\Workflow\InvalidStateTransitionException` | Public. Forbidden execution/step state transition. |
 | `Laraflow\Exceptions\Workflow\UnserializableValueException` | Public. Input/output/context value violates the serialization contract. |
+| `Laraflow\Exceptions\Workflow\PayloadTooLargeException` | Public. A durable payload exceeded `laraflow.execution.max_payload_bytes`. Never retried. |
 | `Laraflow\Exceptions\Workflow\RetryNotDueException` | Public. A `retrying` execution was claimed before its `next_retry_at`; override deliberately with `--now`. |
 | `Laraflow\Exceptions\Workflow\StepTimeoutException` | Public. Recorded failure of an attempt that passed its deadline and was never checkpointed. |
 | `Laraflow\Exceptions\Workflow\ExecutionNotCancellableException` | Public. Cancellation of an execution that has already completed. |
@@ -130,7 +131,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | Item | Level | Notes |
 |------|-------|-------|
 | `Laraflow\Core\LaraflowServiceProvider` | Public | Auto-discovered. |
-| `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `integrations.github.token` | Public | |
+| `config/laraflow.php` keys `migrations.load`, `execution.stale_after`, `execution.max_error_length`, `execution.max_payload_bytes` (default `null` — no limit), `integrations.github.token` | Public | |
 | `config/laraflow.php` keys `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `abandon_after_attempts`, `pending_after`), `events.include_error_messages` | Public | Defaults and their rationale in [docs/queue-and-recovery.md](queue-and-recovery.md). `queue.tries` defaults to 1 and `recovery.pending_after` to null (pending scan disabled), deliberately. **Breaking in Milestone 3:** `recovery.max_attempts` was renamed `recovery.abandon_after_attempts`. |
 | `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |

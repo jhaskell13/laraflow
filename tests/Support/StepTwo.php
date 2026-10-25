@@ -30,6 +30,9 @@ class StepTwo implements Step
      */
     public static ?Closure $beforeRun = null;
 
+    /** Replaces what the step writes to the context when set. */
+    public static mixed $contextValue = null;
+
     /** @var string[] */
     public static array $seenIdempotencyKeys = [];
 
@@ -55,7 +58,7 @@ class StepTwo implements Step
             throw new RuntimeException('step two blew up');
         }
 
-        $context->set('two', 'from-step-two');
+        $context->set('two', static::$contextValue ?? 'from-step-two');
 
         if (static::$beforeReturn !== null) {
             (static::$beforeReturn)();

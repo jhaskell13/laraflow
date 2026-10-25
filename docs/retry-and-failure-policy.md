@@ -70,7 +70,7 @@ When the jitter window would cross the ceiling it **slides down to fit** rather 
 
 ### What is never retried
 
-Regardless of policy, these fail terminally on first occurrence: `UnserializableValueException`, `WorkflowDefinitionMismatchException`, `InvalidWorkflowDefinitionException`, `InvalidStateTransitionException`, `ClaimLostException`. Each is a deterministic definition/serialization fault or a lost-ownership signal — another attempt could only repeat the outcome, and scheduling one would fill the queue with work that cannot succeed.
+Regardless of policy, these fail terminally on first occurrence: `UnserializableValueException`, `PayloadTooLargeException`, `WorkflowDefinitionMismatchException`, `InvalidWorkflowDefinitionException`, `InvalidStateTransitionException`, `ClaimLostException`. Each is a deterministic definition/serialization fault or a lost-ownership signal — another attempt could only repeat the outcome, and scheduling one would fill the queue with work that cannot succeed.
 
 ### Attempts count every start
 
