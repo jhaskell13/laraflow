@@ -15,6 +15,10 @@ use Laraflow\Exceptions\ConnectorConfigurationException;
  * production GitHub organisation and the staging one, or one tenant's
  * Slack workspace and another's — without a subclass or a closure per
  * account.
+ *
+ * Carries settings only, never credentials. The `credentials` entry of
+ * the configuration is read by the CredentialProvider when a request is
+ * built, so this object can be held, dumped, and listed freely.
  */
 readonly class Connection
 {

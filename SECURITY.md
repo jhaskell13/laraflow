@@ -40,7 +40,9 @@ Out of scope:
 
 ## Handling of secrets in the package
 
-- Credentials are read from configuration and environment variables and are never written to the `laraflow_*` tables.
-- The `Authenticator` contract injects credentials into outbound request options at send time. Connectors must not include request options in exception messages.
+- Credentials are read from configuration and environment variables — or from a `CredentialProvider` the application binds — and are never written to the `laraflow_*` tables.
+- Credentials are resolved when a request is built, not when a connector is constructed, and never reach the `Connection` object a connector holds. A cached connector instance carries no credential; a test walks every property of every Laraflow object in the connector graph to keep it that way.
+- Every credential is a `Laraflow\Support\Secret`, which renders as `[redacted]` in string context, JSON, `print_r`, `var_dump`, `var_export`, the array cast, and `serialize`, and yields its value only to `reveal()`. The value is not stored as a property, so renderers that bypass `__debugInfo` have nothing to read.
+- The `Authenticator` contract injects credentials into outbound request options at send time. Connectors must not include request options in exception messages, and Laraflow's own frames keep them out of stack-trace arguments. Frames belonging to the HTTP client beneath a connector do carry the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client; production configurations should leave that directive on, and an exception renderer that displays frame arguments should not be exposed publicly.
 - Lifecycle events never carry workflow input, step output, or context, and there is no option to include them. Failure events and log records carry the exception class and message; the message can be disabled for events (`laraflow.events.include_error_messages`) and rewritten everywhere Laraflow retains it by a configured `ErrorRedactor` (`laraflow.errors.redactor`).
 - The queue payload carries only the execution id; workflow input never reaches the queue backend.

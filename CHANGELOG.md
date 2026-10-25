@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Milestone 5 — integration framework hardening (in progress)
+
+#### Added
+
+- **Named connections.** A connector is registered once and resolved per connection: `connector('github')` for the configured default, `connector('github', 'enterprise')` for another account served by the same class. Connections are configured under `laraflow.integrations.{connector}.connections.{name}`; `laraflow.integrations.{connector}.default` names the one used when a caller names none. `LaraflowManager` gains `connectors()`, `connections(name)`, and `forget(?name, ?connection)`.
+- **Configuration-driven registration.** A class declared as `laraflow.integrations.{connector}.connector` is registered at boot and built through the container with its `Laraflow\Integration\Connection` (public) passed as `$connection`, so a connector declares its other dependencies as ordinary constructor parameters. The bundled GitHub connector is registered this way — one `integrations` entry among any the application adds, with no privileged path. Closures still work and now receive the `Connection`. A misnamed class fails at boot with `InvalidConnectorException`.
+- **A strict configuration shape.** A connector section holds `connector`, `default`, and `connections`, nothing else. A setting left at the connector level — the Milestone 0 `integrations.github.token` — is refused with `ConnectorConfigurationException` (public) naming the path it belongs at, rather than being silently read by nothing. An unknown connection raises `ConnectionNotConfiguredException` (public) naming the configured ones. `Connection::require()` treats a blank value as missing and names the configuration path and, when given, the environment variable.
+- **Credentials resolved per request** through the `CredentialProvider` contract (public), bound by interface so an application can read a vault or a per-tenant store. The default reads `…connections.{name}.credentials` from the config repository on every call. Rotation therefore needs no rebuild and no restart: the next request uses the new value. The `credentials` key is stripped from the `Connection` a connector holds, so the object a connector keeps for its lifetime carries settings only.
+- **`Laraflow\Support\Secret`** (public): a credential that renders as `[redacted]` in string context, `json_encode`, `print_r`, `var_dump`, `var_export`, the array cast, and `serialize`, and yields its value only to `reveal()`. The value is held in a `WeakMap` rather than a property because `var_export` and the array cast read properties directly and ignore `__debugInfo`. An unserialized `Secret` has no value — a credential that rode through a queue payload or a cache would otherwise sit there in clear text — and `reveal()` on it throws `SecretRedactedException` (public). `Credentials` (public) is the bag of them for one connection.
+- **`BearerTokenAuthenticator`** (public) replaces `GithubTokenAuthenticator`: `Authorization: Bearer` from a named credential, reading it from the `Credentials` passed to every call.
+- `tests/Feature/Integration/SecretExposureTest.php`: the milestone's secrecy exit criterion as a sweep. Every value object is rendered every way PHP offers, every property of every Laraflow object reachable from the connector and the manager is walked, and every Laraflow stack frame of every exception the layer raises is checked — none may contain the token.
+
+#### Changed
+
+- **Breaking:** `laraflow.integrations.github.token` moved to `laraflow.integrations.github.connections.default.credentials.token`. The old key is refused with the new path.
+- **Breaking:** `Authenticator::authenticate()` gained a `Credentials` parameter; authenticators receive credentials rather than holding them. `GithubTokenAuthenticator` is removed.
+- **Breaking:** `LaraflowManager::connector()` gained an optional connection name, and closures passed to `register()` receive a `Connection`. A missing GitHub token is now reported on the first request rather than when the connector is resolved, because the resolved connector holds no credential to check.
+- `GithubConnector` takes its `Connection`, the `CredentialProvider`, and the HTTP client factory. `ConnectorFactory` and `ConnectorManager` (internal) are replaced by `ConnectorRegistry`.
+- **Fixed:** the README's custom-connector example registered an authenticator class the package does not ship.
+
 ### Milestone 4 — querying, observability, and lifecycle management
 
 Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.

@@ -26,7 +26,8 @@ use Laraflow\Exceptions\InvalidConnectorException;
  * holds `connector`, `default`, and `connections`, nothing else: a
  * `token` left at the connector level (the Milestone 0 layout) is
  * refused with the path it should move to, rather than silently read
- * by nothing.
+ * by nothing. Within a connection, `credentials` is reserved: it is
+ * stripped from the Connection and read by the CredentialProvider.
  *
  * @internal Implementation detail; not covered by the compatibility policy.
  */
@@ -159,6 +160,12 @@ class ConnectorRegistry
         if ($settings === null) {
             throw ConnectionNotConfiguredException::named($name, $connection, $this->connections($name));
         }
+
+        // Credentials never ride on the Connection. They are read by the
+        // CredentialProvider when a request is built, so the object a
+        // connector holds for its lifetime carries settings only and can
+        // be dumped, logged, or listed without redaction.
+        unset($settings['credentials']);
 
         return new Connection($name, $connection, $settings);
     }

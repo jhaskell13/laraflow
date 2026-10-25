@@ -7,12 +7,13 @@ namespace Laraflow\Integration\Github;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Laraflow\Auth\Authenticator;
-use Laraflow\Auth\GithubTokenAuthenticator;
+use Laraflow\Auth\BearerTokenAuthenticator;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
+use Laraflow\Integration\CredentialProvider;
 
 /**
  * @experimental Prototype connector; HTTP behaviour is not yet configurable.
@@ -25,16 +26,10 @@ class GithubConnector implements Connector
 
     public function __construct(
         protected Connection $connection,
+        protected CredentialProvider $credentials,
         protected HttpClient $http,
     ) {
-        $token = $connection->require('token', 'LARAFLOW_GITHUB_TOKEN');
-
-        $this->authenticator = new GithubTokenAuthenticator((string) $token);
-    }
-
-    public function connection(): Connection
-    {
-        return $this->connection;
+        $this->authenticator = new BearerTokenAuthenticator('token', 'LARAFLOW_GITHUB_TOKEN');
     }
 
     public function name(): string
@@ -42,9 +37,19 @@ class GithubConnector implements Connector
         return 'github';
     }
 
+    public function connection(): Connection
+    {
+        return $this->connection;
+    }
+
     public function request(ConnectorRequest $request): ConnectorResponse
     {
-        $options = $this->authenticator->authenticate($request->options);
+        // Credentials are resolved here, per request, so a rotated token
+        // is used by the next call and this cached instance holds none.
+        $options = $this->authenticator->authenticate(
+            $request->options,
+            $this->credentials->credentials($this->connection),
+        );
 
         try {
             $response = $this->http

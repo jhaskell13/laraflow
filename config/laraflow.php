@@ -341,6 +341,13 @@ return [
     |                GitHub organisation or a per-environment account is a
     |                second entry here, not a second class.
     |
+    | Within a connection, `credentials` holds the secrets. They are read
+    | when a request is built, not when the connector is constructed, so
+    | changing one takes effect on the next request; and they never reach
+    | the Connection object a connector holds, so nothing that dumps a
+    | connector can print them. Bind your own CredentialProvider to read
+    | them from a vault or a per-tenant store instead of from here.
+    |
     | Keep credentials in .env, not in a published copy of this file.
     |
     */
@@ -351,7 +358,9 @@ return [
             'default' => env('LARAFLOW_GITHUB_CONNECTION', 'default'),
             'connections' => [
                 'default' => [
-                    'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                    'credentials' => [
+                        'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                    ],
                 ],
             ],
         ],

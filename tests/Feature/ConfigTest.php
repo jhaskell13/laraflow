@@ -23,7 +23,7 @@ class ConfigTest extends TestCase
             config('laraflow.integrations.github.connector'),
         );
         $this->assertSame('default', config('laraflow.integrations.github.default'));
-        $this->assertNull(config('laraflow.integrations.github.connections.default.token'));
+        $this->assertNull(config('laraflow.integrations.github.connections.default.credentials.token'));
     }
 
     public function test_queue_configuration_defaults(): void
@@ -206,12 +206,12 @@ class ConfigTest extends TestCase
     public function test_github_token_can_be_configured(): void
     {
         config([
-            'laraflow.integrations.github.connections.default.token' => 'test-token',
+            'laraflow.integrations.github.connections.default.credentials.token' => 'test-token',
         ]);
 
         $this->assertSame(
             'test-token',
-            config('laraflow.integrations.github.connections.default.token')
+            config('laraflow.integrations.github.connections.default.credentials.token')
         );
     }
 

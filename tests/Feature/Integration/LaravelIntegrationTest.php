@@ -12,10 +12,13 @@ use Laraflow\Exceptions\ConnectorConfigurationException;
 use Laraflow\Exceptions\ConnectorException;
 use Laraflow\Exceptions\ConnectorNotRegisteredException;
 use Laraflow\Exceptions\InvalidConnectorException;
+use Laraflow\Integration\Connection;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRegistry;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
+use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\Credentials;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Tests\Support\RecordingConnector;
 use Laraflow\Tests\TestCase;
@@ -74,8 +77,8 @@ class LaravelIntegrationTest extends TestCase
     public function test_named_connections_share_one_connector_class(): void
     {
         config(['laraflow.integrations.github.connections' => [
-            'default' => ['token' => 'default-token'],
-            'enterprise' => ['token' => 'enterprise-token'],
+            'default' => ['credentials' => ['token' => 'default-token']],
+            'enterprise' => ['credentials' => ['token' => 'enterprise-token']],
         ]]);
 
         Http::fake(['api.github.com/*' => Http::response([])]);
@@ -141,7 +144,7 @@ class LaravelIntegrationTest extends TestCase
 
     public function test_the_bundled_github_connector_uses_the_configured_token(): void
     {
-        config(['laraflow.integrations.github.connections.default.token' => 'configured-token']);
+        config(['laraflow.integrations.github.connections.default.credentials.token' => 'configured-token']);
 
         Http::fake(['api.github.com/*' => Http::response(['login' => 'octocat'])]);
 
@@ -157,15 +160,13 @@ class LaravelIntegrationTest extends TestCase
     }
 
     /**
-     * Characterisation, recorded before Milestone 5 changes it: a
-     * connector captures its token at construction and is cached for the
-     * application lifetime, so rotating the configured credential has
-     * no effect until the process restarts. Step 3 of the milestone
-     * inverts this assertion.
+     * Inverts the Milestone 5 step 1 characterisation: credentials are
+     * resolved when a request is built, so a rotated token is used by
+     * the next request without the connector being rebuilt.
      */
-    public function test_a_built_connector_keeps_the_credentials_it_was_built_with(): void
+    public function test_a_rotated_credential_is_used_by_the_next_request(): void
     {
-        config(['laraflow.integrations.github.connections.default.token' => 'first-token']);
+        config(['laraflow.integrations.github.connections.default.credentials.token' => 'first-token']);
 
         Http::fake(['api.github.com/*' => Http::response([])]);
 
@@ -173,24 +174,66 @@ class LaravelIntegrationTest extends TestCase
 
         $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
 
-        config(['laraflow.integrations.github.connections.default.token' => 'rotated-token']);
+        config(['laraflow.integrations.github.connections.default.credentials.token' => 'rotated-token']);
 
         $laraflow->connector('github')->request(new ConnectorRequest('GET', '/user'));
 
         Http::assertSentCount(2);
-        Http::assertNotSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer rotated-token'));
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer first-token'));
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer rotated-token'));
+    }
+
+    public function test_an_application_can_supply_credentials_from_its_own_provider(): void
+    {
+        config(['laraflow.integrations.github.connections.default.credentials.token' => null]);
+
+        $this->app->instance(CredentialProvider::class, new class implements CredentialProvider
+        {
+            public function credentials(Connection $connection): Credentials
+            {
+                return new Credentials($connection, ['token' => 'vault-'.$connection->name]);
+            }
+        });
+
+        Http::fake(['api.github.com/*' => Http::response([])]);
+
+        $this->app->make(LaraflowManager::class)->connector('github')->request(new ConnectorRequest('GET', '/user'));
+
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer vault-default'));
+    }
+
+    public function test_the_connection_a_connector_holds_carries_no_credentials(): void
+    {
+        config(['laraflow.integrations.github.connections.default' => [
+            'credentials' => ['token' => 'ghp_x'],
+            'base_url' => 'https://ghe.example',
+        ]]);
+
+        $connector = $this->app->make(LaraflowManager::class)->connector('github');
+
+        $this->assertInstanceOf(GithubConnector::class, $connector);
+        $this->assertSame(['base_url' => 'https://ghe.example'], $connector->connection()->config);
     }
 
     public function test_the_bundled_github_connector_fails_clearly_when_no_token_is_configured(): void
     {
-        config(['laraflow.integrations.github.connections.default.token' => null]);
+        config(['laraflow.integrations.github.connections.default.credentials.token' => null]);
+
+        Http::fake();
+
+        // Resolving succeeds — the connector holds no credential to
+        // check. The first request is where a missing one is found.
+        $connector = $this->app->make(LaraflowManager::class)->connector('github');
 
         try {
-            $this->app->make(LaraflowManager::class)->connector('github');
+            $connector->request(new ConnectorRequest('GET', '/user'));
             $this->fail('Expected ConnectorException.');
         } catch (ConnectorException $exception) {
             $this->assertStringContainsString('LARAFLOW_GITHUB_TOKEN', $exception->getMessage());
+            $this->assertStringContainsString('connections.default.credentials.token', $exception->getMessage());
         }
+
+        Http::assertNothingSent();
     }
 
     protected function fakeConnector(string $name): Connector

@@ -21,7 +21,9 @@ use Laraflow\Console\ShowCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\LifecycleLogger;
+use Laraflow\Integration\ConfigCredentialProvider;
 use Laraflow\Integration\ConnectorRegistry;
+use Laraflow\Integration\CredentialProvider;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
@@ -52,6 +54,13 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->app->singleton(ConnectorRegistry::class, fn (Container $app): ConnectorRegistry => new ConnectorRegistry(
             $app,
+            $app->make(Config::class),
+        ));
+
+        // Bound by interface so an application can source credentials
+        // from a vault or a per-tenant store; the default reads the
+        // configuration on every request.
+        $this->app->singleton(CredentialProvider::class, fn (Container $app): CredentialProvider => new ConfigCredentialProvider(
             $app->make(Config::class),
         ));
 

@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Http;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
+use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\Credentials;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Tests\TestCase;
 
@@ -77,9 +79,16 @@ class GithubConnectorTest extends TestCase
 
     protected function connector(): GithubConnector
     {
-        return new GithubConnector(
-            new Connection('github', 'default', ['token' => 'test-token']),
-            $this->app->make(HttpClient::class),
-        );
+        $connection = new Connection('github', 'default');
+
+        $credentials = new class implements CredentialProvider
+        {
+            public function credentials(Connection $connection): Credentials
+            {
+                return new Credentials($connection, ['token' => 'test-token']);
+            }
+        };
+
+        return new GithubConnector($connection, $credentials, $this->app->make(HttpClient::class));
     }
 }

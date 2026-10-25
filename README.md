@@ -394,7 +394,10 @@ return [
             'default' => env('LARAFLOW_GITHUB_CONNECTION', 'default'),
             'connections' => [
                 'default' => [
-                    'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                    // Read when a request is built, never held by the connector.
+                    'credentials' => [
+                        'token' => env('LARAFLOW_GITHUB_TOKEN'),
+                    ],
                 ],
             ],
         ],
@@ -741,8 +744,8 @@ A connector serves any number of **connections** — one per account. Add a seco
 
 ```php
 'connections' => [
-    'default' => ['token' => env('LARAFLOW_GITHUB_TOKEN')],
-    'enterprise' => ['token' => env('GHE_TOKEN')],
+    'default' => ['credentials' => ['token' => env('LARAFLOW_GITHUB_TOKEN')]],
+    'enterprise' => ['credentials' => ['token' => env('GHE_TOKEN')]],
 ],
 ```
 
@@ -750,9 +753,17 @@ A connector serves any number of **connections** — one per account. Add a seco
 $laraflow->connector('github', 'enterprise')->request(...);
 ```
 
+Credentials are resolved by a `CredentialProvider` **when each request is built**, not when the connector is constructed. Rotating a token means changing what the provider returns — the next request uses it, nothing is rebuilt — and the connector object itself never holds one. The default provider reads the `credentials` array above; bind your own to read a vault or a per-tenant store:
+
+```php
+$this->app->singleton(CredentialProvider::class, VaultCredentialProvider::class);
+```
+
+Every credential is a `Laraflow\Support\Secret`: it prints as `[redacted]` wherever PHP would print it — logs, exception pages, `var_dump`, JSON, serialization — and gives up its value only to `reveal()`.
+
 ### Writing your own
 
-Implement `Laraflow\Integration\Connector`, and optionally an `Authenticator` to inject credentials into request options. Laraflow ships only the GitHub authenticator today, so `CrmTokenAuthenticator` below is a class you write:
+Implement `Laraflow\Integration\Connector`, and use an `Authenticator` to inject credentials into request options. `BearerTokenAuthenticator` ships with the package; an authenticator receives the connection's `Credentials` on every request rather than holding a token:
 
 ```php
 <?php
@@ -760,14 +771,20 @@ Implement `Laraflow\Integration\Connector`, and optionally an `Authenticator` to
 namespace App\Integrations;
 
 use Illuminate\Support\Facades\Http;
-use Laraflow\Auth\Authenticator;
+use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Integration\Connection;
 use Laraflow\Integration\Connector;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
+use Laraflow\Integration\CredentialProvider;
 
 class CrmConnector implements Connector
 {
-    public function __construct(private Authenticator $authenticator) {}
+    public function __construct(
+        private Connection $connection,
+        private CredentialProvider $credentials,
+        private BearerTokenAuthenticator $authenticator = new BearerTokenAuthenticator('token', 'CRM_TOKEN'),
+    ) {}
 
     public function name(): string
     {
@@ -776,9 +793,12 @@ class CrmConnector implements Connector
 
     public function request(ConnectorRequest $request): ConnectorResponse
     {
-        $options = $this->authenticator->authenticate($request->options);
+        $options = $this->authenticator->authenticate(
+            $request->options,
+            $this->credentials->credentials($this->connection),
+        );
 
-        $response = Http::baseUrl(config('services.crm.url'))
+        $response = Http::baseUrl($this->connection->require('base_url'))
             ->acceptJson()
             ->send($request->method, $request->uri, $options);
 
@@ -791,7 +811,7 @@ class CrmConnector implements Connector
 }
 ```
 
-Register it either by naming the class in configuration — it is built through the container, with its `Laraflow\Integration\Connection` passed as `$connection` — or from one of your service providers with a closure that receives the connection. Connectors are built on first use and cached per connection:
+Register it either by naming the class in configuration — it is built through the container, with its `Laraflow\Integration\Connection` passed as `$connection` and everything else autowired — or from one of your service providers with a closure that receives the connection. Connectors are built on first use and cached per connection:
 
 ```php
 // config/laraflow.php
@@ -799,7 +819,10 @@ Register it either by naming the class in configuration — it is built through 
     'crm' => [
         'connector' => \App\Integrations\CrmConnector::class,
         'connections' => [
-            'default' => ['token' => env('CRM_TOKEN')],
+            'default' => [
+                'base_url' => env('CRM_URL'),
+                'credentials' => ['token' => env('CRM_TOKEN')],
+            ],
         ],
     ],
 ],
@@ -808,14 +831,13 @@ Register it either by naming the class in configuration — it is built through 
 ```php
 use Laraflow\Core\LaraflowManager;
 use Laraflow\Integration\Connection;
+use Laraflow\Integration\CredentialProvider;
 
 public function boot(): void
 {
     app(LaraflowManager::class)->register(
         'crm',
-        fn (Connection $connection) => new CrmConnector(
-            new CrmTokenAuthenticator((string) $connection->require('token', 'CRM_TOKEN')),
-        ),
+        fn (Connection $connection) => new CrmConnector($connection, app(CredentialProvider::class)),
     );
 }
 ```
