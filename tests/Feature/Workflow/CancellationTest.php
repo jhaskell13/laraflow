@@ -25,6 +25,7 @@ use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
@@ -325,7 +326,7 @@ class CancellationTest extends TestCase
             repository: $this->app->make(ExecutionRepository::class),
             container: $this->app,
             logger: new ArrayLogger,
-            staleAfterSeconds: 0,
+            options: new RunnerOptions(staleAfterSeconds: 0),
         );
     }
 }

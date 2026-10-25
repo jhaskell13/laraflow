@@ -38,6 +38,7 @@ use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionService;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -121,30 +122,26 @@ class LaraflowServiceProvider extends ServiceProvider
             $app->make(LoggerInterface::class),
         ));
 
-        $this->app->singleton(WorkflowRunner::class, function (Container $app): WorkflowRunner {
-            /** @var Config $config */
-            $config = $app->make(Config::class);
+        // Reading and validating the runner's settings belongs with the
+        // settings, not with the wiring: RunnerOptions handles the
+        // blank-means-unset rule and rejects values that would make the
+        // runner unusable.
+        $this->app->singleton(
+            RunnerOptions::class,
+            fn (Container $app): RunnerOptions => RunnerOptions::fromConfig($app->make(Config::class)),
+        );
 
-            // Blank means unset, as everywhere else: a stray
-            // LARAFLOW_MAX_PAYLOAD_BYTES= in .env must not cast to 0
-            // and reject every payload the application has.
-            $maxPayload = $this->setting($config, 'laraflow.execution.max_payload_bytes');
-
-            return new WorkflowRunner(
-                repository: $app->make(ExecutionRepository::class),
-                container: $app,
-                logger: $app->make(LoggerInterface::class),
-                staleAfterSeconds: (int) $config->get('laraflow.execution.stale_after', 300),
-                maxErrorLength: (int) $config->get('laraflow.execution.max_error_length', 65535),
-                events: $app->make(EventEmitter::class),
-                includeErrorMessages: (bool) $config->get('laraflow.events.include_error_messages', true),
-                clock: $app->make(ClockInterface::class),
-                policies: $app->make(PolicyResolver::class),
-                redactor: $app->make(ErrorRedactor::class),
-                logging: $app->make(LoggingContext::class),
-                maxPayloadBytes: $maxPayload === null ? null : (int) $maxPayload,
-            );
-        });
+        $this->app->singleton(WorkflowRunner::class, fn (Container $app): WorkflowRunner => new WorkflowRunner(
+            repository: $app->make(ExecutionRepository::class),
+            container: $app,
+            logger: $app->make(LoggerInterface::class),
+            options: $app->make(RunnerOptions::class),
+            events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
+            policies: $app->make(PolicyResolver::class),
+            redactor: $app->make(ErrorRedactor::class),
+            logging: $app->make(LoggingContext::class),
+        ));
 
         $this->app->singleton(WorkflowDispatcher::class, fn (Container $app): WorkflowDispatcher => new WorkflowDispatcher(
             runner: $app->make(WorkflowRunner::class),

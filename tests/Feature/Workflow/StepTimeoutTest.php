@@ -19,6 +19,7 @@ use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowRunner;
 
@@ -249,7 +250,7 @@ class StepTimeoutTest extends TestCase
             repository: new EloquentExecutionRepository($this->clock),
             container: $this->app,
             logger: new ArrayLogger,
-            staleAfterSeconds: 0,
+            options: new RunnerOptions(staleAfterSeconds: 0),
             clock: $this->clock,
         );
     }

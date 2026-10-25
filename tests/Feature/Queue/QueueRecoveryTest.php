@@ -22,6 +22,7 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
@@ -320,7 +321,7 @@ class QueueRecoveryTest extends TestCase
             ),
             container: $this->app,
             logger: $this->logger,
-            staleAfterSeconds: 300,
+            options: new RunnerOptions(staleAfterSeconds: 300),
         );
 
         try {

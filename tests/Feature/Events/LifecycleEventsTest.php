@@ -25,6 +25,7 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowRunner;
 use LogicException;
@@ -349,9 +350,8 @@ class LifecycleEventsTest extends TestCase
             repository: $this->app->make(ExecutionRepository::class),
             container: $this->app,
             logger: $this->logger,
-            maxErrorLength: $maxErrorLength,
+            options: new RunnerOptions(maxErrorLength: $maxErrorLength, includeErrorMessages: $includeErrorMessages),
             events: new EventEmitter($this->app->make(Dispatcher::class), $this->logger),
-            includeErrorMessages: $includeErrorMessages,
         );
     }
 }

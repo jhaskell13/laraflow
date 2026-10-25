@@ -6,7 +6,6 @@ namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
-use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
@@ -45,50 +44,45 @@ class WorkflowRunner
 
     protected PolicyResolver $policies;
 
-    protected ErrorRedactor $redactor;
+    protected RunnerOptions $options;
 
     protected StepResolver $steps;
 
     protected OutcomeRecorder $outcomes;
 
+    /**
+     * Collaborators are injected; the configured numbers and flags
+     * arrive together in RunnerOptions. Construction is internal
+     * wiring — resolve the runner from the container.
+     */
     public function __construct(
         protected ExecutionRepository $repository,
-        protected Container $container,
-        protected LoggerInterface $logger,
-        protected int $staleAfterSeconds = 300,
-        protected int $maxErrorLength = 65535,
+        Container $container,
+        LoggerInterface $logger,
+        ?RunnerOptions $options = null,
         protected ?EventEmitter $events = null,
-        protected bool $includeErrorMessages = true,
         ?ClockInterface $clock = null,
         ?PolicyResolver $policies = null,
         ?ErrorRedactor $redactor = null,
         protected ?LoggingContext $logging = null,
-        protected ?int $maxPayloadBytes = null,
     ) {
         $this->clock = $clock ?? new Clock;
-
-        if ($this->maxPayloadBytes !== null && $this->maxPayloadBytes < 1) {
-            throw new InvalidArgumentException(
-                'laraflow.execution.max_payload_bytes must be at least 1 byte, or null for no limit. '
-                .'A limit of zero would reject every payload, including an empty one.'
-            );
-        }
+        $this->options = $options ?? new RunnerOptions;
 
         // The bare resolver's default policy disables retries, so a
         // runner constructed without one behaves exactly as it did
         // before retry policy existed.
         $this->policies = $policies ?? new PolicyResolver;
-        $this->redactor = $redactor ?? new PassthroughRedactor;
         $this->steps = new StepResolver($container);
 
         $this->outcomes = new OutcomeRecorder(
             repository: $repository,
             logger: $logger,
             events: $events,
-            maxErrorLength: $maxErrorLength,
-            includeErrorMessages: $includeErrorMessages,
+            maxErrorLength: $this->options->maxErrorLength,
+            includeErrorMessages: $this->options->includeErrorMessages,
             clock: $this->clock,
-            redactor: $this->redactor,
+            redactor: $redactor ?? new PassthroughRedactor,
         );
     }
 
@@ -108,7 +102,7 @@ class WorkflowRunner
         array $input = [],
         ?ExecutionOptions $options = null
     ): WorkflowExecution {
-        DurableValue::check($input, 'input', $this->maxPayloadBytes);
+        DurableValue::check($input, 'input', $this->options->maxPayloadBytes);
 
         return $this->repository->create(
             workflow: $workflow::class,
@@ -152,7 +146,7 @@ class WorkflowRunner
         $execution = $this->repository->claim(
             $executionId,
             $claimToken,
-            $this->staleAfterSeconds,
+            $this->options->staleAfterSeconds,
             $ignoreRetrySchedule
         );
 
@@ -354,8 +348,8 @@ class WorkflowRunner
                 // Checked before the checkpoint, so an oversized
                 // payload fails the step by name instead of surfacing
                 // as a driver error from inside the transaction.
-                DurableValue::check($output, 'output', $this->maxPayloadBytes);
-                DurableValue::check($context->all(), 'context', $this->maxPayloadBytes);
+                DurableValue::check($output, 'output', $this->options->maxPayloadBytes);
+                DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
 
                 $completedAt = $this->now();
                 $stepExecution->markCompleted($output, $completedAt);
