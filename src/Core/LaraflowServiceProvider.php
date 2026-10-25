@@ -17,6 +17,7 @@ use Laraflow\Console\CancelCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
 use Laraflow\Console\ListCommand;
+use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ShowCommand;
 use Laraflow\Console\SummaryCommand;
@@ -232,6 +233,7 @@ class LaraflowServiceProvider extends ServiceProvider
             DemoCommand::class,
             ExecuteCommand::class,
             ListCommand::class,
+            PruneCommand::class,
             RecoverCommand::class,
             ShowCommand::class,
             SummaryCommand::class,
