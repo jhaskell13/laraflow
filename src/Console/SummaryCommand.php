@@ -110,7 +110,15 @@ class SummaryCommand extends Command
         $now = $clock->now();
         $attention = false;
 
-        $due = $repository->dueForRetry($now, ExecutionRepository::MAX_PAGE_SIZE);
+        // Scoped like every other number on this screen. An unscoped
+        // scan here would report another tenant's retries under a
+        // --tenant filter, and fail the health check because of them.
+        $due = $repository->dueForRetry(
+            $now,
+            ExecutionRepository::MAX_PAGE_SIZE,
+            $filter->workflows[0] ?? null,
+            $filter->tenantId,
+        );
 
         if ($due !== []) {
             $attention = true;

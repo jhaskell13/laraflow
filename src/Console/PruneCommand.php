@@ -8,7 +8,6 @@ use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
-use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionReport;
@@ -36,7 +35,6 @@ use Throwable;
 class PruneCommand extends Command
 {
     use ConfirmableTrait;
-    use DisplaysExecutions;
     use ParsesExecutionFilters;
 
     protected $signature = 'laraflow:prune
@@ -110,13 +108,13 @@ class PruneCommand extends Command
         $retention = is_array($retention) ? $retention : [];
 
         foreach ([
-            'scrub-after' => 'scrub_after_days',
-            'prune-attempts-after' => 'prune_attempts_after_days',
-            'delete-after' => 'delete_after_days',
-            'delete-failed-after' => 'delete_failed_after_days',
-            'limit' => 'limit',
-            'chunk' => 'chunk',
-        ] as $option => $key) {
+            'scrub-after' => ['scrub_after_days', 'a number of days'],
+            'prune-attempts-after' => ['prune_attempts_after_days', 'a number of days'],
+            'delete-after' => ['delete_after_days', 'a number of days'],
+            'delete-failed-after' => ['delete_failed_after_days', 'a number of days'],
+            'limit' => ['limit', 'a number of executions'],
+            'chunk' => ['chunk', 'a number of executions'],
+        ] as $option => [$key, $unit]) {
             $value = $this->option($option);
 
             if ($value === null) {
@@ -125,7 +123,7 @@ class PruneCommand extends Command
 
             if (! is_numeric($value)) {
                 throw new InvalidArgumentException(
-                    "The --{$option} option must be a number of days, got [{$value}]."
+                    "The --{$option} option must be {$unit}, got [{$value}]."
                 );
             }
 

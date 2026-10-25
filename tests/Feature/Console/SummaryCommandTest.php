@@ -101,6 +101,52 @@ class SummaryCommandTest extends TestCase
         $this->assertStringContainsString('laraflow:recover', $output);
     }
 
+    public function test_a_due_retry_outside_the_scope_is_not_reported(): void
+    {
+        Date::setTestNow('2026-10-01 09:00:00');
+
+        $this->runner()->run(new DemoWorkflow, $this->input(), new ExecutionOptions(tenantId: 'acme'));
+        $this->runner()->run(new DemoWorkflow, $this->input(), new ExecutionOptions(tenantId: 'globex'));
+
+        // Only globex has a retry pending.
+        WorkflowExecutionModel::query()->where('tenant_id', 'globex')->update([
+            'status' => ExecutionStatus::Retrying->value,
+            'next_retry_at' => '2026-10-01 08:59:00',
+            'finished_at' => null,
+        ]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary', [
+            '--tenant' => 'acme',
+        ]);
+
+        // The counts and the attention section must describe the same
+        // scope, or a tenant's health check fails for another tenant's
+        // work.
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Nothing needs attention', $output);
+        $this->assertStringNotContainsString('retry is due now', $output);
+    }
+
+    public function test_a_due_retry_inside_the_scope_is_still_reported(): void
+    {
+        Date::setTestNow('2026-10-01 09:00:00');
+
+        $this->runner()->run(new DemoWorkflow, $this->input(), new ExecutionOptions(tenantId: 'acme'));
+
+        WorkflowExecutionModel::query()->update([
+            'status' => ExecutionStatus::Retrying->value,
+            'next_retry_at' => '2026-10-01 08:59:00',
+            'finished_at' => null,
+        ]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary', [
+            '--tenant' => 'acme',
+        ]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('1 retry is due now', $output);
+    }
+
     public function test_a_step_past_its_deadline_is_surfaced_and_exits_non_zero(): void
     {
         Date::setTestNow('2026-10-01 09:00:00');

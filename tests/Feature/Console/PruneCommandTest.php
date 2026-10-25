@@ -228,6 +228,19 @@ class PruneCommandTest extends TestCase
         $this->assertStringContainsString('must be a number of days, got [soon]', $output);
     }
 
+    public function test_a_malformed_count_option_names_the_right_unit(): void
+    {
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:prune', [
+            '--delete-after' => '90',
+            '--limit' => 'lots',
+        ]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+
+        // --limit is a count of executions, not a number of days.
+        $this->assertStringContainsString('must be a number of executions, got [lots]', $output);
+    }
+
     public function test_an_invalid_bound_is_rejected_with_the_policy_s_reasoning(): void
     {
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:prune', [

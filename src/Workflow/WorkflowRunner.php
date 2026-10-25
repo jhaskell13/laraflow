@@ -68,9 +68,6 @@ class WorkflowRunner
     ) {
         $this->clock = $clock ?? new Clock;
 
-        // The bare resolver's default policy disables retries, so a
-        // runner constructed without one behaves exactly as it did
-        // before retry policy existed.
         if ($this->maxPayloadBytes !== null && $this->maxPayloadBytes < 1) {
             throw new InvalidArgumentException(
                 'laraflow.execution.max_payload_bytes must be at least 1 byte, or null for no limit. '
@@ -78,6 +75,9 @@ class WorkflowRunner
             );
         }
 
+        // The bare resolver's default policy disables retries, so a
+        // runner constructed without one behaves exactly as it did
+        // before retry policy existed.
         $this->policies = $policies ?? new PolicyResolver;
         $this->redactor = $redactor ?? new PassthroughRedactor;
     }

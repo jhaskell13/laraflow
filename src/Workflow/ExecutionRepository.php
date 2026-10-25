@@ -166,12 +166,14 @@ interface ExecutionRepository
      * race-safe — the claim still decides which worker proceeds.
      *
      * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @param  string|null  $tenantId  Only executions for this tenant.
      * @return WorkflowExecution[] ordered by next_retry_at ascending (most overdue first), at most $limit.
      */
     public function dueForRetry(
         DateTimeImmutable $dueBefore,
         int $limit = 100,
-        ?string $workflow = null
+        ?string $workflow = null,
+        ?string $tenantId = null
     ): array;
 
     /**

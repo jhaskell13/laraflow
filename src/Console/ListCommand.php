@@ -164,7 +164,13 @@ class ListCommand extends Command
             $parts[] = ' --oldest';
         }
 
-        if ((string) $this->option('limit') !== '20') {
+        // Compared against the signature's own default rather than a
+        // repeated literal, so changing one cannot leave the other
+        // quietly printing a redundant option.
+        $default = $this->getDefinition()->getOption('limit')->getDefault();
+        $default = is_scalar($default) ? (string) $default : '';
+
+        if ((string) $this->option('limit') !== $default) {
             $parts[] = ' --limit='.(int) $this->option('limit');
         }
 
