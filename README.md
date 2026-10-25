@@ -743,7 +743,7 @@ The command exits non-zero when no bound is configured — a scheduled prune tha
 
 ## Your first connector
 
-Connectors wrap an external service behind a small, testable contract. Laraflow ships with a GitHub connector as a working example.
+Connectors wrap an external service behind a small, testable contract. Laraflow ships two working examples — GitHub and Slack — deliberately different from each other: GitHub reports failure by status and pages with a `Link` header, Slack reports failure inside a `200` body and pages by cursor. Both are built on the same public contracts your own connector uses, and a test enforces that neither reaches into anything internal.
 
 ### Using the bundled GitHub connector
 
@@ -800,6 +800,27 @@ $this->app->singleton(CredentialProvider::class, VaultCredentialProvider::class)
 ```
 
 Every credential is a `Laraflow\Support\Secret`: it prints as `[redacted]` wherever PHP would print it — logs, exception pages, `var_dump`, JSON, serialization — and gives up its value only to `reveal()`.
+
+### Using the bundled Slack connector
+
+```dotenv
+LARAFLOW_SLACK_TOKEN=xoxb-your-bot-token
+```
+
+```php
+$slack = app(LaraflowManager::class)->connector('slack');
+
+$slack->request($slack->write('chat.postMessage', [
+    'channel' => 'C0123456789',
+    'text' => 'Order shipped.',
+]))->throw();
+
+foreach ($slack->items($slack->read('users.list'), paginator: $slack->listing('members')) as $member) {
+    // one page at a time, as many as the page budget allows
+}
+```
+
+Slack answers `200 OK` with `{"ok": false, "error": "channel_not_found"}` for most failures. The connector's error mapper turns those into the same exception types every other connector produces, so `NotFoundException` means the same thing whichever provider raised it.
 
 ### Writing your own
 

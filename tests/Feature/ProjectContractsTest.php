@@ -288,6 +288,42 @@ class ProjectContractsTest extends TestCase
         $this->assertSame([], $offenders, 'A console command queries the internal Eloquent models.');
     }
 
+    /**
+     * The Milestone 5 exit criterion, as a property of the code: a
+     * connector can be written against the public contracts alone.
+     *
+     * The bundled Slack connector is the sample. If it needed anything
+     * marked @internal, a third-party package would need the same thing
+     * — and the extension points would not be finished. The GitHub
+     * connector is held to it too.
+     */
+    public function test_a_connector_can_be_built_without_reaching_into_internals(): void
+    {
+        $offenders = [];
+
+        foreach ([$this->path('src/Integration/Slack'), $this->path('src/Integration/Github')] as $directory) {
+            foreach (File::allFiles($directory) as $file) {
+                $source = (string) file_get_contents($file->getRealPath());
+
+                preg_match_all('/^use (Laraflow\\\\[A-Za-z\\\\]+);/m', $source, $matches);
+
+                foreach ($matches[1] as $used) {
+                    if (! class_exists($used) && ! interface_exists($used) && ! enum_exists($used)) {
+                        continue;
+                    }
+
+                    $docblock = (string) (new ReflectionClass($used))->getDocComment();
+
+                    if (str_contains($docblock, '@internal')) {
+                        $offenders[] = $file->getFilename().' uses internal '.$used;
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'A bundled connector depends on something an application cannot.');
+    }
+
     public function test_every_lifecycle_event_carries_the_correlation_identifiers(): void
     {
         $missing = [];

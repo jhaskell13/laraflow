@@ -499,6 +499,18 @@ return [
                 ],
             ],
         ],
+
+        'slack' => [
+            'connector' => Laraflow\Integration\Slack\SlackConnector::class,
+            'default' => env('LARAFLOW_SLACK_CONNECTION', 'default'),
+            'connections' => [
+                'default' => [
+                    'credentials' => [
+                        'token' => env('LARAFLOW_SLACK_TOKEN'),
+                    ],
+                ],
+            ],
+        ],
     ],
 
 ];

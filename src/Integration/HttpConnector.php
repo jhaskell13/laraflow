@@ -119,14 +119,17 @@ abstract class HttpConnector implements Connector
      * `laraflow.http.pagination.max_pages`) is a **refusal**, not a
      * quiet stop — see PaginationException::limitReached().
      *
+     * $paginator overrides the connector's own, for providers whose
+     * result shape differs per endpoint.
+     *
      * @return Generator<int, ConnectorResponse>
      *
      * @throws PaginationException
      * @throws RequestFailedException
      */
-    public function pages(ConnectorRequest $request, ?int $maxPages = null): Generator
+    public function pages(ConnectorRequest $request, ?int $maxPages = null, ?Paginator $paginator = null): Generator
     {
-        $paginator = $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
+        $paginator ??= $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
         $limit = $maxPages ?? $this->options->maxPages;
         $page = 0;
 
@@ -169,11 +172,11 @@ abstract class HttpConnector implements Connector
      * @throws PaginationException
      * @throws RequestFailedException
      */
-    public function items(ConnectorRequest $request, ?int $maxPages = null): Generator
+    public function items(ConnectorRequest $request, ?int $maxPages = null, ?Paginator $paginator = null): Generator
     {
-        $paginator = $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
+        $paginator ??= $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
 
-        foreach ($this->pages($request, $maxPages) as $page) {
+        foreach ($this->pages($request, $maxPages, $paginator) as $page) {
             // Yielded one at a time rather than `yield from`, which
             // would repeat each page's own keys: a caller doing
             // iterator_to_array() would then keep only the last page's
