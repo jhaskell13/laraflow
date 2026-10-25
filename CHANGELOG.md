@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Milestone 5 — integration framework hardening (in progress)
+### Milestone 5 — integration framework hardening
+
+Contract in `docs/connectors.md`; the retry interplay in `docs/retry-and-failure-policy.md`; provider API expectations in `docs/compatibility.md`.
 
 #### Added
 
@@ -38,6 +40,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `TransportException::connecting(host, previous)`: the message names the host alone — not the URL, whose query string may carry a token, and not the options.
 - **`BearerTokenAuthenticator`** (public) replaces `GithubTokenAuthenticator`: `Authorization: Bearer` from a named credential, reading it from the `Credentials` passed to every call.
 - `tests/Feature/Integration/SecretExposureTest.php`: the milestone's secrecy exit criterion as a sweep. Every value object is rendered every way PHP offers, every property of every Laraflow object reachable from the connector and the manager is walked, and every Laraflow stack frame of every exception the layer raises is checked — none may contain the token.
+
+#### Decisions
+
+- **Errors are returned, not thrown.** An error status stays a result to inspect; the response carries the mapped exception, `throw()` raises it, and `throw_on_error` opts a connection into throwing. The Milestone 0 contract that `failed()` is a normal outcome is preserved.
+- **Credentials are resolved per request, never captured at construction.** This is what makes rotation a configuration change and lets a cached connector carry nothing worth stealing.
+- **`Secret` keeps its value in a `WeakMap`, not a property.** `var_export` and the array cast ignore `__debugInfo`; a property would leak through them. The cost — a `Secret` cannot be cloned — is stated.
+- **A provider's `Retry-After` drives the durable retry, capped.** `SuggestsRetryDelay` extends the Milestone 3 contract deliberately: believed up to `retry.max_suggested_delay`, never below the policy's own backoff. Sleeping a worker for the provider's wait is what durable retries exist to avoid.
+- **Transport retries are the inner loop and ship off.** Milliseconds, never waiting for a `Retry-After` beyond `max_retry_after`, never repeating a non-idempotent request except on 429 or when marked safe. Two retry systems again, kept from multiplying by construction.
+- **A page budget is an error, not a quiet stop.** A short list that looks complete is the worst thing a paginator can produce.
+- **A next-page link to a foreign host is refused.** The transport sends absolute URLs as given and the request carries credentials.
+- **Connector events carry no correlation id.** A connector may run outside any workflow; inside one, the log context already has the identifiers.
+- **The contract test is a plain object using PHPUnit's static `Assert`.** A trait in `src` used only from `tests` is invisible to static analysis of `src`, and analysing `tests` surfaced 344 findings that belong to Milestone 6.
+- **Slack is the second connector** because it behaves nothing like GitHub. Both are held to the same published contract, and a test fails if either depends on anything internal.
 
 #### Changed
 

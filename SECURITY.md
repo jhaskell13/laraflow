@@ -28,13 +28,14 @@ In scope:
 - Any way for workflow input, step output, or context data to execute code or escape its intended storage.
 - Leakage of connector credentials or authentication headers through logs, persisted records, exceptions, or events.
 - Flaws in execution claiming or persistence that let an attacker with database access alter the control flow of a workflow beyond what database access alone implies.
-- Vulnerabilities in the bundled connectors.
+- Vulnerabilities in the bundled connectors, and in the connector framework: a way for a provider's response to redirect a request carrying credentials to another host, to make a paginator follow a link it should refuse, or to reach a log, event, or execution record with anything but the path of the request.
 
 Out of scope:
 
 - Vulnerabilities in third-party dependencies (report those upstream; let us know so we can bump the constraint).
 - Issues that require an attacker to already control the application's code, configuration, or environment variables.
-- Missing hardening in features the roadmap explicitly marks as not yet implemented (for example, connector HTTP behaviour is not configurable until Milestone 5).
+- Missing hardening in features the roadmap explicitly marks as not yet implemented.
+- Frame arguments of the HTTP client beneath a connector appearing in an exception trace when `zend.exception_ignore_args` is off. Laraflow marks its own parameters sensitive and keeps every message it produces free of credentials, but it cannot annotate Laravel's or Guzzle's frames; leave that directive on in production, as the PHP defaults do, and do not expose an exception renderer that shows frame arguments.
 - Unbounded growth of the `laraflow_*` tables in an application that has not configured retention. Bounds ship disabled by design (see [docs/retention.md](docs/retention.md)); choosing not to set them is a capacity decision, not a package vulnerability.
 - Resource exhaustion caused by an application's own retry configuration. Retries are off by default, every bound is documented, and an infinite loop caused by an application calling `run()` repeatedly is not a package vulnerability.
 

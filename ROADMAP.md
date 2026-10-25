@@ -23,7 +23,9 @@ Milestone 3 is complete (October 2026). Steps can declare retry policy — attem
 
 Milestone 4 is complete (October 2026). Applications inspect and operate executions through the `ExecutionRepository` contract alone — filtered, keyset-paginated listing with every criterion served from an index, batched reads so no listing costs a query per row — and every console command runs on that same surface, with a test reading each command's source to keep it there. Executions carry application-supplied correlation and tenant identifiers that reach steps, every lifecycle event, and Laravel's log context, which propagates into jobs a step dispatches. Events carry attempt and execution durations and queue lag measured from availability rather than dispatch. Retention is three tiers, all off by default, applied by `laraflow:prune`: scrub payloads, prune attempt history, delete — with a compare-and-set guard at every write, orphan-safe deletion that does not depend on database cascades, self-limiting scans, and a dry run that predicts the real run exactly. The contracts live in `docs/inspection-and-observability.md` and `docs/retention.md`.
 
-What remains is the connector layer and release readiness. The connector contracts are still the Milestone 0 prototype, and the schema is not frozen. Milestones 5 and 6 address those.
+Milestone 5 is complete (October 2026). The connector layer is a coherent capability rather than a prototype: connectors are registered once and resolved per named connection, credentials are resolved per request through a `CredentialProvider` and wrapped in a `Secret` that no PHP rendering can print, HTTP behaviour (base URL, timeouts, headers, transport retries, a client-side rate limit, a page budget, a pinned provider API version) resolves connector class → connection → `laraflow.http` defaults, responses keep their raw body and map onto five shared exception types, a provider's `Retry-After` drives the durable step retry, pagination is lazy and refuses rather than truncates, every call is announced and named in the log context, and `Laraflow\Testing\ConnectorContract` ships so third-party connectors are held to the same standard as the bundled GitHub and Slack ones. The contract lives in `docs/connectors.md`; a test fails if a bundled connector ever depends on anything internal.
+
+What remains is release readiness: the CI matrix, the schema freeze, and the upgrade path. Milestone 6 addresses those.
 
 ## Product principles
 
@@ -152,9 +154,21 @@ The `ExecutionRepository` contract changed in several places (recorded in `CHANG
 - High-volume installations have a documented retention strategy and bounded listing queries.
 - Observability does not expose credentials or assume a particular monitoring vendor.
 
-## Milestone 5 — Integration framework hardening
+## Milestone 5 — Integration framework hardening ✅
 
-The connector layer should be a coherent, independently useful capability, not a collection of provider-specific special cases.
+Completed October 2026. Five items were deliberately narrowed or decided.
+
+**Errors are returned, not thrown.** An error status stays a result to inspect, as it was in Milestone 0; the response carries the mapped exception and `throw()` raises it, and a connection opts into throwing with `throw_on_error`. Changing the default would have turned every existing `failed()` check into an uncaught exception.
+
+**A provider's `Retry-After` drives the durable retry, within a cap.** This extends the Milestone 3 retry contract: an exception implementing `SuggestsRetryDelay` is believed up to `retry.max_suggested_delay` and never below the policy's own backoff. The alternative — sleeping a worker for the provider's wait — is exactly what durable retries exist to avoid.
+
+**Transport retries ship off, in milliseconds, and never wait for a long `Retry-After`.** They are the inner loop to the step policy's outer one, and the two are kept from multiplying by construction rather than by documentation alone.
+
+**Connector events carry no correlation id.** A connector may be called outside any workflow; inside one, Laravel's log context already holds the identifiers and a listener reads them from there. Putting them on the event would have coupled the integration layer to the workflow layer for information already available.
+
+**The contract test is a plain object, not a trait.** Adding `tests/` to static analysis to make a trait "used" surfaced 344 findings that belong to Milestone 6; a class using PHPUnit's static assertions is analysed as ordinary source, collides with nothing in the host test, and works from Pest.
+
+The second connector is Slack, chosen for behaving nothing like GitHub: failure inside a `200`, cursor pagination with a per-endpoint result key, mostly non-idempotent POSTs. It was added only after the generic contracts were tested, as the work item asked.
 
 ### Work
 
@@ -213,7 +227,8 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 6. ~~Add stale-execution recovery with explicit bounds.~~ Done.
 7. ~~Add bounded retry policy for failed work — attempts, backoff, timeouts, cancellation.~~ Done.
 8. ~~Stabilize inspection/observability APIs, including retention for the attempt history.~~ Done.
-9. Harden the connector contracts, then release automation and the schema freeze. Milestone 5 is the next priority.
+9. ~~Harden the connector contracts.~~ Done.
+10. Release automation and the schema freeze. Milestone 6 is the next priority.
 
 ## Out of scope until the core is proven
 

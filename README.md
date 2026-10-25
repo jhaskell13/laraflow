@@ -921,16 +921,18 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 4; they are the focus of the next milestones in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 5; they are the focus of the next milestone in [ROADMAP.md](ROADMAP.md).
 
-- **Retries and retention are off by default.** `retry.max_attempts` ships as 1 and every `retention.*` bound as null; nothing is retried and nothing is removed until you opt in. With retries on and retention off, the attempt-history table grows without bound.
+- **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
-- **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once.
+- **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once. Transport retries follow the same honesty: a `POST` is repeated only on 429 or when you mark it `asIdempotent()`.
 - **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
 - **No per-workflow aggregates.** The query API filters and counts within one scope; it has no `GROUP BY`. `laraflow:summary --workflow=` scopes the same numbers to one workflow, and a dashboard needing a breakdown should count per workflow it knows about.
 - **No write-time payload redaction.** Input seeds the context on every `execute()` and context is restored on recovery, so rewriting either at write time would corrupt re-runs. Store identifiers rather than secrets; scrub payloads after the fact with retention; redact error messages with `errors.redactor`.
-- **Metrics are events, not an integration.** Durations and queue lag are on the lifecycle events; turning them into Prometheus, StatsD, or Pulse metrics is a listener you write. Recipes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).
-- **One bundled connector.** The GitHub connector is a prototype. Timeouts, retries, rate limiting, and pagination are not configurable yet (Milestone 5).
+- **Metrics are events, not an integration.** Durations, queue lag, and connector call timings are on events; turning them into Prometheus, StatsD, or Pulse metrics is a listener you write. Recipes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).
+- **Two bundled connectors, both experimental.** GitHub and Slack exist to prove the contracts, not to cover their providers' APIs; they offer the generic request, error, and paging machinery plus a handful of helpers. Provider-specific conveniences are yours to add on top, and the connectors stay experimental until the first release.
+- **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
+- **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
 - **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots (Milestone 6).
 
 ## Design principles

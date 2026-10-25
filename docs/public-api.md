@@ -103,6 +103,8 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 
 ## Integrations
 
+Specified in [connectors.md](connectors.md).
+
 | Class | Level | Notes |
 |-------|-------|-------|
 | `Laraflow\Core\LaraflowManager` | Public | `register(name, class-string|closure)`, `connector(name, ?connection)`, `has(name)`, `connectors()`, `connections(name)`, `connection(name, ?connection)`, `forget(?name, ?connection)`. A class-string is built through the container with the resolved `Connection` passed as `$connection`; a closure receives it. Instances are built on first use and cached per connection until `forget()`. **Breaking in Milestone 5:** `connector()` gained the optional connection name; closures receive a `Connection`. |
