@@ -87,6 +87,46 @@ readonly class ExecutionFilter
     }
 
     /**
+     * The same filter narrowed to $status, keeping every other
+     * criterion — so a caller counting one status at a time is
+     * counting within the same scope each time.
+     *
+     * @param  ExecutionStatus|list<ExecutionStatus>|null  $status
+     */
+    public function withStatus(ExecutionStatus|array|null $status): self
+    {
+        return new self(
+            workflow: $this->workflows,
+            status: $status,
+            correlationId: $this->correlationId,
+            tenantId: $this->tenantId,
+            createdAfter: $this->createdAfter,
+            createdBefore: $this->createdBefore,
+            finishedAfter: $this->finishedAfter,
+            finishedBefore: $this->finishedBefore,
+            oldestFirst: $this->oldestFirst,
+        );
+    }
+
+    /**
+     * The same filter in the opposite order.
+     */
+    public function withOldestFirst(bool $oldestFirst = true): self
+    {
+        return new self(
+            workflow: $this->workflows,
+            status: $this->statuses,
+            correlationId: $this->correlationId,
+            tenantId: $this->tenantId,
+            createdAfter: $this->createdAfter,
+            createdBefore: $this->createdBefore,
+            finishedAfter: $this->finishedAfter,
+            finishedBefore: $this->finishedBefore,
+            oldestFirst: $oldestFirst,
+        );
+    }
+
+    /**
      * True when no criterion is set: list() returns everything (newest
      * first) and count() counts the whole table.
      */

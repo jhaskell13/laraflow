@@ -116,6 +116,22 @@ interface ExecutionRepository
     ): int;
 
     /**
+     * Step counts for several executions in one query: how many steps
+     * each has, and how many have completed.
+     *
+     * A listing that shows progress would otherwise call steps() per
+     * row. The ids are those of executions the caller already holds;
+     * ids with no steps are absent from the result rather than present
+     * as zero, so a caller can tell "no plan" from "nothing done".
+     *
+     * @param  list<int|string>  $ids
+     * @return array<string, array{total: int, completed: int}> keyed by execution id.
+     */
+    public function stepProgress(
+        array $ids
+    ): array;
+
+    /**
      * Attempt history for every step of one execution in a single
      * query, ordered by step position then attempt number. The same rows
      * attempts() returns per step, without one query per step.

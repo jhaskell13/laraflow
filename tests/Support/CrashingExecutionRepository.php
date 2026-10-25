@@ -64,6 +64,11 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->count($filter));
     }
 
+    public function stepProgress(array $ids): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->stepProgress($ids));
+    }
+
     public function attemptHistory(WorkflowExecution $execution): array
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->attemptHistory($execution));

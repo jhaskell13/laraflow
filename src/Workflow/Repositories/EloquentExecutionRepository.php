@@ -226,6 +226,35 @@ class EloquentExecutionRepository implements ExecutionRepository
         return $this->filtered($filter)->count();
     }
 
+    public function stepProgress(
+        array $ids
+    ): array {
+        if ($ids === []) {
+            return [];
+        }
+
+        $completed = StepStatus::Completed->value;
+
+        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int}> $rows */
+        $rows = StepExecutionModel::query()
+            ->selectRaw('workflow_execution_id, count(*) as total')
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as completed', [$completed])
+            ->whereIn('workflow_execution_id', $ids)
+            ->groupBy('workflow_execution_id')
+            ->get();
+
+        $progress = [];
+
+        foreach ($rows as $row) {
+            $progress[(string) $row->workflow_execution_id] = [
+                'total' => (int) $row->total,
+                'completed' => (int) $row->completed,
+            ];
+        }
+
+        return $progress;
+    }
+
     public function attemptHistory(
         WorkflowExecution $execution
     ): array {

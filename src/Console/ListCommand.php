@@ -10,7 +10,6 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
-use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -88,13 +87,19 @@ class ListCommand extends Command
             return self::SUCCESS;
         }
 
+        // One query for the whole page, rather than one per row.
+        $progress = $repository->stepProgress(array_map(
+            fn (WorkflowExecution $execution): int|string => $execution->id,
+            $page->executions,
+        ));
+
         $this->table(
             ['Id', 'Workflow', 'Status', 'Steps', 'Started', 'Finished', 'Error'],
             array_map(fn (WorkflowExecution $execution): array => [
                 $execution->id,
                 class_basename($execution->workflow),
                 $this->coloredStatus($execution->status->value),
-                $this->stepProgress($repository, $execution),
+                $this->stepProgress($progress, $execution),
                 $this->formatDate($execution->startedAt),
                 $this->formatDate($execution->finishedAt),
                 $execution->error !== null ? $this->formatValue($execution->error, 40) : '',
@@ -180,23 +185,12 @@ class ListCommand extends Command
     /**
      * Completed steps out of the plan.
      *
-     * This is one query per listed execution. The repository contract
-     * deliberately exposes no aggregate for it: a GROUP BY would have to
-     * be a fourth public method every custom implementation must write,
-     * to serve a display column on an operator-invoked command whose
-     * page size is bounded at ExecutionRepository::MAX_PAGE_SIZE. The
-     * query count is bounded by that same limit and the default page is
-     * 20.
+     * @param  array<string, array{total: int, completed: int}>  $progress
      */
-    protected function stepProgress(ExecutionRepository $repository, WorkflowExecution $execution): string
+    protected function stepProgress(array $progress, WorkflowExecution $execution): string
     {
-        $steps = $repository->steps($execution);
+        $counts = $progress[(string) $execution->id] ?? ['total' => 0, 'completed' => 0];
 
-        $completed = array_filter(
-            $steps,
-            fn ($step): bool => $step->status === StepStatus::Completed,
-        );
-
-        return sprintf('%d/%d', count($completed), count($steps));
+        return sprintf('%d/%d', $counts['completed'], $counts['total']);
     }
 }

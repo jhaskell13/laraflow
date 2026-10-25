@@ -70,6 +70,55 @@ class ExecutionFilterTest extends TestCase
         $this->assertSame('acme', $filter->tenantId);
     }
 
+    public function test_with_status_keeps_every_other_criterion(): void
+    {
+        $filter = new ExecutionFilter(
+            workflow: 'App\Sync',
+            status: ExecutionStatus::Completed,
+            correlationId: 'req-1',
+            tenantId: 'acme',
+            createdAfter: new DateTimeImmutable('2026-10-01'),
+            oldestFirst: true,
+        );
+
+        $narrowed = $filter->withStatus(ExecutionStatus::Failed);
+
+        $this->assertSame([ExecutionStatus::Failed], $narrowed->statuses);
+        $this->assertSame(['App\Sync'], $narrowed->workflows);
+        $this->assertSame('req-1', $narrowed->correlationId);
+        $this->assertSame('acme', $narrowed->tenantId);
+        $this->assertEquals($filter->createdAfter, $narrowed->createdAfter);
+        $this->assertTrue($narrowed->oldestFirst);
+
+        // Immutable: the original is untouched.
+        $this->assertSame([ExecutionStatus::Completed], $filter->statuses);
+    }
+
+    public function test_with_status_accepts_a_list_or_null(): void
+    {
+        $filter = new ExecutionFilter(tenantId: 'acme');
+
+        $this->assertSame(
+            [ExecutionStatus::Pending, ExecutionStatus::Running],
+            $filter->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running])->statuses,
+        );
+
+        $this->assertNull($filter->withStatus(ExecutionStatus::Failed)->withStatus(null)->statuses);
+    }
+
+    public function test_with_oldest_first_flips_only_the_order(): void
+    {
+        $filter = new ExecutionFilter(tenantId: 'acme', status: ExecutionStatus::Failed);
+
+        $flipped = $filter->withOldestFirst();
+
+        $this->assertTrue($flipped->oldestFirst);
+        $this->assertFalse($filter->oldestFirst);
+        $this->assertSame('acme', $flipped->tenantId);
+        $this->assertSame([ExecutionStatus::Failed], $flipped->statuses);
+        $this->assertFalse($flipped->withOldestFirst(false)->oldestFirst);
+    }
+
     public function test_a_non_string_workflow_is_rejected(): void
     {
         $this->expectException(InvalidArgumentException::class);

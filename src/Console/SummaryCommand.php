@@ -82,7 +82,7 @@ class SummaryCommand extends Command
         $rows = [];
 
         foreach (ExecutionStatus::cases() as $status) {
-            $count = $repository->count($this->scopedTo($filter, $status));
+            $count = $repository->count($filter->withStatus($status));
 
             $rows[] = [
                 $this->coloredStatus($status->value),
@@ -150,15 +150,9 @@ class SummaryCommand extends Command
         }
 
         $unfinished = $repository->list(
-            new ExecutionFilter(
-                workflow: $filter->workflows,
-                status: [ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying],
-                correlationId: $filter->correlationId,
-                tenantId: $filter->tenantId,
-                createdAfter: $filter->createdAfter,
-                createdBefore: $filter->createdBefore,
-                oldestFirst: true,
-            ),
+            $filter
+                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying])
+                ->withOldestFirst(),
             limit: 1,
         );
 
@@ -197,14 +191,7 @@ class SummaryCommand extends Command
         DateTimeImmutable $now,
     ): array {
         $running = $repository->list(
-            new ExecutionFilter(
-                workflow: $filter->workflows,
-                status: ExecutionStatus::Running,
-                correlationId: $filter->correlationId,
-                tenantId: $filter->tenantId,
-                createdAfter: $filter->createdAfter,
-                createdBefore: $filter->createdBefore,
-            ),
+            $filter->withStatus(ExecutionStatus::Running),
             limit: ExecutionRepository::MAX_PAGE_SIZE,
         );
 
@@ -228,23 +215,5 @@ class SummaryCommand extends Command
         return $step->isRunning()
             && $step->timeoutAt !== null
             && $step->timeoutAt <= $now;
-    }
-
-    /**
-     * The caller's filter narrowed to one status, preserving every other
-     * criterion so each row counts the same scope.
-     */
-    protected function scopedTo(ExecutionFilter $filter, ExecutionStatus $status): ExecutionFilter
-    {
-        return new ExecutionFilter(
-            workflow: $filter->workflows,
-            status: $status,
-            correlationId: $filter->correlationId,
-            tenantId: $filter->tenantId,
-            createdAfter: $filter->createdAfter,
-            createdBefore: $filter->createdBefore,
-            finishedAfter: $filter->finishedAfter,
-            finishedBefore: $filter->finishedBefore,
-        );
     }
 }

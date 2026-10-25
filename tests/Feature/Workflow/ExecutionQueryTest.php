@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Feature\Workflow;
 
 use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionFilter;
@@ -329,6 +330,74 @@ class ExecutionQueryTest extends TestCase
         $page = $this->repository()->list(ExecutionFilter::all(), limit: 25);
 
         $this->assertSame(25, $page->limit);
+    }
+
+    // ------------------------------------------------------------------
+    // Step progress
+    // ------------------------------------------------------------------
+
+    public function test_step_progress_counts_steps_and_completions_per_execution(): void
+    {
+        $repository = $this->repository();
+
+        $a = $repository->create('App\Sync', steps: ['One', 'Two', 'Three']);
+        $b = $repository->create('App\Sync', steps: ['One']);
+
+        $claimed = $repository->claim($a->id, 'worker', 300);
+        foreach (array_slice($repository->steps($claimed), 0, 2) as $step) {
+            $step->markRunning(new DateTimeImmutable);
+            $step->markCompleted(['ok' => true], new DateTimeImmutable);
+            $repository->saveStep($step);
+        }
+
+        $progress = $repository->stepProgress([$a->id, $b->id]);
+
+        $this->assertSame(['total' => 3, 'completed' => 2], $progress[(string) $a->id]);
+        $this->assertSame(['total' => 1, 'completed' => 0], $progress[(string) $b->id]);
+    }
+
+    public function test_step_progress_is_scoped_to_the_ids_asked_for(): void
+    {
+        $repository = $this->repository();
+        $mine = $repository->create('App\Sync', steps: ['One']);
+        $repository->create('App\Sync', steps: ['One', 'Two']);
+
+        $progress = $repository->stepProgress([$mine->id]);
+
+        $this->assertCount(1, $progress);
+        $this->assertSame(['total' => 1, 'completed' => 0], $progress[(string) $mine->id]);
+    }
+
+    public function test_step_progress_omits_executions_with_no_steps(): void
+    {
+        $repository = $this->repository();
+        $planless = $repository->create('App\Sync');
+
+        // Absent rather than zero, so a caller can tell "no plan" from
+        // "nothing done yet".
+        $this->assertSame([], $repository->stepProgress([$planless->id]));
+    }
+
+    public function test_step_progress_of_nothing_is_nothing(): void
+    {
+        $this->assertSame([], $this->repository()->stepProgress([]));
+    }
+
+    public function test_step_progress_reads_one_query_for_many_executions(): void
+    {
+        $repository = $this->repository();
+        $ids = array_map(fn () => $repository->create('App\Sync', steps: ['One'])->id, range(1, 5));
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        $repository->stepProgress($ids);
+
+        // The reason this method exists: a listing must not cost one
+        // query per row.
+        $this->assertCount(1, DB::getQueryLog());
+
+        DB::disableQueryLog();
     }
 
     // ------------------------------------------------------------------

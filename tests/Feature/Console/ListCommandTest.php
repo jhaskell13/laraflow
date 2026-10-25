@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Console;
 
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Laraflow\Demo\DemoWorkflow;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\TestCase;
@@ -265,6 +266,24 @@ class ListCommandTest extends TestCase
 
         // Completed, failed, and cancelled all report through finished_at.
         $this->assertStringContainsString('2026-10-01 09:00:00', $output);
+    }
+
+    public function test_the_table_costs_a_bounded_number_of_queries(): void
+    {
+        foreach (range(1, 4) as $ignored) {
+            $this->callCommand('laraflow:demo');
+        }
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        $this->callCommand('laraflow:list');
+
+        // The page, its total, and one batched progress query — not one
+        // query per listed execution.
+        $this->assertLessThanOrEqual(4, count(DB::getQueryLog()));
+
+        DB::disableQueryLog();
     }
 
     public function test_the_command_reads_nothing_through_the_eloquent_models(): void
