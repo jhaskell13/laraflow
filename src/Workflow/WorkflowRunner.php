@@ -22,7 +22,6 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
-use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
@@ -52,6 +51,8 @@ class WorkflowRunner
 
     protected ErrorRedactor $redactor;
 
+    protected StepResolver $steps;
+
     public function __construct(
         protected ExecutionRepository $repository,
         protected Container $container,
@@ -80,6 +81,7 @@ class WorkflowRunner
         // before retry policy existed.
         $this->policies = $policies ?? new PolicyResolver;
         $this->redactor = $redactor ?? new PassthroughRedactor;
+        $this->steps = new StepResolver($container);
     }
 
     /**
@@ -103,7 +105,7 @@ class WorkflowRunner
         return $this->repository->create(
             workflow: $workflow::class,
             input: $input,
-            steps: $this->validatedPlan($workflow),
+            steps: $this->steps->plan($workflow),
             options: $options,
         );
     }
@@ -246,7 +248,7 @@ class WorkflowRunner
 
         $steps = $this->repository->steps($execution);
 
-        $this->assertDefinitionMatches($workflow, $execution, $steps);
+        $this->steps->assertMatches($workflow, $execution, $steps);
 
         $context = new WorkflowContext(
             data: array_merge($execution->input, $execution->context),
@@ -285,7 +287,7 @@ class WorkflowRunner
             // invalid class is persisted as a step failure exactly as
             // before; definition problems never consult a policy.
             try {
-                $step = $this->makeStep($stepExecution->step);
+                $step = $this->steps->make($stepExecution->step);
                 $policy = $this->policies->forStep($step, $workflow);
             } catch (Throwable $exception) {
                 $this->startStep($execution, $stepExecution, $context, $startedAt, null);
@@ -432,96 +434,6 @@ class WorkflowRunner
         ));
 
         return $execution;
-    }
-
-    /**
-     * The supplied workflow must be the one the execution was created
-     * from: same class, same steps, same order. Otherwise durable state
-     * would be silently reinterpreted by different code.
-     *
-     * @param  StepExecution[]  $stepExecutions
-     */
-    protected function assertDefinitionMatches(
-        Workflow $workflow,
-        WorkflowExecution $execution,
-        array $stepExecutions
-    ): void {
-        if ($execution->workflow !== $workflow::class) {
-            throw new WorkflowDefinitionMismatchException(
-                "Execution [{$execution->id}] was created from [{$execution->workflow}], "
-                .'not ['.$workflow::class.'].'
-            );
-        }
-
-        $definedSteps = $workflow->steps();
-        $persistedSteps = array_map(
-            fn (StepExecution $step): string => $step->step,
-            $stepExecutions
-        );
-
-        if ($definedSteps !== $persistedSteps) {
-            throw new WorkflowDefinitionMismatchException(
-                "The step plan persisted for execution [{$execution->id}] does not match "
-                .'the current definition of ['.$workflow::class.']. '
-                .'Persisted: ['.implode(', ', $persistedSteps).']. '
-                .'Defined: ['.implode(', ', $definedSteps).']. '
-                .'The workflow code has changed since this execution was created.'
-            );
-        }
-    }
-
-    /**
-     * Validate the user-supplied step list before anything is persisted.
-     * The declared return type of Workflow::steps() is a contract for
-     * authors, not a guarantee, so the value is treated as untrusted here.
-     *
-     * @return list<class-string<Step>>
-     */
-    protected function validatedPlan(Workflow $workflow): array
-    {
-        return $this->validateSteps($workflow::class, $workflow->steps());
-    }
-
-    /**
-     * @param  array<mixed>  $steps
-     * @return list<class-string<Step>>
-     */
-    protected function validateSteps(string $workflow, array $steps): array
-    {
-        if ($steps === []) {
-            throw InvalidWorkflowDefinitionException::noSteps($workflow);
-        }
-
-        $plan = [];
-
-        foreach ($steps as $position => $step) {
-            if (! is_string($step) || ! class_exists($step) || ! is_subclass_of($step, Step::class)) {
-                throw InvalidWorkflowDefinitionException::invalidStep($workflow, $position, $step);
-            }
-
-            $plan[] = $step;
-        }
-
-        return $plan;
-    }
-
-    protected function makeStep(string $stepClass): Step
-    {
-        if (! class_exists($stepClass)) {
-            throw new WorkflowDefinitionMismatchException(
-                "Step class [{$stepClass}] no longer exists."
-            );
-        }
-
-        $step = $this->container->make($stepClass);
-
-        if (! $step instanceof Step) {
-            throw new WorkflowDefinitionMismatchException(
-                "Step class [{$stepClass}] does not implement ".Step::class.'.'
-            );
-        }
-
-        return $step;
     }
 
     /**

@@ -54,6 +54,7 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 | `Laraflow\Workflow\RetentionReport` | Internal | Counts returned by one retention run. |
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
 | `Laraflow\Workflow\WorkflowResolver` | Internal | Resolves the workflow class recorded on an execution. |
+| `Laraflow\Workflow\StepResolver` | Internal | Validates a workflow's step list, checks a persisted plan against the definition it is run with, and builds steps from the container. |
 | `Laraflow\Events\EventEmitter` | Internal | Applies the observational-event policy below. |
 
 ## Events
