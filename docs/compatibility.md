@@ -113,4 +113,4 @@ The database schema is **frozen**: the shipped migrations are immutable, and any
 - **Security vulnerabilities:** see [SECURITY.md](../SECURITY.md). Do not open a public issue.
 - **Questions:** GitHub issues, tagged as a question.
 
-There is no commercial support and no response-time guarantee. Only the latest development snapshot (and, once tagged, the latest minor release) receives fixes.
+There is no commercial support and no response-time guarantee. Only the latest minor release (and the development branch) receives fixes; see SECURITY.md for the security-fix window.

@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: tag-ready pre-release.** The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. No version has been tagged yet, so the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x` pre-1.0.** Durable, resumable, observable **linear** workflows — branching, fan-out, and waits are future work ([ROADMAP.md](ROADMAP.md), Milestone 7). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Before 1.0, minor versions may contain breaking changes, recorded in [CHANGELOG.md](CHANGELOG.md) — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -37,7 +37,7 @@ See [docs/compatibility.md](docs/compatibility.md) for the full policy, includin
 
 ## Installation
 
-The package is not yet published on Packagist. Add the repository to your application's `composer.json` and require the development branch:
+The package is not yet published on Packagist. Add the repository to your application's `composer.json` and require a tagged version:
 
 ```json
 {
@@ -48,7 +48,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:dev-main
+composer require "laraflow/laraflow:^0.1.0"
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.
@@ -982,7 +982,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 - **Two bundled connectors, both experimental.** GitHub and Slack exist to prove the contracts, not to cover their providers' APIs; they offer the generic request, error, and paging machinery plus a handful of helpers. Provider-specific conveniences are yours to add on top, and the connectors stay experimental until the first release.
 - **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
 - **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
-- **No tagged release yet.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the package has not been tagged, so `dev-main` is the only thing to install and the public API may still move before 1.0.
+- **Pre-1.0.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the public API may still move before 1.0: `0.x` minor releases may contain breaking changes, each recorded in the changelog with upgrade notes.
 
 ## Design principles
 
@@ -996,7 +996,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 
 ## Compatibility and support
 
-Laraflow follows [semantic versioning](https://semver.org) once tagged. Until `1.0`, minor versions may contain breaking changes and will say so in [CHANGELOG.md](CHANGELOG.md). The supported PHP, Laravel, and database versions, and the policy for dropping them, are in [docs/compatibility.md](docs/compatibility.md). Which classes are public, experimental, or internal is in [docs/public-api.md](docs/public-api.md).
+Laraflow follows [semantic versioning](https://semver.org). Until `1.0`, minor versions may contain breaking changes and will say so in [CHANGELOG.md](CHANGELOG.md). The supported PHP, Laravel, and database versions, and the policy for dropping them, are in [docs/compatibility.md](docs/compatibility.md). Which classes are public, experimental, or internal is in [docs/public-api.md](docs/public-api.md).
 
 The database schema is frozen: the shipped migrations never change, later schema changes arrive as new dated migrations, and `php artisan migrate` is always enough. Upgrading, rolling back, and recovering work interrupted by a deploy are in [docs/upgrading.md](docs/upgrading.md).
 

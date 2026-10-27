@@ -2,11 +2,17 @@
 
 All notable changes to Laraflow are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as specified in [docs/compatibility.md](docs/compatibility.md). Until the first tagged release, breaking changes may land in any commit and are recorded under *Unreleased*.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as specified in [docs/compatibility.md](docs/compatibility.md). Before 1.0, minor versions may contain breaking changes; each is recorded under **Breaking** in its release section, with upgrade notes.
 
 Cutting a release renames *Unreleased* to the version and date, starts a fresh *Unreleased* above it, and updates the compare links at the end of this file. The milestone groupings below are the shape of the pre-release work and will ship as-is inside the first version's section; releases after it use the plain Keep-a-Changelog headings (*Added*, *Changed*, *Deprecated*, *Removed*, *Fixed*, *Security*).
 
 ## [Unreleased]
+
+Nothing yet.
+
+## [0.1.0] - 2026-10-27
+
+The first tagged release: durable, resumable, observable **linear** workflows for Laravel, and a hardened connector layer. Workflows are flat ordered step lists by design — branching, fan-out, sub-workflows, waits, and compensation are future work (roadmap Milestone 7). The execution, recovery, retention, and connector contracts in `docs/` are CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Everything below this line is what 0.1.0 contains, grouped by the milestone that built it.
 
 ### Milestone 6 — compatibility, quality, and release readiness
 
@@ -340,11 +346,12 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - The service provider now merges the package configuration (`mergeConfigFrom`), so `config('laraflow.*')` has defaults without publishing.
 - The GitHub connector token is cast to a string when the configuration value is missing, so resolving the connector no longer raises a `TypeError`; requests without a token will fail at the GitHub API instead.
 
-## Foundations (unreleased, prior to this changelog)
+## Foundations (prior to this changelog, first shipped in 0.1.0)
 
 - Composer package with Laravel auto-discovery.
 - Connector, factory, manager, and authenticator abstractions with a GitHub connector prototype.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/commits/main
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/jhaskell13/laraflow/releases/tag/v0.1.0
