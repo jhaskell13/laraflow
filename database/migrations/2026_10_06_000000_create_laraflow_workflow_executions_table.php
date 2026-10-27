@@ -13,7 +13,12 @@ return new class extends Migration
         Schema::create('laraflow_workflow_executions', function (Blueprint $table) {
             $table->id();
             $table->string('workflow');
-            $table->string('status')->index();
+            // No single-column status index: every status filter the
+            // package issues pairs status with another column, and the
+            // composites below all lead with status, so their leftmost
+            // prefix serves a bare status query on every engine. A
+            // second index on the same prefix would only tax writes.
+            $table->string('status');
             $table->json('input')->nullable();
             $table->json('context')->nullable();
             $table->text('error')->nullable();

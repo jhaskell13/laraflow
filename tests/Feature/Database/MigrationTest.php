@@ -136,6 +136,23 @@ class MigrationTest extends TestCase
         // (Milestone 3) must each be an indexed single-table query.
         $this->assertContains(['status', 'claimed_at'], $indexed);
         $this->assertContains(['status', 'next_retry_at'], $indexed);
+
+        // Decided in the Milestone 6 schema review: the composites above
+        // all lead with status, so a single-column status index is
+        // redundant on every engine and must not quietly come back.
+        $this->assertNotContains(['status'], $indexed, 'A bare status index duplicates the composite prefixes.');
+
+        $attemptIndexes = array_map(
+            fn (array $index): array => $index['columns'],
+            Schema::getIndexes('laraflow_step_attempts'),
+        );
+
+        $this->assertContains(
+            ['workflow_execution_id'],
+            $attemptIndexes,
+            'The prune scan and attemptHistory() read attempts by execution; '
+            .'engines other than MySQL create no index for the foreign key.',
+        );
     }
 
     public function test_every_listing_and_retention_filter_has_an_index(): void

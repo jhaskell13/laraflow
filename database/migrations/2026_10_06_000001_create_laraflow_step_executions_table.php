@@ -36,6 +36,15 @@ return new class extends Migration
             $table->timestamp('next_retry_at')->nullable();
             $table->timestamps();
 
+            // Also the index behind the foreign key and behind every
+            // "steps of this execution" read, via its leftmost prefix.
+            // PostgreSQL, SQLite, and SQL Server create no index for a
+            // foreign key by themselves, so if these columns are ever
+            // reordered, workflow_execution_id needs its own index.
+            //
+            // status is deliberately unindexed here: no query filters
+            // step rows by status alone — progress reads aggregate over
+            // workflow_execution_id, which this prefix serves.
             $table->unique([
                 'workflow_execution_id',
                 'position',

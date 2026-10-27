@@ -34,13 +34,43 @@ The whole test suite runs against any of these engines by setting `LARAFLOW_TEST
 
 Milestone 6 promoted every entry on this table to **tested**: the CI matrix runs the whole suite against each engine on every push.
 
-## Database requirements
+## Database requirements and schema review
 
-- A `json` column type. On MySQL/MariaDB/PostgreSQL this maps to native JSON; on SQLite to `TEXT`.
-- Foreign keys with cascading deletes (`laraflow_step_executions.workflow_execution_id`, and both foreign keys on `laraflow_step_attempts`). SQLite enforces these only when `foreign_key_constraints` is enabled on the connection.
-- `laraflow_step_attempts` holds one append-only row per finished step attempt and is the table that grows under retry policies. Retention is off by default; `laraflow:prune` bounds it once `laraflow.retention.*` is configured (see [retention.md](retention.md)). Deletion does not rely on the database enforcing the declared cascades — it works with SQLite's foreign-key enforcement off — but enabling enforcement is still recommended so the schema's own guarantees hold for every other writer.
-- Milestone 4 adds indexes on `correlation_id`, `tenant_id`, `created_at`, `(workflow, status)`, and `(status, finished_at)` so that every listing filter and every retention scan is served from an index. The `GROUP BY` behind `stepProgress()` uses the existing foreign-key index on `laraflow_step_executions`.
-- Milestone 1 adds row-level compare-and-set updates for execution claiming. These use standard `UPDATE ... WHERE` semantics and do not require advisory locks or `SELECT ... FOR UPDATE`, so they work on every engine above, including SQLite's single-writer model.
+Reviewed in full for Milestone 6 before the schema freeze; every decision below is deliberate and most are pinned by `tests/Feature/Database/MigrationTest.php`.
+
+### Types and sizes
+
+- A `json` column type. On MySQL/PostgreSQL this maps to native JSON, on MariaDB to `LONGTEXT` with a check constraint, on SQLite to `TEXT`, on SQL Server to `nvarchar(max)`. The repository JSON-encodes these values itself when writing through the query builder, because not every grammar does.
+- String columns are 255 characters (`claim_token` is 64), and the indexed ones — `workflow`, `status`, `correlation_id`, `tenant_id` — are what the key-size arithmetic has to cover. That fits every engine's index key limit with room to spare — the widest composite, `(workflow, status)`, is 2040 bytes on utf8mb4 against InnoDB's 3072-byte ceiling and 1020 bytes against SQL Server's 1700 — and matches `ExecutionOptions::MAX_LENGTH`, which validates application-supplied identifiers at the boundary.
+- `laraflow_workflow_executions.version` is an unsigned counter bumped by every repository write. It is not optimistic locking — nothing reads it. It exists so a compare-and-set `UPDATE` that rewrites identical values is still counted on engines that report rows *changed* rather than rows *matched* (MySQL, MariaDB).
+
+### Indexes, and the ones deliberately absent
+
+Every query the package issues is served by an index:
+
+| Index | Serves |
+|-------|--------|
+| `(status, claimed_at)` | The stale-claim recovery scan; bare `status` filters via its prefix. |
+| `(status, next_retry_at)` | The due-retry scan. |
+| `(status, finished_at)` | Retention candidate scans. |
+| `(workflow, status)` | Listing a workflow's executions, with or without a status. |
+| `correlation_id`, `tenant_id`, `created_at` | Listing filters; keyset pagination orders by the primary key. |
+| `laraflow_step_executions (workflow_execution_id, position)` unique | "Steps of this execution" reads, `stepProgress()`'s grouping, the plan's one-row-per-position invariant — and the foreign key itself, via the leftmost prefix. |
+| `laraflow_step_attempts (step_execution_id, attempt)` unique | One row per logical attempt; a duplicate delivery cannot double-count. |
+| `laraflow_step_attempts (workflow_execution_id)` | The prune scan and `attemptHistory()`. Not redundant: PostgreSQL, SQLite, and SQL Server create no index for a foreign key on their own; MySQL and MariaDB reuse this one. |
+
+Deliberately absent: a single-column `status` index (three composites already lead with `status`; a fourth index on the same prefix only taxes writes) and any index on `laraflow_step_executions.status` (no query filters step rows by status alone).
+
+### Foreign keys and cascades
+
+- `laraflow_step_executions.workflow_execution_id` and `laraflow_step_attempts.step_execution_id` cascade on delete everywhere.
+- `laraflow_step_attempts.workflow_execution_id` cascades everywhere **except SQL Server**, which refuses a second cascade path from the same root; there, deletion flows through the step row, which covers every attempt because `step_execution_id` is NOT NULL.
+- Nothing in the package depends on cascades firing: retention deletes children before parents explicitly and proves it with SQLite's enforcement switched off. The cascades exist so the schema's guarantees hold for every *other* writer. SQLite enforces them only when `foreign_key_constraints` is enabled on the connection.
+
+### Growth and concurrency
+
+- `laraflow_step_attempts` is append-only and is the table that grows under retry policies. Retention is off by default; `laraflow:prune` bounds it once `laraflow.retention.*` is configured (see [retention.md](retention.md)). `laraflow.execution.max_payload_bytes` bounds row width once set.
+- Claiming uses row-level compare-and-set `UPDATE ... WHERE` — no advisory locks, no `SELECT ... FOR UPDATE` — so it works on every engine above, including SQLite's single-writer model, and was exercised against all five in CI.
 
 ## Provider APIs
 

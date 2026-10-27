@@ -67,6 +67,11 @@ return new class extends Migration
                 'attempt',
             ]);
 
+            // Not redundant: PostgreSQL, SQLite, and SQL Server create
+            // no index for a foreign key on their own, and the prune
+            // scan and attemptHistory() both read by this column. On
+            // MySQL and MariaDB the foreign key reuses this index
+            // rather than creating a second one.
             $table->index('workflow_execution_id');
         });
     }
