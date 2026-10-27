@@ -81,7 +81,14 @@ abstract class TestCase extends Orchestra
             match ($connection->getDriverName()) {
                 'pgsql' => $connection->statement("ALTER SEQUENCE {$table}_id_seq RESTART WITH 1"),
                 'mysql', 'mariadb' => $connection->statement("ALTER TABLE {$table} AUTO_INCREMENT = 1"),
-                'sqlsrv' => $connection->statement("DBCC CHECKIDENT ('{$table}', RESEED, 0)"),
+                // RESEED,0 means "next is 1" only on a table that has
+                // held rows; on a virgin table it means "next is 0".
+                // Reseed only once the identity has actually advanced.
+                'sqlsrv' => $connection->statement(
+                    'IF EXISTS (SELECT 1 FROM sys.identity_columns '
+                    ."WHERE object_id = OBJECT_ID('{$table}') AND last_value IS NOT NULL) "
+                    ."DBCC CHECKIDENT ('{$table}', RESEED, 0)"
+                ),
                 default => true,
             };
         }
