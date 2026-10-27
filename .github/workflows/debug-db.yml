@@ -4,27 +4,22 @@
 # all; expected to be dispatched from work branches and never required.
 name: Debug database
 
+# workflow_dispatch only registers from the default branch, so this
+# fires on pushes to work branches whose commit message opts in with
+# [debug-db]. The filter lives in .github/debug-db-filter.
 on:
-  workflow_dispatch:
-    inputs:
-      filter:
-        description: PHPUnit --filter expression
-        required: true
-      driver:
-        description: mysql or mariadb
-        default: mysql
-      trace:
-        description: Set LARAFLOW_TEST_LOG_SQL
-        default: '1'
+  push:
+    branches: ['hfi/**']
 
 jobs:
   debug:
-    name: Debug (${{ inputs.driver }})
+    name: Debug (mysql)
+    if: contains(github.event.head_commit.message, '[debug-db]')
     runs-on: ubuntu-latest
 
     services:
       database:
-        image: ${{ inputs.driver == 'mariadb' && 'mariadb:10.6' || 'mysql:8.0' }}
+        image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: laraflow_test
@@ -54,11 +49,11 @@ jobs:
 
       - name: Run the filtered tests, traced
         env:
-          LARAFLOW_TEST_DB_DRIVER: ${{ inputs.driver }}
+          LARAFLOW_TEST_DB_DRIVER: mysql
           LARAFLOW_TEST_DB_HOST: 127.0.0.1
           LARAFLOW_TEST_DB_PORT: 3306
           LARAFLOW_TEST_DB_DATABASE: laraflow_test
           LARAFLOW_TEST_DB_USERNAME: laraflow
           LARAFLOW_TEST_DB_PASSWORD: secret
-          LARAFLOW_TEST_LOG_SQL: ${{ inputs.trace }}
-        run: ./vendor/bin/phpunit --filter "${{ inputs.filter }}"
+          LARAFLOW_TEST_LOG_SQL: '1'
+        run: ./vendor/bin/phpunit --filter "$(cat .github/debug-db-filter)"
