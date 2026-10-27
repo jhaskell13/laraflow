@@ -18,6 +18,13 @@ use SensitiveParameter;
  * budget. Sits inside the retry decorator, so a retried attempt is
  * counted like any other.
  *
+ * The ceiling is best effort. Asking the limiter and then counting
+ * against it are two operations rather than one atomic one, and workers
+ * waiting out the same window wake together, so enough concurrency can
+ * run a window slightly over. Making it exact would need a lock held
+ * across every request to a connection, which would cost more than the
+ * provider's own 429 and the durable retry behind it already handle.
+ *
  * @internal Assembled by TransportPipeline when a policy is configured.
  */
 final class ThrottlingTransport implements HttpTransport

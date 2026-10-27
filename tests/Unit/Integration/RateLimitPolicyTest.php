@@ -35,6 +35,18 @@ class RateLimitPolicyTest extends TestCase
         $this->assertSame($policy, RateLimitPolicy::fromArray([], $policy));
     }
 
+    public function test_false_lifts_an_inherited_ceiling(): void
+    {
+        $fleetWide = RateLimitPolicy::fromArray(['max' => 60]);
+
+        $this->assertNotNull($fleetWide);
+        $this->assertNull(
+            RateLimitPolicy::fromArray(false, $fleetWide),
+            'A connection with its own quota must be able to opt out, not only raise the number.',
+        );
+        $this->assertNull(RateLimitPolicy::fromArray(false));
+    }
+
     public function test_a_ceiling_without_a_maximum_is_refused(): void
     {
         $this->expectException(InvalidArgumentException::class);

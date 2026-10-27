@@ -2,7 +2,7 @@
 
 This document is the contract for Laraflow's integration layer: how a connector is defined and registered, how it holds an account's credentials without ever holding them, how it speaks HTTP, how it reports errors, how it pages, what it announces, and how it is tested. It builds on the retry semantics in [retry-and-failure-policy.md](retry-and-failure-policy.md) and the observability model in [inspection-and-observability.md](inspection-and-observability.md).
 
-Everything stated here is exercised by the suites under `tests/Feature/Integration/` and `tests/Unit/Integration/`, and the three invariants that matter most are held by `tests/Feature/ProjectContractsTest.php`: no bundled connector depends on anything internal, no Laraflow object in a connector's graph holds a credential, and the shipped defaults are the documented ones. If the code and this document disagree, one of them has a bug.
+Everything stated here is exercised by the suites under `tests/Feature/Integration/` and `tests/Unit/Integration/`. The three invariants that matter most each have a test that fails if they stop holding: no bundled connector depends on anything internal, and the shipped defaults are the documented ones (`tests/Feature/ProjectContractsTest.php`); no Laraflow object in a connector's graph holds a credential (`tests/Feature/Integration/SecretExposureTest.php`). If the code and this document disagree, one of them has a bug.
 
 ## The principle
 
@@ -61,7 +61,7 @@ Instances are cached per connection until `forget()`. Because credentials are no
 | `timeout`, `connect_timeout` | the class, then `laraflow.http.*` | Seconds. |
 | `headers` | merged over the class's | Sent with every request; a request's own headers win over both. |
 | `retries` | merged over `laraflow.http.retries` | In-attempt transport retries; see below. |
-| `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to; see below. |
+| `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to; `false` lifts an inherited one. See below. |
 | `max_pages` | `laraflow.http.pagination.max_pages` | The page budget. |
 | `throw_on_error` | the class's `throwsOnError()` | Have `request()` throw a mapped error rather than return it. |
 | `api_version` | the class's `apiVersion()` | Pin another provider API version for this account. |
@@ -194,16 +194,21 @@ Both are specified alongside the step retry policy in [retry-and-failure-policy.
 - **A provider's `Retry-After`** drives the durable step retry: `RateLimitedException` implements `SuggestsRetryDelay`, so a step that throws it is retried when the provider said, up to `laraflow.retry.max_suggested_delay`, with the worker released.
 - **Client-side rate limiting** (`laraflow.http.rate_limit`, off) is a ceiling Laraflow holds itself to per connection through Laravel's cache-backed rate limiter, shared by every worker and keyed per connection so one tenant's account never throttles another's. Beyond `max_wait`, the request fails *before reaching the provider* with `ThrottledException`, which suggests the wait the same way.
 
+  Set it on a connection for one account, or under `laraflow.http` for every connection; a connection sets `rate_limit: false` to lift an inherited ceiling it does not share.
+
+  **The ceiling is best effort, not a guarantee.** The check and the count that follows it are two cache operations, not one atomic one, and workers that are waiting out the same window wake together. Under enough concurrency a window can therefore run slightly over. Treat it as keeping ordinary traffic under a provider's limit, not as a quota you can prove to that provider — the provider's own `429` and the durable retry behind it remain the real backstop.
+
 ## Pagination
 
 A connector declares a `Paginator` — how its provider says "there is more" — and `pages()` yields the responses, `items()` the items across them. Both are generators: a long result set never exists in memory at once, and a caller that stops early fetches nothing more. Three shapes ship: `LinkHeaderPaginator` (RFC 8288, GitHub), `CursorPaginator` (Slack), `PagePaginator`. A provider whose result key differs per endpoint passes a paginator per call, as Slack's `listing('members')` does.
 
-Four things are **refused rather than tolerated**, all as `PaginationException`:
+Five things are **refused rather than tolerated**, all as `PaginationException`:
 
 - **Reaching the page budget** (`max_pages`, 100 by default). This is an error, not a quiet stop: a short list that looks complete is the worst thing a paginator can hand back. Raise the budget deliberately, per call or per connection.
 - **A provider repeating a page.** Caught at once rather than looped until the budget.
 - **A connector with no paginator** being asked to page.
-- **A next-page link to a host the connection never named.** The transport sends an absolute URL as given, and the request carries an `Authorization` header; following it would hand the credential to whoever controls that response.
+- **A page budget below one.** Refused when `pages()` is called, before any request: `pages()` is not itself a generator, so a request that cannot be served does not wait for a caller to start iterating to say so. The same is true of asking a connector with no paginator to page.
+- **A next-page link to a host the connection never named** — or to any host at all when the connection declares no base URL to check it against. The transport sends an absolute URL as given, and the request carries an `Authorization` header; following it would hand the credential to whoever controls that response. A connector that pages must therefore declare a `baseUrl()`, or its connection must set `base_url`.
 
 A failed page throws rather than ending the iteration quietly. And **do not accumulate pages into a step's output**: a result set large enough to need paging is large enough to meet `laraflow.execution.max_payload_bytes`. Handle each item, or store identifiers.
 
@@ -230,6 +235,8 @@ Connector tests run without credentials or network, always: fake HTTP with `Http
 ```
 
 It checks that the connector holds no credential, classifies every error status into the shared types, returns errors rather than throwing them, and keeps both the credential and the query string out of every message. It installs one HTTP fake with stray requests prevented, so a connector that reached the network fails rather than passing quietly; run it in a test that does not install its own `Http::fake()`. Provider-specific behaviour — Slack's `ok: false`, GitHub's rate-limit 403 — is yours to test alongside it.
+
+The harness works by stubbing Laravel's HTTP client, so it can only hold a connector that sends through it. A connector that overrides `transport()` with a client of its own is **refused up front** rather than assessed against requests the harness never saw: `assertHeldBy()` sends one probe first and fails if nothing reached the fake. If your connector has its own transport, fake that transport and assert these same behaviours directly.
 
 The recipe for contributing a connector is in [CONTRIBUTING.md](../CONTRIBUTING.md#contributing-a-connector).
 

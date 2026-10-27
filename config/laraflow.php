@@ -367,79 +367,12 @@ return [
         // fails the request with ThrottledException, which suggests the
         // wait so a step with a retry policy comes back when a slot is
         // due, without holding a worker. Set it on a connection for one
-        // account, or here for every connection.
-        'rate_limit' => null,
-
-        // Paging through a provider's results. max_pages bounds one
-        // pagination; reaching it is an error, not a quiet stop, because
-        // a short list that looks complete is the worst outcome a
-        // paginator can produce. A connection's max_pages overrides it.
-        'pagination' => [
-            'max_pages' => env('LARAFLOW_HTTP_MAX_PAGES', 100),
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Integrations
-    |--------------------------------------------------------------------------
-    |
-    | Credentials and settings for the connectors that ship with Laraflow.
-    | Keep secrets in your environment file, not in version control.
-    |
-    */
-
-    /*
-    |--------------------------------------------------------------------------
-    | HTTP
-    |--------------------------------------------------------------------------
-    |
-    | Defaults every connector connection starts from. A connector class
-    | overrides them for its provider, and a connection overrides both
-    | with its own base_url, timeout, connect_timeout, and headers.
-    |
-    | timeout: the whole request, in seconds, connection included. Keep it
-    | below any step deadline the request runs under, or the step will be
-    | classified as timed out while the request is still waiting.
-    |
-    | connect_timeout: establishing the connection alone, in seconds.
-    |
-    | retries: repeating one wire request inside a single step attempt,
-    | for a dropped connection or a momentary 503. Off by default
-    | (max_attempts = 1). This is the inner loop and it holds a worker
-    | while it waits, so it is measured in milliseconds; a step's own
-    | retry policy is the durable outer loop, and the two are kept from
-    | multiplying: a Retry-After longer than max_retry_after is not
-    | waited for here but returned, so the step can fail and retry
-    | durably with the provider's own schedule. A request that is not
-    | idempotent is repeated only on 429 (never processed) or when the
-    | caller marked it safe with asIdempotent().
-    |
-    */
-
-    'http' => [
-        'timeout' => env('LARAFLOW_HTTP_TIMEOUT', 30),
-        'connect_timeout' => env('LARAFLOW_HTTP_CONNECT_TIMEOUT', 10),
-
-        'retries' => [
-            'max_attempts' => env('LARAFLOW_HTTP_RETRY_ATTEMPTS', 1),
-            'base_delay_ms' => 200,
-            'multiplier' => 2.0,
-            'max_delay_ms' => 2000,
-            'jitter' => 0.2,
-            'statuses' => [429, 500, 502, 503, 504],
-            'transport_failures' => true,
-            'max_retry_after' => 5,
-        ],
-
-        // A ceiling Laraflow holds itself to, per connection, counted in
-        // the cache so every worker shares it: ['max' => 60, 'per' => 60,
-        // 'max_wait' => 0]. Null: no ceiling. When the budget is spent, a
-        // wait up to max_wait seconds is served in-process; a longer one
-        // fails the request with ThrottledException, which suggests the
-        // wait so a step with a retry policy comes back when a slot is
-        // due, without holding a worker. Set it on a connection for one
-        // account, or here for every connection.
+        // account, or here for every connection; a connection sets
+        // rate_limit => false to lift a ceiling set here.
+        //
+        // Best effort: the check and the count are not one atomic cache
+        // operation, so a window can run slightly over under enough
+        // concurrency. The provider's own 429 remains the backstop.
         'rate_limit' => null,
 
         // Paging through a provider's results. max_pages bounds one

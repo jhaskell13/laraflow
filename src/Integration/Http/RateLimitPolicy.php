@@ -44,10 +44,19 @@ final readonly class RateLimitPolicy
      * base, blank values meaning "keep the base". Null when nothing
      * configures a ceiling.
      *
-     * @param  array<string, mixed>|null  $config
+     * `false` is how a connection turns off a ceiling set for every
+     * connection in `laraflow.http.rate_limit`: without it an inherited
+     * limit could only be raised, never removed, and an account with
+     * its own quota would be held to the fleet's.
+     *
+     * @param  array<string, mixed>|false|null  $config
      */
-    public static function fromArray(?array $config, ?self $base = null): ?self
+    public static function fromArray(array|false|null $config, ?self $base = null): ?self
     {
+        if ($config === false) {
+            return null;
+        }
+
         if ($config === null || $config === []) {
             return $base;
         }

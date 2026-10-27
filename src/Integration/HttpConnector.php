@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Laraflow\Integration;
 
 use Generator;
-use InvalidArgumentException;
 use Laraflow\Auth\Authenticator;
 use Laraflow\Auth\BearerTokenAuthenticator;
 use Laraflow\Exceptions\Connector\PaginationException;
@@ -166,38 +165,17 @@ abstract class HttpConnector implements Connector
      */
     public function pages(ConnectorRequest $request, ?int $maxPages = null, ?Paginator $paginator = null): Generator
     {
+        // Not a generator itself, so a connector that cannot paginate and
+        // a budget that cannot be met are refused when pages() is called
+        // rather than when iteration first happens to begin.
         $paginator ??= $this->paginator() ?? throw PaginationException::notPaginated($this->connection);
         $limit = $maxPages ?? $this->options->maxPages;
-        $page = 0;
 
         if ($limit < 1) {
-            throw new InvalidArgumentException('maxPages must be at least 1.');
+            throw PaginationException::invalidLimit($this->connection, $limit);
         }
 
-        while (true) {
-            $response = $this->request($request)->throw();
-            $page++;
-
-            yield $response;
-
-            $next = $paginator->next($request, $response);
-
-            if ($next === null) {
-                return;
-            }
-
-            $this->assertSameHost($next);
-
-            if ($next->method === $request->method && $next->uri === $request->uri && $next->options === $request->options) {
-                throw PaginationException::notAdvancing($this->connection, $page);
-            }
-
-            if ($page >= $limit) {
-                throw PaginationException::limitReached($this->connection, $limit);
-            }
-
-            $request = $next;
-        }
+        return $this->pagesFrom($request, $limit, $paginator);
     }
 
     /**
@@ -303,7 +281,14 @@ abstract class HttpConnector implements Connector
 
         $expected = $this->options->host();
 
-        if ($expected !== null && strcasecmp($host, $expected) !== 0) {
+        // No base URL means no host to hold the link to. The link is
+        // refused rather than followed: an unverifiable absolute URI is
+        // the case the guard exists for, not an exemption from it.
+        if ($expected === null) {
+            throw PaginationException::unverifiableHost($this->connection, $host);
+        }
+
+        if (strcasecmp($host, $expected) !== 0) {
             throw PaginationException::foreignHost($this->connection, $expected, $host);
         }
     }
@@ -336,5 +321,42 @@ abstract class HttpConnector implements Connector
     protected function transport(): HttpTransport
     {
         return $this->transport;
+    }
+
+    /**
+     * @return Generator<int, ConnectorResponse>
+     *
+     * @throws PaginationException
+     * @throws RequestFailedException
+     * @throws TransportException
+     */
+    private function pagesFrom(ConnectorRequest $request, int $limit, Paginator $paginator): Generator
+    {
+        $page = 0;
+
+        while (true) {
+            $response = $this->request($request)->throw();
+            $page++;
+
+            yield $response;
+
+            $next = $paginator->next($request, $response);
+
+            if ($next === null) {
+                return;
+            }
+
+            $this->assertSameHost($next);
+
+            if ($next->method === $request->method && $next->uri === $request->uri && $next->options === $request->options) {
+                throw PaginationException::notAdvancing($this->connection, $page);
+            }
+
+            if ($page >= $limit) {
+                throw PaginationException::limitReached($this->connection, $limit);
+            }
+
+            $request = $next;
+        }
     }
 }

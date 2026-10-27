@@ -51,6 +51,30 @@ class HttpOptionsTest extends TestCase
         $this->assertSame(['Accept' => 'application/vnd.example+json', 'X-Client' => 'laraflow'], $options->headers);
     }
 
+    public function test_a_connection_can_lift_a_rate_limit_set_for_every_connection(): void
+    {
+        $defaults = HttpOptions::fromConfig(new Repository([
+            'laraflow' => ['http' => ['rate_limit' => ['max' => 60, 'per' => 60]]],
+        ]));
+
+        $this->assertNotNull($defaults->rateLimit);
+
+        $inherited = $defaults->forConnection(new Connection('crm', 'eu', []));
+        $raised = $defaults->forConnection(new Connection('crm', 'eu', ['rate_limit' => ['max' => 600]]));
+        $lifted = $defaults->forConnection(new Connection('crm', 'vip', ['rate_limit' => false]));
+
+        $this->assertSame(60, $inherited->rateLimit?->maxRequests);
+        $this->assertSame(600, $raised->rateLimit?->maxRequests);
+        $this->assertNull($lifted->rateLimit, 'false is how a connection opts out entirely.');
+    }
+
+    public function test_a_rate_limit_that_is_neither_settings_nor_false_is_refused(): void
+    {
+        $this->expectException(ConnectorConfigurationException::class);
+
+        (new HttpOptions)->forConnection(new Connection('crm', 'eu', ['rate_limit' => true]));
+    }
+
     public function test_blank_connection_values_mean_inherit(): void
     {
         $options = (new HttpOptions)->withBaseUrl('https://api.example')

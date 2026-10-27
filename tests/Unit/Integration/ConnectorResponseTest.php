@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Unit\Integration;
 
+use DateTimeImmutable;
 use Laraflow\Exceptions\Connector\NotFoundException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
 use Laraflow\Exceptions\Connector\ResponseDecodingException;
@@ -144,6 +145,30 @@ class ConnectorResponseTest extends TestCase
         $response = ConnectorResponse::fake(200, ['id' => 1]);
 
         $this->assertSame(1, $response->throw()->json('id'));
+    }
+
+    public function test_an_http_date_retry_after_is_read_as_gmt_whatever_the_application_timezone(): void
+    {
+        $original = date_default_timezone_get();
+        date_default_timezone_set('America/New_York');
+
+        try {
+            $response = new ConnectorResponse(429, ['Retry-After' => 'Sun, 25 Oct 2026 12:05:00 GMT']);
+            $now = new DateTimeImmutable('2026-10-25 12:00:00 GMT');
+
+            // Read in the application's timezone instead, this would be
+            // 12:05 EDT — four hours late, and the step would sleep for them.
+            $this->assertSame(300, $response->retryAfterSeconds($now));
+        } finally {
+            date_default_timezone_set($original);
+        }
+    }
+
+    public function test_an_rfc2822_retry_after_keeps_its_own_offset(): void
+    {
+        $response = new ConnectorResponse(429, ['Retry-After' => 'Sun, 25 Oct 2026 08:05:00 -0400']);
+
+        $this->assertSame(300, $response->retryAfterSeconds(new DateTimeImmutable('2026-10-25 12:00:00 GMT')));
     }
 
     public function test_fake_builds_a_json_response(): void

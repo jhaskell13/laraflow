@@ -51,7 +51,7 @@ final class ObservingTransport implements HttpTransport
                 $request,
                 $exception,
                 $this->elapsed($startedAt),
-                $exception instanceof TransportException ? $exception->attempts : 1,
+                $exception instanceof TransportException ? $exception->attempts() : 1,
             );
 
             throw $exception;

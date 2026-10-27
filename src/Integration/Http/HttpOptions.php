@@ -100,8 +100,8 @@ final readonly class HttpOptions
             throw new ConnectorConfigurationException("{$connection->path()}.retries must be an array of retry settings.");
         }
 
-        if ($rateLimit !== null && ! is_array($rateLimit)) {
-            throw new ConnectorConfigurationException("{$connection->path()}.rate_limit must be an array with max, per, and max_wait.");
+        if ($rateLimit !== null && $rateLimit !== false && ! is_array($rateLimit)) {
+            throw new ConnectorConfigurationException("{$connection->path()}.rate_limit must be an array with max, per, and max_wait, or false to lift an inherited ceiling.");
         }
 
         try {

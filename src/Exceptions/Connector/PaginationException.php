@@ -27,6 +27,15 @@ class PaginationException extends ConnectorException
         ));
     }
 
+    public static function invalidLimit(Connection $connection, int $maxPages): self
+    {
+        return new self(sprintf(
+            'Connector [%s] was asked to page with a maximum of %d pages. A page budget must be at least 1.',
+            $connection->key(),
+            $maxPages,
+        ));
+    }
+
     public static function notPaginated(Connection $connection): self
     {
         return new self(sprintf(
@@ -61,6 +70,22 @@ class PaginationException extends ConnectorException
             $connection->key(),
             $found,
             $expected,
+        ));
+    }
+
+    /**
+     * The same refusal when the connection has no base URL to check the
+     * link against. Nothing establishes that the host is the one the
+     * credential belongs to, so following it is the same risk.
+     */
+    public static function unverifiableHost(Connection $connection, string $found): self
+    {
+        return new self(sprintf(
+            'Connector [%s] received a next-page link for host [%s], but this connection declares no base URL '
+            .'to check it against. Refusing to follow it: the request carries credentials. '
+            .'Give the connector a baseUrl(), or set base_url on the connection.',
+            $connection->key(),
+            $found,
         ));
     }
 }

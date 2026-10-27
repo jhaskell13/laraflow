@@ -12,6 +12,7 @@ use Laraflow\Exceptions\Connector\PaginationException;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\Github\GithubConnector;
 use Laraflow\Tests\Support\FakeHttpConnector;
+use Laraflow\Tests\Support\HostlessConnector;
 use Laraflow\Tests\TestCase;
 
 /**
@@ -29,6 +30,10 @@ class PaginationTest extends TestCase
             'laraflow.integrations.crm' => [
                 'connector' => FakeHttpConnector::class,
                 'connections' => ['default' => ['credentials' => ['token' => 'crm-token']]],
+            ],
+            'laraflow.integrations.hostless' => [
+                'connector' => HostlessConnector::class,
+                'connections' => ['default' => ['credentials' => ['token' => 'hostless-token']]],
             ],
         ]);
 
@@ -168,13 +173,56 @@ class PaginationTest extends TestCase
         }
     }
 
-    public function test_a_connector_without_a_paginator_says_so(): void
+    public function test_a_next_page_link_for_another_host_is_refused(): void
+    {
+        Http::fake([
+            'api.github.com/*' => Http::response([['id' => 1]], 200, [
+                'Link' => '<https://attacker.example/repos?page=2>; rel="next"',
+            ]),
+        ]);
+
+        try {
+            iterator_to_array($this->github()->pages(new ConnectorRequest('GET', '/repos')));
+            $this->fail('Expected PaginationException.');
+        } catch (PaginationException $exception) {
+            $this->assertStringContainsString('attacker.example', $exception->getMessage());
+            $this->assertStringContainsString('carries credentials', $exception->getMessage());
+        }
+
+        // The second request is the one that would have carried the
+        // Authorization header to a host the connection never named.
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_connector_without_a_base_url_cannot_verify_a_link_and_refuses_it(): void
+    {
+        Http::fake([
+            'anywhere.example/*' => Http::response([['id' => 1]], 200, [
+                'Link' => '<https://attacker.example/items?page=2>; rel="next"',
+            ]),
+        ]);
+
+        $connector = $this->app->make(LaraflowManager::class)->connector('hostless');
+        $this->assertInstanceOf(HostlessConnector::class, $connector);
+
+        try {
+            iterator_to_array($connector->pages(new ConnectorRequest('GET', 'https://anywhere.example/items')));
+            $this->fail('Expected PaginationException.');
+        } catch (PaginationException $exception) {
+            $this->assertStringContainsString('declares no base URL', $exception->getMessage());
+            $this->assertStringContainsString('attacker.example', $exception->getMessage());
+        }
+
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_connector_without_a_paginator_says_so_before_iteration(): void
     {
         $connector = $this->app->make(LaraflowManager::class)->connector('crm');
         $this->assertInstanceOf(FakeHttpConnector::class, $connector);
 
         try {
-            iterator_to_array($connector->pages(new ConnectorRequest('GET', '/contacts')));
+            $connector->pages(new ConnectorRequest('GET', '/contacts'));
             $this->fail('Expected PaginationException.');
         } catch (PaginationException $exception) {
             $this->assertStringContainsString('declares no paginator', $exception->getMessage());

@@ -6,6 +6,7 @@ namespace Laraflow\Integration;
 
 use DateTimeImmutable;
 use DateTimeInterface;
+use DateTimeZone;
 use Illuminate\Support\Arr;
 use JsonException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
@@ -209,8 +210,14 @@ final class ConnectorResponse
             return (int) $value;
         }
 
-        $until = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value)
-            ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value);
+        // RFC7231's format escapes the literal "GMT" rather than parsing it
+        // as a zone, so without this an HTTP-date would be read in the
+        // application's default timezone and the wait would be off by its
+        // offset. RFC2822 carries its own offset and is unaffected.
+        $gmt = new DateTimeZone('GMT');
+
+        $until = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value, $gmt)
+            ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value, $gmt);
 
         return $until === false ? null : max(0, $until->getTimestamp() - $now->getTimestamp());
     }

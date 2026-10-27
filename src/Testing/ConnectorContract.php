@@ -97,6 +97,7 @@ final class ConnectorContract
     public function assertHeldBy(HttpConnector $connector, string $credential, ConnectorRequest $probe): void
     {
         $this->assertIsNamed($connector);
+        $this->assertIsInterceptable($connector, $probe);
         $this->assertHoldsNoCredentials($connector, $credential);
         $this->assertClassifiesErrors($connector, $probe);
         $this->assertReturnsErrorsRatherThanThrowing($connector, $probe);
@@ -110,6 +111,30 @@ final class ConnectorContract
             $connector->connection()->connector,
             $connector->name(),
             'A connector should answer to the name it is registered under.',
+        );
+    }
+
+    /**
+     * The harness must actually be able to intercept this connector.
+     *
+     * Everything below stubs Laravel's HTTP client. A connector that
+     * overrides transport() with a client of its own would sail past
+     * the stub and reach the real network, and every assertion that
+     * follows would be testing the internet rather than the connector.
+     * That is worth failing loudly for rather than passing quietly.
+     */
+    public function assertIsInterceptable(HttpConnector $connector, ConnectorRequest $probe): void
+    {
+        $this->respondWith(fn (): mixed => Http::response(['ok' => true]));
+
+        $connector->request($probe);
+
+        Assert::assertNotEmpty(
+            Http::recorded(),
+            'This connector does not send through Laravel\'s HTTP client, so this harness cannot intercept it '
+            .'and the assertions that follow would reach the network. Have its transport() use the '
+            .'Illuminate\Http\Client\Factory the container provides, or fake your own transport and assert '
+            .'these behaviours directly.',
         );
     }
 
@@ -247,6 +272,15 @@ final class ConnectorContract
     /**
      * Property paths within Laraflow-namespaced objects reachable from
      * $root whose string value contains $needle.
+     *
+     * Deliberately stops at the Laraflow namespace: walking into
+     * framework objects would wander the container, the application and
+     * every service in it. The cost is that a credential a connector
+     * handed to something else — a Guzzle client it configured once and
+     * kept, say — is not seen here. Resolving credentials per request
+     * rather than holding a configured client is what the contract asks
+     * for; this assertion catches the common way of breaking it, not
+     * every possible one.
      *
      * @param  array<int, true>  $seen
      * @return list<string>

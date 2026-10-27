@@ -12,6 +12,7 @@ use Laraflow\Testing\ConnectorContract;
 use Laraflow\Tests\Support\BlindConnector;
 use Laraflow\Tests\Support\FakeHttpConnector;
 use Laraflow\Tests\Support\LeakyConnector;
+use Laraflow\Tests\Support\OpaqueConnector;
 use Laraflow\Tests\TestCase;
 use PHPUnit\Framework\AssertionFailedError;
 
@@ -84,6 +85,20 @@ class ConnectorContractTest extends TestCase
         $this->expectException(AssertionFailedError::class);
 
         (new ConnectorContract)->assertClassifiesErrors($this->connector('blind'), new ConnectorRequest('GET', '/x'));
+    }
+
+    public function test_the_contract_refuses_a_connector_it_cannot_intercept(): void
+    {
+        config(['laraflow.integrations.opaque' => [
+            'connector' => OpaqueConnector::class,
+            'connections' => ['default' => ['credentials' => ['token' => 't']]],
+        ]]);
+        $this->app->register(LaraflowServiceProvider::class, force: true);
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessageMatches('/cannot intercept it/');
+
+        (new ConnectorContract)->assertIsInterceptable($this->connector('opaque'), new ConnectorRequest('GET', '/x'));
     }
 
     protected function connector(string $name): HttpConnector

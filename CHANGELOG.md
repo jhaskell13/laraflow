@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Milestone 6 — compatibility, quality, and release readiness
+
+#### Fixed
+
+- **A `Retry-After` HTTP-date was read in the application's timezone rather than GMT.** `DateTimeInterface::RFC7231` escapes the literal `GMT` instead of parsing it as a zone, so `Wed, 21 Oct 2015 07:28:00 GMT` was read as local time: on an application running `America/New_York`, a four-hour error in both the in-attempt transport wait and the durable retry `OutcomeRecorder` scheduled. Any installation not running UTC retried hours early or late. The existing coverage passed only because the suite runs in UTC; the regression test now pins a non-UTC default timezone.
+- **A next-page link was followed unchecked when a connector declared no base URL.** The same-host guard compared against the connection's host and returned early when there was none — so a connector built on absolute URIs would follow an absolute `Link` to any host with its `Authorization` header attached, which is exactly what the guard exists to prevent. An unverifiable link is now refused with `PaginationException::unverifiableHost()`.
+- **`config/laraflow.php` declared `http` twice.** PHP kept the second silently, so the first block — the one under the *Integrations* heading — was dead configuration that an operator could edit with no effect. The duplicate and a stray heading left with it are removed; the surviving block is unchanged, so no default moved.
+
+#### Changed
+
+- **Breaking:** `TransportException::$attempts` is no longer a public property; read it with `attempts()`. It stays settable only through `afterAttempts()`, which the retrying transport calls. (In-place rather than returning a copy: PHP exceptions cannot be cloned, and rebuilding one would move the throw site and lose the stack trace.)
+- **Breaking:** a page budget below one is now `PaginationException` rather than `InvalidArgumentException`, consistent with every other pagination refusal. `pages()` is also no longer a generator itself, so that refusal — and a connector with no paginator — is raised when `pages()` is called rather than when a caller first begins iterating.
+- A connection may set `rate_limit: false` to lift a ceiling configured under `laraflow.http.rate_limit`. Previously an inherited ceiling could be raised but never removed, so an account with its own quota was held to the fleet's. `RateLimitPolicy::fromArray()` accepts `false` alongside an array and `null`.
+- `ConnectorContract` now asserts up front that it can actually intercept the connector under test. It works by stubbing Laravel's HTTP client, so a connector with a transport of its own was never reached by the fake and every assertion that followed passed without testing anything — or reached the real network. `assertHeldBy()` sends one probe first and fails with what to do instead.
+- The bundled-connector internals check reads inline `\Laraflow\…` references as well as `use` statements; an internal class was reachable by writing it out in full.
+
+#### Documentation
+
+- `docs/connectors.md` attributed the "no Laraflow object in a connector's graph holds a credential" invariant to `ProjectContractsTest`; it is held by `SecretExposureTest`.
+- The client-side rate limit is documented as **best effort**: its check and its count are not one atomic cache operation and workers waiting out a window wake together, so enough concurrency can run a window slightly over. The provider's own `429` and the durable retry behind it remain the backstop. Stated in `docs/connectors.md`, `config/laraflow.php`, and on `ThrottlingTransport`.
+- `ConnectorContract`'s credential search is documented as stopping at the Laraflow namespace, and why, so what it does not catch is stated rather than implied.
+
 ### Milestone 5 — integration framework hardening
 
 Contract in `docs/connectors.md`; the retry interplay in `docs/retry-and-failure-policy.md`; provider API expectations in `docs/compatibility.md`.

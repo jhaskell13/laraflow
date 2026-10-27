@@ -10,10 +10,10 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
-use InvalidArgumentException;
 use Laraflow\Core\LaraflowManager;
 use Laraflow\Core\LaraflowServiceProvider;
 use Laraflow\Events\ConnectorRequestFailed;
+use Laraflow\Exceptions\Connector\PaginationException;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -98,7 +98,7 @@ class ReviewFindingsTest extends TestCase
             $this->app->make(LaraflowManager::class)->connector('crm')->request(new ConnectorRequest('GET', '/x'));
             $this->fail('Expected TransportException.');
         } catch (TransportException $exception) {
-            $this->assertSame(3, $exception->attempts);
+            $this->assertSame(3, $exception->attempts());
         }
 
         Event::assertDispatched(ConnectorRequestFailed::class, fn (ConnectorRequestFailed $event): bool => $event->attempts === 3);
@@ -158,9 +158,16 @@ class ReviewFindingsTest extends TestCase
         $github = $this->app->make(LaraflowManager::class)->connector('github');
         $this->assertInstanceOf(GithubConnector::class, $github);
 
-        $this->expectException(InvalidArgumentException::class);
+        try {
+            // Not iterated. pages() is not itself a generator, so the
+            // refusal happens on the call rather than whenever a caller
+            // first walks the result.
+            $github->pages(new ConnectorRequest('GET', '/repos'), maxPages: 0);
+            $this->fail('Expected PaginationException.');
+        } catch (PaginationException $exception) {
+            $this->assertStringContainsString('at least 1', $exception->getMessage());
+        }
 
-        iterator_to_array($github->pages(new ConnectorRequest('GET', '/repos'), maxPages: 0));
         Http::assertNothingSent();
     }
 }

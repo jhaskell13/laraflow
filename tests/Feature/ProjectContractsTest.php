@@ -391,9 +391,16 @@ class ProjectContractsTest extends TestCase
             foreach (File::allFiles($directory) as $file) {
                 $source = (string) file_get_contents($file->getRealPath());
 
-                preg_match_all('/^use (Laraflow\\\\[A-Za-z\\\\]+);/m', $source, $matches);
+                // Imports and inline references both: writing
+                // \Laraflow\Integration\Http\TransportPipeline in the
+                // body reaches just as far into internals as importing
+                // it, and should not be the way around this.
+                preg_match_all('/^use (Laraflow\\\\[A-Za-z\\\\]+);/m', $source, $imports);
+                preg_match_all('/\\\\(Laraflow\\\\[A-Za-z\\\\]+)/', $source, $inline);
 
-                foreach ($matches[1] as $used) {
+                $referenced = array_unique(array_merge($imports[1], $inline[1]));
+
+                foreach ($referenced as $used) {
                     if (! class_exists($used) && ! interface_exists($used) && ! enum_exists($used)) {
                         continue;
                     }
