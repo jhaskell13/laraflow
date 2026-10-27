@@ -214,7 +214,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ->whereKey($execution->id)
                 ->where('claim_token', $execution->claimToken)
                 ->update($this->counted([
-                    'context' => $execution->context,
+                    'context' => $this->asJson($execution->context),
                 ]));
 
             if ($updated === 0) {
@@ -310,7 +310,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->where('claim_token', $execution->claimToken)
             ->update($this->counted([
                 'status' => $execution->status->value,
-                'context' => $execution->context,
+                'context' => $this->asJson($execution->context),
                 'error' => $execution->error,
                 'error_class' => $execution->errorClass,
                 'completed_at' => $execution->completedAt,
@@ -337,7 +337,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->update([
                 'status' => $step->status->value,
                 'attempts' => $step->attempts,
-                'output' => $step->output,
+                'output' => $this->asJson($step->output),
                 'error' => $step->error,
                 'error_class' => $step->errorClass,
                 'started_at' => $step->startedAt,
@@ -429,6 +429,18 @@ class EloquentExecutionRepository implements ExecutionRepository
     protected function counted(array $values): array
     {
         return $values + ['version' => new Expression('version + 1')];
+    }
+
+    /**
+     * A JSON column value for a query-builder update. Eloquent casts do
+     * not apply to Builder::update(), and only some grammars encode an
+     * array themselves — SQL Server's binds its elements one by one and
+     * the write silently misses. Encoding here keeps every engine on
+     * the byte-identical write the model cast will read back.
+     */
+    protected function asJson(?array $value): ?string
+    {
+        return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR);
     }
 
     protected function toDomain(
