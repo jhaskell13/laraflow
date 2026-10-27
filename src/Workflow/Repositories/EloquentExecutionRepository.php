@@ -437,6 +437,8 @@ class EloquentExecutionRepository implements ExecutionRepository
      * array themselves — SQL Server's binds its elements one by one and
      * the write silently misses. Encoding here keeps every engine on
      * the byte-identical write the model cast will read back.
+     *
+     * @param  array<array-key, mixed>|null  $value
      */
     protected function asJson(?array $value): ?string
     {

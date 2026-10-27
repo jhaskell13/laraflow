@@ -79,6 +79,10 @@ class StepExecutionModel extends Model
     protected function casts(): array
     {
         return [
+            // Integer casts on the foreign keys as well as the own
+            // columns: pdo_sqlsrv returns every column as a string, and
+            // a handle must expose the same types on every engine.
+            'workflow_execution_id' => 'integer',
             'position' => 'integer',
             'attempts' => 'integer',
             'input' => 'array',
