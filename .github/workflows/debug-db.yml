@@ -13,13 +13,13 @@ on:
 
 jobs:
   debug:
-    name: Debug (mysql)
+    name: Debug (sqlsrv)
     if: contains(github.event.head_commit.message, '[debug-db]')
     runs-on: ubuntu-latest
 
     services:
       database:
-        image: mysql:8.0
+        image: mcr.microsoft.com/mssql/server:2019-latest
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: laraflow_test
@@ -29,11 +29,11 @@ jobs:
           MARIADB_DATABASE: laraflow_test
           MARIADB_USER: laraflow
           MARIADB_PASSWORD: secret
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Laraflow!Passw0rd"
         ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
-          --health-interval=5s --health-timeout=5s --health-retries=20
+          - 1433:1433
+        options: --env MSSQL_PID=Developer
 
     steps:
       - uses: actions/checkout@v4
@@ -41,19 +41,37 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo_sqlite, json, pdo_mysql
+          extensions: mbstring, pdo_sqlite, json, pdo_sqlsrv
           coverage: none
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Install the Microsoft ODBC driver
+        run: |
+          sudo apt-get update -qq
+          sudo ACCEPT_EULA=Y apt-get install -y -qq msodbcsql18
+
+      - name: Wait for SQL Server and create the database
+        run: |
+          QUERY="IF DB_ID('laraflow_test') IS NULL CREATE DATABASE laraflow_test"
+          for i in $(seq 1 60); do
+            if docker exec ${{ job.services.database.id }} sh -c \
+              "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b \
+               || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b"; then
+              echo ready; exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
       - name: Run the filtered tests, traced
         env:
-          LARAFLOW_TEST_DB_DRIVER: mysql
+          LARAFLOW_TEST_DB_DRIVER: sqlsrv
           LARAFLOW_TEST_DB_HOST: 127.0.0.1
-          LARAFLOW_TEST_DB_PORT: 3306
+          LARAFLOW_TEST_DB_PORT: 1433
           LARAFLOW_TEST_DB_DATABASE: laraflow_test
-          LARAFLOW_TEST_DB_USERNAME: laraflow
-          LARAFLOW_TEST_DB_PASSWORD: secret
+          LARAFLOW_TEST_DB_USERNAME: sa
+          LARAFLOW_TEST_DB_PASSWORD: "Laraflow!Passw0rd"
           LARAFLOW_TEST_LOG_SQL: '1'
         run: ./vendor/bin/phpunit --filter "$(cat .github/debug-db-filter)"

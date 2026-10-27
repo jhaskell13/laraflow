@@ -104,7 +104,9 @@ abstract class TestCase extends Orchestra
     {
         $out = static fn (string $line) => fwrite(STDERR, '[sql] '.$line."\n");
 
-        $this->app['db']->listen(fn ($query) => $out($query->sql));
+        $this->app['db']->listen(fn ($query) => $out(
+            $query->sql.'  |  '.json_encode($query->bindings)
+        ));
 
         $events = $this->app['events'];
         $events->listen(\Illuminate\Database\Events\TransactionBeginning::class, fn () => $out('BEGIN (level up)'));
