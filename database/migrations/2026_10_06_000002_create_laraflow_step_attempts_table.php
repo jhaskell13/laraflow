@@ -29,9 +29,19 @@ return new class extends Migration
 
             // Denormalised from the step so history for a whole execution
             // can be read and pruned without a join.
-            $table->foreignId('workflow_execution_id')
-                ->constrained('laraflow_workflow_executions')
-                ->cascadeOnDelete();
+            //
+            // Not cascading on SQL Server: with the cascade that already
+            // flows executions -> step_executions -> here, this second
+            // path is one SQL Server refuses outright ("may cause cycles
+            // or multiple cascade paths"). The step path covers every
+            // row — step_execution_id is NOT NULL — and retention's
+            // deletes never relied on cascades on any engine.
+            $workflowFk = $table->foreignId('workflow_execution_id')
+                ->constrained('laraflow_workflow_executions');
+
+            if (Schema::getConnection()->getDriverName() !== 'sqlsrv') {
+                $workflowFk->cascadeOnDelete();
+            }
 
             $table->foreignId('step_execution_id')
                 ->constrained('laraflow_step_executions')
