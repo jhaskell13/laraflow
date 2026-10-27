@@ -14,7 +14,7 @@ use Laraflow\Workflow\Workflow;
  */
 class PolicyWorkflow extends Workflow
 {
-    /** @var string[] */
+    /** @var list<class-string<\Laraflow\Workflow\Step>> */
     public static array $steps = [];
 
     public static ?StepPolicy $policy = null;

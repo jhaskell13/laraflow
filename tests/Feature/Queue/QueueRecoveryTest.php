@@ -95,8 +95,8 @@ class QueueRecoveryTest extends TestCase
         $this->crashWhileRunning($execution, dieOn: 'checkpoint', call: 2);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(StepStatus::Completed->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Running->value, $steps[1]->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Running->value, $this->row($steps, 1, 'step')->status);
         $this->assertSame(1, StepOne::$runs);
         $this->assertSame(1, StepTwo::$runs);
 
@@ -131,8 +131,8 @@ class QueueRecoveryTest extends TestCase
         $this->assertSame(2, StepTwo::$runs);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(1, $steps[0]->attempts);
-        $this->assertSame(2, $steps[1]->attempts);
+        $this->assertSame(1, $this->row($steps, 0, 'step')->attempts);
+        $this->assertSame(2, $this->row($steps, 1, 'step')->attempts);
         $this->assertSame('from-step-two', $model->context['two'] ?? null);
     }
 

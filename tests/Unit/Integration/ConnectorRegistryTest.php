@@ -70,6 +70,7 @@ class ConnectorRegistryTest extends TestCase
         $registry->register('crm', RecordingConnector::class);
 
         $connector = $registry->resolve('crm');
+        $this->assertInstanceOf(RecordingConnector::class, $connector);
 
         $this->assertSame([], $connector->connection->config);
         $this->assertSame('default', $connector->connection->name);
@@ -87,7 +88,10 @@ class ConnectorRegistryTest extends TestCase
         $registry->register('github', RecordingConnector::class);
 
         $this->assertSame('enterprise', $registry->defaultConnection('github'));
-        $this->assertSame('ghe', $registry->resolve('github')->connection->get('host'));
+
+        $github = $registry->resolve('github');
+        $this->assertInstanceOf(RecordingConnector::class, $github);
+        $this->assertSame('ghe', $github->connection->get('host'));
         $this->assertSame(['default', 'enterprise'], $registry->connections('github'));
     }
 
@@ -181,6 +185,8 @@ class ConnectorRegistryTest extends TestCase
     public function test_a_closure_that_does_not_return_a_connector_is_reported_with_the_actual_type(): void
     {
         $registry = $this->registry([]);
+        // Deliberately invalid: the registry must report the actual type.
+        /** @phpstan-ignore argument.type */
         $registry->register('invalid', fn (): stdClass => new stdClass);
 
         try {

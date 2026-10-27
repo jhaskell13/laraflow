@@ -73,10 +73,13 @@ class SlackConnectorTest extends TestCase
         $this->assertInstanceOf(NotFoundException::class, $response->error());
         $this->assertSame(
             'Connector [slack:default] received 200 for POST /chat.postMessage: channel_not_found',
-            $response->error()?->getMessage(),
+            $response->error()->getMessage(),
         );
     }
 
+    /**
+     * @param  class-string<object>  $expected
+     */
     #[DataProvider('errorCodes')]
     public function test_slack_error_codes_map_to_the_shared_exception_types(string $code, string $expected): void
     {

@@ -14,6 +14,7 @@ use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
+use Workbench\App\Console\Commands\Concerns\ReadsInput;
 
 /**
  * A live view of the playground: status counts, the executions that
@@ -27,11 +28,14 @@ use Psr\Clock\ClockInterface;
  */
 class WatchCommand extends Command
 {
+    use ReadsInput;
+
     protected $signature = 'playground:watch
         {--interval=1 : Seconds between refreshes}
         {--rows=12 : Executions to show}
         {--workflow= : Only executions created from this workflow class}
         {--tenant= : Only executions for this tenant}
+        {--frames=0 : Stop after this many frames; 0 draws until interrupted}
         {--once : Draw a single frame and exit, for scripts and screenshots}';
 
     protected $description = 'Watch workflow executions in real time';
@@ -58,8 +62,14 @@ class WatchCommand extends Command
         // uses twice; the alternate screen buffer gives it back intact.
         $this->output->write("\033[?1049h");
 
+        // 0 frames is the ordinary case: draw until interrupted. A
+        // bound exists so the loop has a condition that is actually a
+        // condition, and so a script can ask for a fixed number of
+        // frames without --once's single-frame layout.
+        $frames = max(0, (int) $this->option('frames'));
+
         try {
-            while (true) {
+            for ($frame = 0; $frames === 0 || $frame < $frames; $frame++) {
                 $this->draw($repository, $clock, $filter, $rows, $interval);
 
                 sleep($interval);
@@ -67,6 +77,8 @@ class WatchCommand extends Command
         } finally {
             $this->output->write("\033[?1049l");
         }
+
+        return self::SUCCESS;
     }
 
     protected function draw(
@@ -287,12 +299,5 @@ class WatchCommand extends Command
             ExecutionStatus::Cancelled => 'magenta',
             ExecutionStatus::Pending => 'blue',
         };
-    }
-
-    protected function stringOption(string $name): ?string
-    {
-        $value = $this->option($name);
-
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 }

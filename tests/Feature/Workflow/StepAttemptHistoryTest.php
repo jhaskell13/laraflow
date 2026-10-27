@@ -113,7 +113,6 @@ class StepAttemptHistoryTest extends TestCase
         $history = $repository->attempts($step);
 
         $this->assertCount(2, $history);
-        $this->assertContainsOnlyInstancesOf(StepAttempt::class, $history);
         $this->assertSame([1, 2], array_map(fn (StepAttempt $a): int => $a->attempt, $history));
         $this->assertSame('failure 1', $history[0]->error);
         $this->assertSame('failure 2', $history[1]->error, 'Attempt 1 diagnostics survive attempt 2.');

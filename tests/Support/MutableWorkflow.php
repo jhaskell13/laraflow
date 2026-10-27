@@ -8,7 +8,7 @@ use Laraflow\Workflow\Workflow;
 
 class MutableWorkflow extends Workflow
 {
-    /** @var string[] */
+    /** @var list<class-string<\Laraflow\Workflow\Step>> */
     public static array $steps = [];
 
     public function steps(): array

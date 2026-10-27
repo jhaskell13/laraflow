@@ -56,9 +56,9 @@ class FailurePolicyTest extends TestCase
         $this->assertSame(1, StepThree::$runs);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(StepStatus::Completed->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Failed->value, $steps[1]->status);
-        $this->assertSame(StepStatus::Completed->value, $steps[2]->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Failed->value, $this->row($steps, 1, 'step')->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 2, 'step')->status);
 
         // The execution is failed — continue is not success — and records
         // the first failure.
@@ -87,7 +87,7 @@ class FailurePolicyTest extends TestCase
         $context = WorkflowExecutionModel::query()->sole()->context;
         $this->assertSame('from-step-one', $context['one'] ?? null);
         $this->assertSame('from-step-three', $context['three'] ?? null);
-        $this->assertArrayNotHasKey('two', $context ?? []);
+        $this->assertArrayNotHasKey('two', $context);
     }
 
     public function test_retry_policy_takes_precedence_over_continuing(): void
@@ -146,9 +146,9 @@ class FailurePolicyTest extends TestCase
         }
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(StepStatus::Failed->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Completed->value, $steps[1]->status);
-        $this->assertSame(StepStatus::Failed->value, $steps[2]->status, 'The second failure is recorded too.');
+        $this->assertSame(StepStatus::Failed->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 1, 'step')->status);
+        $this->assertSame(StepStatus::Failed->value, $this->row($steps, 2, 'step')->status, 'The second failure is recorded too.');
 
         $this->assertSame(
             'step two blew up',

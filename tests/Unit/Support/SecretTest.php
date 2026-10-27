@@ -66,7 +66,9 @@ class SecretTest extends TestCase
 
         $this->expectException(Error::class);
 
-        clone $secret;
+        $copy = clone $secret;
+
+        $this->fail('Cloning a Secret must not be possible; got '.$copy::class.'.');
     }
 
     public function test_equals_compares_values(): void

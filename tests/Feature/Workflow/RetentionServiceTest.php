@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Feature\Workflow;
 
 use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionOptions;
@@ -413,7 +414,7 @@ class RetentionServiceTest extends TestCase
         WorkflowExecutionModel::query()->whereKey($spared->id)->update(['finished_at' => null]);
 
         $deleted = $repository->deleteExecutions(
-            array_map(fn (WorkflowExecution $e) => $e->id, $ids),
+            array_values(array_map(fn (WorkflowExecution $e) => $e->id, $ids)),
             [ExecutionStatus::Completed],
             $cutoff,
         );
@@ -673,6 +674,7 @@ class RetentionServiceTest extends TestCase
             'completed' => $execution->markCompleted($finishedAt),
             'cancelled' => $execution->markCancelled($finishedAt, 'operator request'),
             'failed' => $execution->markFailed('boom', 'RuntimeException', $finishedAt),
+            default => throw new InvalidArgumentException("Unknown outcome [{$outcome}]."),
         };
 
         $repository->release($execution);

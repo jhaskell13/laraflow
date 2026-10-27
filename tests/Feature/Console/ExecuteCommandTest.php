@@ -33,12 +33,13 @@ class ExecuteCommandTest extends TestCase
 
         $execution = WorkflowExecutionModel::query()->firstOrFail();
         $this->assertSame(ExecutionStatus::Completed->value, $execution->status);
+        $this->assertIsArray($execution->context);
         $this->assertArrayHasKey('receipt', $execution->context);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(1, $steps[0]->attempts, 'The checkpointed step must not re-run.');
-        $this->assertSame(2, $steps[1]->attempts, 'The failed step retries on attempt 2.');
-        $this->assertNull($steps[1]->error);
+        $this->assertSame(1, $this->row($steps, 0, 'step')->attempts, 'The checkpointed step must not re-run.');
+        $this->assertSame(2, $this->row($steps, 1, 'step')->attempts, 'The failed step retries on attempt 2.');
+        $this->assertNull($this->row($steps, 1, 'step')->error);
 
         // The key the retry used is the same logical key the failed first
         // attempt would have sent — that is what makes retries deduplicable.

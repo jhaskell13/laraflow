@@ -10,6 +10,7 @@ use Laraflow\Core\LaraflowManager;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\HttpConnector;
 use Laraflow\Tests\TestCase;
 use ReflectionClass;
 use Throwable;
@@ -38,6 +39,8 @@ class SecretExposureTest extends TestCase
     {
         $laraflow = $this->app->make(LaraflowManager::class);
         $connector = $laraflow->connector('github');
+        $this->assertInstanceOf(HttpConnector::class, $connector);
+
         $credentials = $this->app->make(CredentialProvider::class)->credentials($connector->connection());
 
         // The credentials bag is the only object that can reveal the
@@ -183,7 +186,7 @@ class SecretExposureTest extends TestCase
                 $this->assertStringNotContainsString(
                     self::TOKEN,
                     print_r($frame['args'] ?? [], true),
-                    sprintf('%s::%s() exposes the token in its arguments.', $frame['class'], $frame['function'] ?? '?'),
+                    sprintf('%s::%s() exposes the token in its arguments.', $frame['class'], $frame['function']),
                 );
             }
         }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Unit\Workflow;
 
 use DateTimeImmutable;
+use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\WorkflowExecution;
@@ -344,6 +345,7 @@ class WorkflowExecutionTest extends TestCase
             'running' => null,
             'failed' => $execution->markFailed('boom', RuntimeException::class, new DateTimeImmutable),
             'retrying' => $execution->markRetrying('boom', RuntimeException::class, new DateTimeImmutable),
+            default => throw new InvalidArgumentException("Unknown state [{$state}]."),
         };
 
         return $execution;

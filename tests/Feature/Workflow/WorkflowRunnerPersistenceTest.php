@@ -38,10 +38,10 @@ class WorkflowRunnerPersistenceTest extends TestCase
         $this->assertNull($execution->claim_token);
 
         $this->assertCount(1, $execution->steps);
-        $this->assertSame(StepStatus::Failed->value, $execution->steps[0]->status);
-        $this->assertSame('Something went wrong.', $execution->steps[0]->error);
-        $this->assertSame(RuntimeException::class, $execution->steps[0]->error_class);
-        $this->assertSame(1, $execution->steps[0]->attempts);
+        $this->assertSame(StepStatus::Failed->value, $this->stepAt($execution, 0)->status);
+        $this->assertSame('Something went wrong.', $this->stepAt($execution, 0)->error);
+        $this->assertSame(RuntimeException::class, $this->stepAt($execution, 0)->error_class);
+        $this->assertSame(1, $this->stepAt($execution, 0)->attempts);
     }
 
     public function test_it_persists_workflow_step_state_outputs_and_context(): void
@@ -63,14 +63,14 @@ class WorkflowRunnerPersistenceTest extends TestCase
         $this->assertNull($execution->claim_token);
 
         $this->assertCount(2, $execution->steps);
-        $this->assertSame(TestStepOne::class, $execution->steps[0]->step);
-        $this->assertSame(TestStepTwo::class, $execution->steps[1]->step);
-        $this->assertSame(StepStatus::Completed->value, $execution->steps[0]->status);
-        $this->assertSame(StepStatus::Completed->value, $execution->steps[1]->status);
+        $this->assertSame(TestStepOne::class, $this->stepAt($execution, 0)->step);
+        $this->assertSame(TestStepTwo::class, $this->stepAt($execution, 1)->step);
+        $this->assertSame(StepStatus::Completed->value, $this->stepAt($execution, 0)->status);
+        $this->assertSame(StepStatus::Completed->value, $this->stepAt($execution, 1)->status);
 
         // Step outputs are persisted at each checkpoint...
-        $this->assertSame(['result' => 'one'], $execution->steps[0]->output);
-        $this->assertSame(['result' => 'two'], $execution->steps[1]->output);
+        $this->assertSame(['result' => 'one'], $this->stepAt($execution, 0)->output);
+        $this->assertSame(['result' => 'two'], $this->stepAt($execution, 1)->output);
 
         // ...and so is the accumulated context, both on the row and on the
         // returned handle.

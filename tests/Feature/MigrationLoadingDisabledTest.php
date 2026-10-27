@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature;
 
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\PendingCommand;
 use Laraflow\Core\LaraflowServiceProvider;
 use Orchestra\Testbench\TestCase;
 
@@ -18,14 +19,21 @@ class MigrationLoadingDisabledTest extends TestCase
     {
         $packagePath = realpath(__DIR__.'/../../database/migrations');
 
+        // This case boots its own application rather than the suite's,
+        // so it extends Testbench directly and narrows $app itself.
+        $app = $this->app;
+        $this->assertNotNull($app);
+
         $registered = array_filter(
-            $this->app->make('migrator')->paths(),
+            $app->make('migrator')->paths(),
             fn (string $path): bool => realpath($path) === $packagePath,
         );
 
         $this->assertSame([], $registered);
 
-        $this->artisan('migrate')->assertSuccessful();
+        $migrate = $this->artisan('migrate');
+        $this->assertInstanceOf(PendingCommand::class, $migrate);
+        $migrate->assertSuccessful();
 
         $this->assertFalse(Schema::hasTable('laraflow_workflow_executions'));
     }

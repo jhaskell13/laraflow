@@ -50,7 +50,7 @@ class WorkflowDispatcherTest extends TestCase
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
         $this->assertCount(2, $steps);
-        $this->assertSame(StepStatus::Pending->value, $steps[0]->status);
+        $this->assertSame(StepStatus::Pending->value, $this->row($steps, 0, 'step')->status);
     }
 
     public function test_dispatch_queues_a_job_carrying_only_the_execution_id(): void

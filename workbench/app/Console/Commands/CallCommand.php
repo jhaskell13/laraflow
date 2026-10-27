@@ -12,6 +12,7 @@ use Laraflow\Events\ConnectorRequestFailed;
 use Laraflow\Events\ConnectorRequestSent;
 use Laraflow\Exceptions\ConnectorException;
 use Laraflow\Integration\ConnectorRequest;
+use Workbench\App\Console\Commands\Concerns\ReadsInput;
 
 /**
  * Sends one request through a connector and shows what the framework
@@ -27,6 +28,8 @@ use Laraflow\Integration\ConnectorRequest;
  */
 class CallCommand extends Command
 {
+    use ReadsInput;
+
     protected $signature = 'playground:call
         {connector : A registered connector, e.g. github or slack}
         {uri : The request URI, relative to the connector, e.g. /user}
@@ -39,7 +42,7 @@ class CallCommand extends Command
 
     public function handle(LaraflowManager $laraflow, Dispatcher $events): int
     {
-        $name = (string) $this->argument('connector');
+        $name = $this->stringArgument('connector');
         $connection = $this->option('connection');
         $connection = is_string($connection) && $connection !== '' ? $connection : null;
 
@@ -52,8 +55,8 @@ class CallCommand extends Command
         }
 
         $request = new ConnectorRequest(
-            strtoupper((string) $this->option('method')),
-            (string) $this->argument('uri'),
+            strtoupper((string) $this->stringOption('method')),
+            $this->stringArgument('uri'),
             $body === null ? [] : ['json' => $body],
         );
 

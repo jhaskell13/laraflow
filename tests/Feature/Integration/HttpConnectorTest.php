@@ -145,10 +145,10 @@ class HttpConnectorTest extends TestCase
 
         $this->assertTrue($response->failed());
         $this->assertInstanceOf(NotFoundException::class, $response->error());
-        $this->assertSame(404, $response->error()?->status());
+        $this->assertSame(404, $response->error()->status());
         $this->assertSame(
             'Connector [crm:default] received 404 for GET /contacts/9: No such contact',
-            $response->error()?->getMessage(),
+            $response->error()->getMessage(),
         );
 
         try {
@@ -186,7 +186,7 @@ class HttpConnectorTest extends TestCase
     {
         $this->laraflow()->register('okfalse', fn (Connection $connection): Connector => new class($connection, $this->app->make(CredentialProvider::class), $this->app->make(HttpTransport::class), $this->app->make(HttpOptions::class), $this->app->make(TransportPipeline::class)) extends HttpConnector
         {
-            protected function baseUrl(): ?string
+            protected function baseUrl(): string
             {
                 return 'https://okfalse.example';
             }
@@ -216,7 +216,7 @@ class HttpConnectorTest extends TestCase
         $this->assertSame(200, $response->status());
         $this->assertTrue($response->failed(), 'A 200 the mapper rejects is a failure.');
         $this->assertInstanceOf(ClientErrorException::class, $response->error());
-        $this->assertStringContainsString('channel_not_found', (string) $response->error()?->getMessage());
+        $this->assertStringContainsString('channel_not_found', (string) $response->error()->getMessage());
     }
 
     public function test_transport_retries_are_off_by_default(): void

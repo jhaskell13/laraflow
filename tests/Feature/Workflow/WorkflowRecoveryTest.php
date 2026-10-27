@@ -56,10 +56,10 @@ class WorkflowRecoveryTest extends TestCase
         $steps = StepExecutionModel::query()->orderBy('position')->get();
 
         $this->assertCount(2, $steps);
-        $this->assertSame(StepOne::class, $steps[0]->step);
-        $this->assertSame(StepTwo::class, $steps[1]->step);
-        $this->assertSame(StepStatus::Pending->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Pending->value, $steps[1]->status);
+        $this->assertSame(StepOne::class, $this->row($steps, 0, 'step')->step);
+        $this->assertSame(StepTwo::class, $this->row($steps, 1, 'step')->step);
+        $this->assertSame(StepStatus::Pending->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Pending->value, $this->row($steps, 1, 'step')->status);
     }
 
     public function test_a_started_execution_can_be_executed_later_without_duplicating_records(): void
@@ -96,7 +96,7 @@ class WorkflowRecoveryTest extends TestCase
 
             $step = StepExecutionModel::query()->first();
             $this->assertSame('2026-10-22 12:00:00', $step?->started_at?->format('Y-m-d H:i:s'));
-            $this->assertSame('2026-10-22 12:00:00', $step?->completed_at?->format('Y-m-d H:i:s'));
+            $this->assertSame('2026-10-22 12:00:00', $step->completed_at?->format('Y-m-d H:i:s'));
         } finally {
             Date::setTestNow();
         }
@@ -122,6 +122,8 @@ class WorkflowRecoveryTest extends TestCase
 
     public function test_a_step_that_is_not_a_step_class_is_rejected_before_persisting(): void
     {
+        // Deliberately invalid: stdClass is not a Step, which is the point.
+        /** @phpstan-ignore assign.propertyType */
         MutableWorkflow::$steps = [StepOne::class, stdClass::class];
 
         try {
@@ -137,6 +139,8 @@ class WorkflowRecoveryTest extends TestCase
 
     public function test_a_step_class_that_does_not_exist_is_rejected_before_persisting(): void
     {
+        // Deliberately invalid: the class does not exist, which is the point.
+        /** @phpstan-ignore assign.propertyType */
         MutableWorkflow::$steps = ['App\\Workflows\\Steps\\DoesNotExist'];
 
         $this->expectException(InvalidWorkflowDefinitionException::class);
@@ -177,9 +181,9 @@ class WorkflowRecoveryTest extends TestCase
         $this->assertSame('from-step-one', StepTwo::$seenContextValue);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(1, $steps[0]->attempts);
-        $this->assertSame(2, $steps[1]->attempts);
-        $this->assertNull($steps[1]->error);
+        $this->assertSame(1, $this->row($steps, 0, 'step')->attempts);
+        $this->assertSame(2, $this->row($steps, 1, 'step')->attempts);
+        $this->assertNull($this->row($steps, 1, 'step')->error);
         $this->assertSame(ExecutionStatus::Completed->value, $model->fresh()?->status);
     }
 

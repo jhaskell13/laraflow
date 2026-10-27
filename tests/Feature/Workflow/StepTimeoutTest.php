@@ -164,9 +164,9 @@ class StepTimeoutTest extends TestCase
         // The dead attempt is closed out in history, not erased.
         $interrupted = StepAttemptModel::query()->orderBy('attempt')->first();
         $this->assertSame('interrupted', $interrupted?->status);
-        $this->assertSame(1, $interrupted?->attempt);
-        $this->assertSame('2026-10-23 14:00:00', $interrupted?->started_at?->format('Y-m-d H:i:s'));
-        $this->assertNull($interrupted?->duration_ms, 'A dead worker recorded no end.');
+        $this->assertSame(1, $interrupted->attempt);
+        $this->assertSame('2026-10-23 14:00:00', $interrupted->started_at?->format('Y-m-d H:i:s'));
+        $this->assertNull($interrupted->duration_ms, 'A dead worker recorded no end.');
     }
 
     public function test_an_interrupted_attempt_without_any_deadline_also_re_runs_freely(): void

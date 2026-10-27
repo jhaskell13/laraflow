@@ -497,6 +497,7 @@ class ExecutionQueryTest extends TestCase
             'completed' => $execution->markCompleted($when),
             'failed' => $execution->markFailed('boom', 'RuntimeException', $when),
             'cancelled' => $execution->markCancelled($when, 'test'),
+            default => throw new InvalidArgumentException("Unknown outcome [{$outcome}]."),
         };
 
         $repository->release($execution);
@@ -527,7 +528,7 @@ class ExecutionQueryTest extends TestCase
      */
     protected function ids(array $executions): array
     {
-        return array_map(fn (WorkflowExecution $execution) => $execution->id, $executions);
+        return array_values(array_map(fn (WorkflowExecution $execution) => $execution->id, $executions));
     }
 
     protected function repository(): ExecutionRepository

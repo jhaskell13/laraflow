@@ -125,6 +125,7 @@ class ExecutionFilterTest extends TestCase
         $this->expectExceptionMessage('workflow filter');
 
         // Deliberately the wrong type: the declared signature is a contract for callers, not a guarantee.
+        /** @phpstan-ignore argument.type */
         new ExecutionFilter(workflow: [42]);
     }
 
@@ -134,6 +135,7 @@ class ExecutionFilterTest extends TestCase
         $this->expectExceptionMessage('status filter');
 
         // Deliberately the wrong type: the declared signature is a contract for callers, not a guarantee.
+        /** @phpstan-ignore argument.type */
         new ExecutionFilter(status: ['failed']);
     }
 

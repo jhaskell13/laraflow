@@ -193,9 +193,9 @@ class RetrySchedulingTest extends TestCase
             ->get();
 
         $this->assertCount(2, $history);
-        $this->assertNotNull($history[0]->next_retry_at);
-        $this->assertNull($history[1]->next_retry_at);
-        $this->assertSame('step two blew up', $history[0]->error, 'Attempt 1 diagnostics survive attempt 2.');
+        $this->assertNotNull($this->row($history, 0, 'attempt')->next_retry_at);
+        $this->assertNull($this->row($history, 1, 'attempt')->next_retry_at);
+        $this->assertSame('step two blew up', $this->row($history, 0, 'attempt')->error, 'Attempt 1 diagnostics survive attempt 2.');
     }
 
     public function test_backoff_grows_across_real_attempts(): void

@@ -237,11 +237,13 @@ class LifecycleEventsTest extends TestCase
             WorkflowExecutionCompleted::class,
         ], array_map(fn (object $event): string => $event::class, $this->events));
 
-        $secondStarted = $this->events[0];
+        $second = $this->recorded();
+
+        $secondStarted = $second[0] ?? null;
         $this->assertInstanceOf(WorkflowExecutionStarted::class, $secondStarted);
         $this->assertEquals($firstStarted->startedAt, $secondStarted->startedAt);
 
-        $retried = $this->events[1];
+        $retried = $second[1] ?? null;
         $this->assertInstanceOf(WorkflowStepStarted::class, $retried);
         $this->assertSame(2, $retried->attempt);
     }
@@ -336,6 +338,20 @@ class LifecycleEventsTest extends TestCase
                 $event::class,
             ));
         }
+    }
+
+    /**
+     * The events recorded so far.
+     *
+     * Read through here rather than directly: a listener fills the
+     * property from inside the runner, which static analysis cannot
+     * see, so reading it straight after resetting it looks empty.
+     *
+     * @return list<object>
+     */
+    protected function recorded(): array
+    {
+        return $this->events;
     }
 
     // ------------------------------------------------------------------

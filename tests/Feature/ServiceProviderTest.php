@@ -16,7 +16,7 @@ class ServiceProviderTest extends TestCase
         File::delete($target);
 
         try {
-            $this->artisan('vendor:publish', ['--tag' => 'laraflow-config'])->assertSuccessful();
+            $this->command('vendor:publish', ['--tag' => 'laraflow-config'])->assertSuccessful();
 
             $this->assertFileExists($target);
             $this->assertFileEquals(__DIR__.'/../../config/laraflow.php', $target);
@@ -34,7 +34,7 @@ class ServiceProviderTest extends TestCase
         $expected->each(fn (string $path) => File::delete($path));
 
         try {
-            $this->artisan('vendor:publish', ['--tag' => 'laraflow-migrations'])->assertSuccessful();
+            $this->command('vendor:publish', ['--tag' => 'laraflow-migrations'])->assertSuccessful();
 
             $expected->each(fn (string $path) => $this->assertFileExists($path));
         } finally {
@@ -46,7 +46,7 @@ class ServiceProviderTest extends TestCase
     {
         $this->assertTrue(Schema::hasTable('laraflow_step_executions'));
 
-        $this->artisan('migrate:rollback')->assertSuccessful();
+        $this->command('migrate:rollback')->assertSuccessful();
 
         $this->assertFalse(Schema::hasTable('laraflow_step_executions'));
         $this->assertFalse(Schema::hasTable('laraflow_workflow_executions'));

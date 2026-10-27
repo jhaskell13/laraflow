@@ -16,6 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 #### Changed
 
+- **Static analysis covers the tests and the playground.** `composer analyse` runs PHPStan level 8 over `tests/` and `workbench/` as well as `src/` and `database/` — 260 files rather than 145. The 367 findings this surfaced are fixed rather than recorded: there is no baseline file, so a type error in a new test fails CI the same way one in the package does.
+
+  Two thirds of them were a single upstream declaration. Testbench types `$app` as `Application|null` because it is null before the application is created; `Laraflow\Tests\TestCase` narrows it, which is true by the time any test method runs and avoids putting a null check in front of several hundred ordinary container calls. Most of the rest were nullable Eloquent lookups read straight through — `steps[0]->status` — which die with a PHP error about null instead of naming the missing row; the base test case grew `stepAt()`, `row()`, and `command()`, which assert first. That is 39 assertions the suite was not previously making.
+
+  Six lines keep a `@phpstan-ignore`, each naming one identifier and carrying a comment: tests that deliberately pass a value the declared type forbids, to prove the runtime rejects it. `CONTRIBUTING.md` states that as the only accepted use.
+
 - **Breaking:** `TransportException::$attempts` is no longer a public property; read it with `attempts()`. It stays settable only through `afterAttempts()`, which the retrying transport calls. (In-place rather than returning a copy: PHP exceptions cannot be cloned, and rebuilding one would move the throw site and lose the stack trace.)
 - **Breaking:** a page budget below one is now `PaginationException` rather than `InvalidArgumentException`, consistent with every other pagination refusal. `pages()` is also no longer a generator itself, so that refusal — and a connector with no paginator — is raised when `pages()` is called rather than when a caller first begins iterating.
 - A connection may set `rate_limit: false` to lift a ceiling configured under `laraflow.http.rate_limit`. Previously an inherited ceiling could be raised but never removed, so an account with its own quota was held to the fleet's. `RateLimitPolicy::fromArray()` accepts `false` alongside an array and `null`.
@@ -27,6 +33,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `docs/connectors.md` attributed the "no Laraflow object in a connector's graph holds a credential" invariant to `ProjectContractsTest`; it is held by `SecretExposureTest`.
 - The client-side rate limit is documented as **best effort**: its check and its count are not one atomic cache operation and workers waiting out a window wake together, so enough concurrency can run a window slightly over. The provider's own `429` and the durable retry behind it remain the backstop. Stated in `docs/connectors.md`, `config/laraflow.php`, and on `ThrottlingTransport`.
 - `ConnectorContract`'s credential search is documented as stopping at the Laraflow namespace, and why, so what it does not catch is stated rather than implied.
+- `CONTRIBUTING.md` records the analysis scope, the no-baseline rule, the single accepted use of `@phpstan-ignore`, and the test-case helpers.
+
+#### Playground
+
+- `playground:watch` gains `--frames=N`, stopping after N frames; `0` keeps the existing behaviour of drawing until interrupted. The watch loop needed a condition that was actually a condition, and a bounded one is what lets a script capture a fixed number of frames without `--once`'s single-frame layout.
+- The three playground commands share a `ReadsInput` trait (`stringArgument()`, `stringOption()`) instead of casting console input — typed `array|bool|float|int|string|null` — straight to string.
 
 ### Milestone 5 — integration framework hardening
 

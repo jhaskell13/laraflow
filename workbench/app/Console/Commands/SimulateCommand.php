@@ -10,6 +10,7 @@ use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
+use Workbench\App\Console\Commands\Concerns\ReadsInput;
 use Workbench\App\Workflows\SimulatedWorkflow;
 
 /**
@@ -24,6 +25,8 @@ use Workbench\App\Workflows\SimulatedWorkflow;
  */
 class SimulateCommand extends Command
 {
+    use ReadsInput;
+
     /**
      * Each scenario is the input that produces it. `retry` and `hang`
      * only look different from `fail` when a retry budget or a step
@@ -118,7 +121,7 @@ class SimulateCommand extends Command
     }
 
     /**
-     * @return array<string, int>
+     * @return non-empty-array<string, int>
      *
      * @throws InvalidArgumentException
      */
@@ -126,7 +129,7 @@ class SimulateCommand extends Command
     {
         $mix = [];
 
-        foreach (explode(',', (string) $this->option('mix')) as $part) {
+        foreach (explode(',', (string) $this->stringOption('mix')) as $part) {
             $part = trim($part);
 
             if ($part === '') {
@@ -159,7 +162,7 @@ class SimulateCommand extends Command
     }
 
     /**
-     * @param  array<string, int>  $mix
+     * @param  non-empty-array<string, int>  $mix
      */
     protected function pick(array $mix): string
     {
@@ -181,7 +184,7 @@ class SimulateCommand extends Command
     {
         $tenants = array_values(array_filter(array_map(
             'trim',
-            explode(',', (string) $this->option('tenants')),
+            explode(',', (string) $this->stringOption('tenants')),
         )));
 
         return $tenants === [] ? ['acme'] : $tenants;

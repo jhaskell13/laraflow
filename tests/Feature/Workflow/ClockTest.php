@@ -11,7 +11,6 @@ use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
-use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
@@ -103,7 +102,6 @@ class ClockTest extends TestCase
     public function test_the_repository_measures_claim_staleness_with_its_clock(): void
     {
         $clock = new FixedClock('2026-10-23 12:00:00');
-        /** @var ExecutionRepository $repository */
         $repository = new EloquentExecutionRepository($clock);
 
         $execution = $repository->create(

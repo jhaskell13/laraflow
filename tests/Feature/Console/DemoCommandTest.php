@@ -52,9 +52,9 @@ class DemoCommandTest extends TestCase
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
 
-        $this->assertSame(StepStatus::Completed->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Failed->value, $steps[1]->status);
-        $this->assertSame(StepStatus::Pending->value, $steps[2]->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Failed->value, $this->row($steps, 1, 'step')->status);
+        $this->assertSame(StepStatus::Pending->value, $this->row($steps, 2, 'step')->status);
 
         // The checkpointed first step's result survives for the retry.
         $this->assertSame('RES-1-SKU-1001', $execution->context['reservation_id'] ?? null);

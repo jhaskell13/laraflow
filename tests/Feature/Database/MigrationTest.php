@@ -166,7 +166,7 @@ class MigrationTest extends TestCase
 
     public function test_rolling_back_drops_the_attempt_history_table(): void
     {
-        $this->artisan('migrate:rollback')->assertSuccessful();
+        $this->command('migrate:rollback')->assertSuccessful();
 
         $this->assertFalse(Schema::hasTable('laraflow_step_attempts'));
     }

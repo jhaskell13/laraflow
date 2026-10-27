@@ -22,7 +22,7 @@ The individual checks, which CI runs on PHP 8.2, 8.3, and 8.4:
 | Command | What it does |
 |---------|--------------|
 | `composer lint` | Laravel Pint in check mode (`composer format` applies fixes). |
-| `composer analyse` | PHPStan via Larastan at level 8 over `src/` and `database/`. |
+| `composer analyse` | PHPStan via Larastan at level 8 over `src/`, `database/`, `tests/`, and `workbench/`. |
 | `composer test` | PHPUnit. The configuration fails on risky tests, warnings, notices, and deprecations. |
 
 Tests use Orchestra Testbench with an in-memory SQLite database. No external services or credentials are required, and connector tests must keep it that way: fake HTTP with `Http::fake()` rather than calling real APIs.
@@ -43,7 +43,9 @@ Tests should prove behaviour, not just the absence of errors: assert on persiste
 ### Code style
 
 - Formatting is enforced by Laravel Pint (`pint.json`: Laravel preset plus `declare(strict_types=1)` and imported global classes). Run `composer format` before committing.
-- Static analysis must pass at PHPStan level 8. Do not add baseline entries or `@phpstan-ignore` comments; fix the type or the code. Treat user-supplied values (workflow step lists, connector factories) as untrusted and validate them at runtime.
+- Static analysis must pass at PHPStan level 8, over the tests and the playground as well as the package. There is no baseline file: a finding is fixed, not recorded. Treat user-supplied values (workflow step lists, connector factories) as untrusted and validate them at runtime.
+- `@phpstan-ignore` has exactly one accepted use: a test that **deliberately** passes a value the declared type forbids, in order to prove the runtime rejects it. Those lines carry a comment saying so, and the tag names the single identifier it suppresses. Anywhere else — and anywhere in `src/` — fix the type or the code.
+- Tests read `$this->app` as non-null (narrowed in `Laraflow\Tests\TestCase`) and reach for the base class's helpers rather than indexing models directly: `stepAt()`, `row()`, and `command()` assert the thing exists and tell you what was missing when it does not.
 - Prefer constructor injection over facades and the `app()` helper inside package classes. Facades are fine in tests.
 - Read timestamps through Laravel's `Date` facade so `Date::setTestNow()` controls them in tests.
 - Line endings are LF; `.gitattributes` enforces this.

@@ -19,6 +19,9 @@ use PHPUnit\Framework\TestCase;
 
 class StatusErrorMapperTest extends TestCase
 {
+    /**
+     * @param  class-string<object>|null  $expected
+     */
     #[DataProvider('classifications')]
     public function test_it_classifies_by_status(int $status, ?string $expected): void
     {
@@ -32,7 +35,7 @@ class StatusErrorMapperTest extends TestCase
     }
 
     /**
-     * @return array<string, array{int, class-string|null}>
+     * @return array<array-key, array{int, class-string<object>|null}>
      */
     public static function classifications(): array
     {
@@ -95,7 +98,7 @@ class StatusErrorMapperTest extends TestCase
         $error = $this->map($response);
 
         $this->assertSame($response, $error?->response);
-        $this->assertSame(404, $error?->status());
+        $this->assertSame(404, $error->status());
     }
 
     public function test_retry_after_in_seconds_and_as_a_date(): void

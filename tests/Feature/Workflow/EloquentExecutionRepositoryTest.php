@@ -29,7 +29,9 @@ class EloquentExecutionRepositoryTest extends TestCase
             steps: ['LoadCustomer', 'SyncWithCrm'],
         );
 
-        $this->assertNotNull($execution->id);
+        // Not assertNotNull: the id is typed non-null, so that would
+        // pass without the row ever having been given one.
+        $this->assertNotEmpty($execution->id);
         $this->assertSame('SyncCustomerWorkflow', $execution->workflow);
         $this->assertSame(['customer_id' => 123], $execution->input);
         $this->assertSame(ExecutionStatus::Pending, $execution->status);
@@ -158,11 +160,11 @@ class EloquentExecutionRepositoryTest extends TestCase
 
         $this->assertSame(
             ['customer_id' => 456],
-            WorkflowExecutionModel::query()->first()->context
+            WorkflowExecutionModel::query()->firstOrFail()->context
         );
         $this->assertSame(
             StepStatus::Completed->value,
-            StepExecutionModel::query()->first()->status
+            StepExecutionModel::query()->firstOrFail()->status
         );
     }
 
@@ -193,9 +195,9 @@ class EloquentExecutionRepositoryTest extends TestCase
         // The whole checkpoint rolled back: not even the step row changed.
         $this->assertSame(
             StepStatus::Running->value,
-            StepExecutionModel::query()->first()->status
+            StepExecutionModel::query()->firstOrFail()->status
         );
-        $this->assertSame([], WorkflowExecutionModel::query()->first()->context);
+        $this->assertSame([], WorkflowExecutionModel::query()->firstOrFail()->context);
     }
 
     public function test_release_persists_the_terminal_state_and_clears_the_claim(): void
@@ -208,7 +210,7 @@ class EloquentExecutionRepositoryTest extends TestCase
 
         $this->repository()->release($execution);
 
-        $model = WorkflowExecutionModel::query()->first();
+        $model = WorkflowExecutionModel::query()->firstOrFail();
 
         $this->assertSame(ExecutionStatus::Completed->value, $model->status);
         $this->assertNotNull($model->completed_at);

@@ -328,7 +328,7 @@ class PruneCommandTest extends TestCase
         // The same guard migrate and db:wipe use. Declining leaves the
         // data alone and exits non-zero, so a scheduled run that lost
         // its --force cannot look like a successful prune.
-        $this->artisan('laraflow:prune', ['--delete-after' => '90'])
+        $this->command('laraflow:prune', ['--delete-after' => '90'])
             ->expectsConfirmation('Are you sure you want to run this command?', 'no')
             ->assertFailed();
 
@@ -340,7 +340,7 @@ class PruneCommandTest extends TestCase
         $this->aged(1, 200);
         $this->app['env'] = 'production';
 
-        $this->artisan('laraflow:prune', ['--delete-after' => '90'])
+        $this->command('laraflow:prune', ['--delete-after' => '90'])
             ->expectsConfirmation('Are you sure you want to run this command?', 'yes')
             ->assertSuccessful();
 

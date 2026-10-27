@@ -103,7 +103,7 @@ class RateLimitRetryTest extends TestCase
         PolicyWorkflow::$steps = [ThrowingStep::class];
         ThrowingStep::$exception = new class('come back later') extends RuntimeException implements SuggestsRetryDelay
         {
-            public function suggestedRetryDelaySeconds(DateTimeInterface $now): ?int
+            public function suggestedRetryDelaySeconds(DateTimeInterface $now): int
             {
                 return 45;
             }

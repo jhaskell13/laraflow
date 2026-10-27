@@ -143,8 +143,8 @@ class CancellationTest extends TestCase
         $this->assertSame(0, StepTwo::$runs);
 
         $steps = StepExecutionModel::query()->orderBy('position')->get();
-        $this->assertSame(StepStatus::Completed->value, $steps[0]->status);
-        $this->assertSame(StepStatus::Pending->value, $steps[1]->status);
+        $this->assertSame(StepStatus::Completed->value, $this->row($steps, 0, 'step')->status);
+        $this->assertSame(StepStatus::Pending->value, $this->row($steps, 1, 'step')->status);
 
         $model = WorkflowExecutionModel::query()->sole();
         $this->assertSame(ExecutionStatus::Cancelled->value, $model->status);
@@ -266,7 +266,7 @@ class CancellationTest extends TestCase
         $runner = $this->app->make(WorkflowRunner::class);
         $execution = $runner->start(new TwoStepWorkflow);
 
-        $this->artisan('laraflow:cancel', [
+        $this->command('laraflow:cancel', [
             'execution' => (string) $execution->id,
             '--reason' => 'customer withdrew the order',
         ])->assertExitCode(0);
@@ -280,7 +280,7 @@ class CancellationTest extends TestCase
     {
         $execution = $this->app->make(WorkflowRunner::class)->run(new TwoStepWorkflow);
 
-        $this->artisan('laraflow:cancel', ['execution' => (string) $execution->id])
+        $this->command('laraflow:cancel', ['execution' => (string) $execution->id])
             ->assertExitCode(1);
     }
 

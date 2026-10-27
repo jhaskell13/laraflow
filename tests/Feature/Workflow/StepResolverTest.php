@@ -46,6 +46,9 @@ class StepResolverTest extends TestCase
         // The declared return type of steps() is a contract for authors,
         // not a guarantee the runtime may rely on.
         foreach ([['NotAClass'], [42], [new stdClass], [TwoStepWorkflow::class]] as $steps) {
+            // Deliberately invalid: this case exists to prove the runtime
+            // rejects what the declared type merely asks of callers.
+            /** @phpstan-ignore assign.propertyType */
             MutableWorkflow::$steps = $steps;
 
             try {

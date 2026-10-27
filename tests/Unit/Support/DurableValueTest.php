@@ -88,6 +88,9 @@ class DurableValueTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    /**
+     * @return array<string, array{mixed}>
+     */
     public static function durableValues(): array
     {
         return [
@@ -110,6 +113,9 @@ class DurableValueTest extends TestCase
         DurableValue::assert($value, 'input');
     }
 
+    /**
+     * @return array<string, array{mixed}>
+     */
     public static function unserializableValues(): array
     {
         return [

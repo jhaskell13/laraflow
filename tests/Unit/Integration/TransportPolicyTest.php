@@ -82,6 +82,9 @@ class TransportPolicyTest extends TestCase
         $this->assertSame(2, $policy->maxRetryAfterSeconds);
     }
 
+    /**
+     * @param  array<string, mixed>  $arguments
+     */
     #[DataProvider('invalid')]
     public function test_invalid_settings_are_rejected(array $arguments): void
     {

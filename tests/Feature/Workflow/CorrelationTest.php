@@ -250,10 +250,12 @@ class CorrelationTest extends TestCase
     protected function assertEventsCarry(?string $correlationId, ?string $tenantId): void
     {
         foreach ($this->events as $event) {
-            $this->assertObjectHasProperty('correlationId', $event, $event::class.' must carry a correlation id.');
-            $this->assertObjectHasProperty('tenantId', $event, $event::class.' must carry a tenant id.');
-            $this->assertSame($correlationId, $event->correlationId, $event::class.' carried the wrong correlation id.');
-            $this->assertSame($tenantId, $event->tenantId, $event::class.' carried the wrong tenant id.');
+            $carried = get_object_vars($event);
+
+            $this->assertArrayHasKey('correlationId', $carried, $event::class.' must carry a correlation id.');
+            $this->assertArrayHasKey('tenantId', $carried, $event::class.' must carry a tenant id.');
+            $this->assertSame($correlationId, $carried['correlationId'], $event::class.' carried the wrong correlation id.');
+            $this->assertSame($tenantId, $carried['tenantId'], $event::class.' carried the wrong tenant id.');
         }
     }
 

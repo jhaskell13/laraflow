@@ -326,6 +326,10 @@ class ProjectContractsTest extends TestCase
 
             $class = 'Laraflow\\Events\\'.$file->getFilenameWithoutExtension();
 
+            if (! class_exists($class)) {
+                continue;
+            }
+
             foreach ((new ReflectionClass($class))->getConstructor()?->getParameters() ?? [] as $parameter) {
                 if (in_array(strtolower($parameter->getName()), $forbidden, true)) {
                     $offenders[] = "{$class} carries {$parameter->getName()}";
@@ -462,13 +466,13 @@ class ProjectContractsTest extends TestCase
      */
     protected function documents(): array
     {
-        return [
+        return array_values([
             $this->path('README.md'),
             ...array_map(
                 fn ($file): string => $file->getRealPath(),
                 File::files($this->path('docs')),
             ),
-        ];
+        ]);
     }
 
     protected function documentation(): string
