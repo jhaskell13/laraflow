@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets the release workflow re-run the whole matrix against the tag
+  # before anything is drafted.
+  workflow_call:
 
 jobs:
   # Lint, static analysis, and package hygiene run once: they read the

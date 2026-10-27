@@ -68,7 +68,19 @@ Tests should prove behaviour, not just the absence of errors: assert on persiste
 - Read timestamps through Laravel's `Date` facade so `Date::setTestNow()` controls them in tests.
 - Line endings are LF; `.gitattributes` enforces this.
 
-### Contributing a connector
+### Cutting a release
+
+Releases are drafted by machinery and published by a person.
+
+1. **Convert the changelog.** Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, start a fresh empty `## [Unreleased]` above it, and update the compare links in the footer. The release workflow refuses a tag whose version has no changelog section.
+2. **Land that on `main`** through a pull request like any other change, and wait for CI — the tag must point at a commit the full matrix has already passed.
+3. **Tag it:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. The `Release` workflow re-runs the entire CI matrix against the tag and, only if everything passes, **drafts** a GitHub release with that version's changelog section as its notes. Nothing is published automatically.
+5. **Read the draft, then publish it.** Publishing is the human decision in the loop; a draft that looks wrong is deleted, the problem fixed, and the tag re-cut.
+
+The dist archive an application vendors is trimmed by `.gitattributes` `export-ignore` lines: source, config, migrations, `docs/`, and the top-level README, CHANGELOG, LICENSE, SECURITY, and CONTRIBUTING ship; tests, the workbench, CI configuration, and planning documents do not. Check it with `git archive HEAD | tar -t` after changing `.gitattributes`.
+
+## Contributing a connector
 
 Connectors are the one area where new code is actively wanted, and the recipe is short because the extension points do the work. Nothing below requires touching Laraflow internals — a test enforces that the bundled connectors do not either.
 

@@ -2,11 +2,14 @@
 
 ## Supported versions
 
-Laraflow has not yet had a tagged release. Security fixes are applied to the `main` branch only. Once releases are tagged, this table will list which minor versions receive fixes; the intent is to support the latest minor release and the previous one for 90 days after a new minor is published.
+Security fixes land on `main` and are released in the newest version. The policy from the first tag onward: the **latest minor release** receives fixes, and the **previous minor** continues to receive them for 90 days after a newer minor is published. Older versions do not receive fixes — upgrading is the remediation, and [docs/upgrading.md](docs/upgrading.md) is the procedure.
 
 | Version | Supported |
 |---------|-----------|
 | `main` (development) | Yes |
+| Latest tagged minor | Yes, once one exists |
+| Previous minor | For 90 days after the next minor |
+| Anything older | No — upgrade |
 
 ## Reporting a vulnerability
 
