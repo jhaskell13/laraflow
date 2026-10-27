@@ -19,7 +19,9 @@ use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
 {
-    use RefreshDatabase;
+    use RefreshDatabase {
+        beginDatabaseTransaction as traitBeginDatabaseTransaction;
+    }
 
     /**
      * Testbench declares this `Application|null` because it is null
@@ -43,6 +45,64 @@ abstract class TestCase extends Orchestra
         // resetting centrally means no test class can forget and leak state
         // into another under randomized ordering.
         FixtureState::reset();
+
+        if (Env::get('LARAFLOW_TEST_LOG_SQL')) {
+            $this->logDatabaseTraffic();
+        }
+    }
+
+    /**
+     * Reset every auto-increment before the test's transaction begins.
+     *
+     * Rolling a transaction back does not rewind id generators on
+     * PostgreSQL (sequences), MySQL and MariaDB (in-memory counters),
+     * or SQL Server (identity) — only SQLite starts from max(rowid)+1
+     * of an empty table. Without this, the first row each test creates
+     * has whatever id the process has counted up to, and a test cannot
+     * say anything about the ids it will be given. Done here rather
+     * than in setUp() because on MySQL and MariaDB these statements are
+     * DDL, and DDL inside the test's transaction commits it.
+     */
+    protected function beginDatabaseTransaction(): void
+    {
+        $this->createQueueTables();
+
+        $tables = [
+            'laraflow_workflow_executions',
+            'laraflow_step_executions',
+            'laraflow_step_attempts',
+            'jobs',
+            'failed_jobs',
+        ];
+
+        $connection = $this->app['db']->connection();
+
+        foreach ($tables as $table) {
+            match ($connection->getDriverName()) {
+                'pgsql' => $connection->statement("ALTER SEQUENCE {$table}_id_seq RESTART WITH 1"),
+                'mysql', 'mariadb' => $connection->statement("ALTER TABLE {$table} AUTO_INCREMENT = 1"),
+                'sqlsrv' => $connection->statement("DBCC CHECKIDENT ('{$table}', RESEED, 0)"),
+                default => true,
+            };
+        }
+
+        $this->traitBeginDatabaseTransaction();
+    }
+
+    /**
+     * Trace every query and transaction event to STDERR, for debugging
+     * an engine this machine cannot run. Enabled by LARAFLOW_TEST_LOG_SQL.
+     */
+    protected function logDatabaseTraffic(): void
+    {
+        $out = static fn (string $line) => fwrite(STDERR, '[sql] '.$line."\n");
+
+        $this->app['db']->listen(fn ($query) => $out($query->sql));
+
+        $events = $this->app['events'];
+        $events->listen(\Illuminate\Database\Events\TransactionBeginning::class, fn () => $out('BEGIN (level up)'));
+        $events->listen(\Illuminate\Database\Events\TransactionCommitted::class, fn () => $out('COMMIT'));
+        $events->listen(\Illuminate\Database\Events\TransactionRolledBack::class, fn () => $out('ROLLBACK'));
     }
 
     /**
@@ -105,13 +165,15 @@ abstract class TestCase extends Orchestra
 
     /**
      * Laravel's queue tables, for the tests that run a real database
-     * queue. Created here — once, after the refresh, before any test's
-     * transaction — rather than in a queue test's setUp(): MySQL and
-     * MariaDB commit the open transaction on any DDL, so a mid-test
-     * CREATE TABLE would break the rollback isolation every other test
-     * relies on. SQLite only tolerated it because its DDL rolls back.
+     * queue. Created from beginDatabaseTransaction(), before the
+     * transaction starts — not from a queue test's setUp(), and not
+     * from afterRefreshingDatabase(), which despite its name runs
+     * after the transaction has begun. MySQL and MariaDB commit the
+     * open transaction on any DDL, so a CREATE TABLE inside it breaks
+     * the rollback isolation every later assertion relies on. SQLite
+     * only tolerated it because its DDL rolls back.
      */
-    protected function afterRefreshingDatabase(): void
+    protected function createQueueTables(): void
     {
         if (! Schema::hasTable('jobs')) {
             Schema::create('jobs', function (Blueprint $table) {
