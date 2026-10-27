@@ -82,7 +82,7 @@ composer install
 composer playground     # creates a SQLite playground database and runs the migrations
 ```
 
-> Re-run `composer playground` after pulling changes. Until the schema is frozen (roadmap Milestone 6) Laraflow edits its migrations in place rather than adding new ones, so an existing database does **not** pick up schema changes — `migrate` considers those migrations already run. The playground database is disposable, so `composer playground` resets it.
+> Re-run `composer playground` after pulling changes: it resets the disposable playground database, which is quicker than reasoning about what a snapshot contains. (Your *application's* database needs no such thing — the schema is frozen and upgrades are ordinary `php artisan migrate` runs. See [docs/upgrading.md](docs/upgrading.md).)
 
 The demo workflow simulates an order: **reserve inventory → charge payment → send receipt**. With `--fail`, the payment step throws on its first attempt only, so every failure path below recovers on the next attempt.
 
@@ -982,7 +982,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 - **Two bundled connectors, both experimental.** GitHub and Slack exist to prove the contracts, not to cover their providers' APIs; they offer the generic request, error, and paging machinery plus a handful of helpers. Provider-specific conveniences are yours to add on top, and the connectors stay experimental until the first release.
 - **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
 - **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
-- **Schema is not frozen.** Migrations may change in place until the first tagged release; there is no upgrade path between development snapshots (Milestone 6).
+- **No tagged release yet.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the package has not been tagged, so `dev-main` is the only thing to install and the public API may still move before 1.0.
 
 ## Design principles
 
@@ -997,6 +997,8 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 ## Compatibility and support
 
 Laraflow follows [semantic versioning](https://semver.org) once tagged. Until `1.0`, minor versions may contain breaking changes and will say so in [CHANGELOG.md](CHANGELOG.md). The supported PHP, Laravel, and database versions, and the policy for dropping them, are in [docs/compatibility.md](docs/compatibility.md). Which classes are public, experimental, or internal is in [docs/public-api.md](docs/public-api.md).
+
+The database schema is frozen: the shipped migrations never change, later schema changes arrive as new dated migrations, and `php artisan migrate` is always enough. Upgrading, rolling back, and recovering work interrupted by a deploy are in [docs/upgrading.md](docs/upgrading.md).
 
 Security issues should be reported privately as described in [SECURITY.md](SECURITY.md).
 

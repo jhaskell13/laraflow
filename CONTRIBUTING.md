@@ -100,7 +100,9 @@ A connector in a third-party package registers itself from that package's own se
 
 ### Database migrations
 
-Until the schema is frozen (roadmap Milestone 6), edit the existing migration files in place rather than adding new ones. Mention schema changes explicitly in the changelog, because there is no upgrade path between development snapshots.
+**The schema is frozen.** The three shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.
+
+`tests/Feature/Database/SchemaFreezeTest.php` enforces this — it fails if the schema the shipped migrations produce changes at all — and `UpgradePathTest` is the harness a new migration is tested through: it applies one to an already-populated database and asserts the data survives both the upgrade and its rollback. A schema change needs an explicit changelog entry describing its operational impact, and `docs/upgrading.md` is the contract it has to honour.
 
 ### Commit messages
 

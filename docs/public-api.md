@@ -99,7 +99,7 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | `Laraflow\Workflow\Models\WorkflowExecutionModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\StepExecutionModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\StepAttemptModel` | Internal | Table layout will change. |
-| Database tables `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts` | Internal | Do not write to them. Reading for debugging is fine; columns are not frozen. |
+| Database tables `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts` | Internal | Do not write to them. Reading for debugging is fine. The schema is frozen, but it is frozen as an *implementation* — columns may still be added, and the `ExecutionRepository` contract is what carries the compatibility promise. |
 
 ## Integrations
 

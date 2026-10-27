@@ -6,7 +6,7 @@ Everything stated here is exercised by `tests/Feature/Workflow/ExecutionQueryTes
 
 ## The principle
 
-**Anything the console can show you, your application can show you.** Every Laraflow command runs on the same public `ExecutionRepository` methods described below; none touches an Eloquent model, and a test reads each command's source to keep it that way. If you find yourself querying `laraflow_*` tables directly, the API is missing something — open an issue rather than depending on the schema, which is not frozen.
+**Anything the console can show you, your application can show you.** Every Laraflow command runs on the same public `ExecutionRepository` methods described below; none touches an Eloquent model, and a test reads each command's source to keep it that way. If you find yourself querying `laraflow_*` tables directly, the API is missing something — open an issue rather than depending on the schema, which is frozen as an implementation detail but carries no compatibility promise of its own.
 
 ## Reading executions
 

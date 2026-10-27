@@ -95,7 +95,7 @@ Laraflow follows [Semantic Versioning 2.0](https://semver.org).
 - **Before 1.0:** `0.x` minor versions may contain breaking changes. Each is documented in `CHANGELOG.md` with upgrade notes. Patch versions are backwards compatible.
 - **After 1.0:** breaking changes only in major versions, with a deprecation period of at least one minor version where practical.
 
-Database schema changes are treated as breaking until the schema is frozen (see roadmap Milestone 6). Until then, migrations may be edited in place and there is no guaranteed upgrade path between development snapshots. Reinstall the tables when pulling a new snapshot.
+The database schema is **frozen**: the shipped migrations are immutable, and any later change arrives as a new dated migration that an installed application applies with `php artisan migrate`. Upgrading, rolling back, and recovering interrupted work are specified in [upgrading.md](upgrading.md). A schema change is still a notable change and is called out in `CHANGELOG.md` with its operational impact.
 
 ## Support channels
 
