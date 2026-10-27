@@ -29,7 +29,7 @@ The individual checks:
 
 Tests use Orchestra Testbench with an in-memory SQLite database by default. No external services or credentials are required, and connector tests must keep it that way: fake HTTP with `Http::fake()` rather than calling real APIs.
 
-The database driver is selectable, so the suite can prove the engines the compatibility policy names. `Laraflow\Tests\TestCase::testDatabaseConnection()` reads:
+The database driver is selectable, so the suite can prove the engines the compatibility policy names. `Laraflow\Tests\TestCase::databaseConnection()` reads:
 
 ```bash
 # Defaults: in-memory SQLite, nothing to install.

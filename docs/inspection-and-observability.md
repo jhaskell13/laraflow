@@ -47,7 +47,7 @@ $failures = $repository->count($filter);
 | Criterion | Matches | Index |
 |---|---|---|
 | `workflow` (one or several) | Exact class name | `(workflow, status)` |
-| `status` (one or several) | `ExecutionStatus` cases | `status`, `(workflow, status)` |
+| `status` (one or several) | `ExecutionStatus` cases | the `(status, *)` composite prefixes |
 | `correlationId` | Exact | `correlation_id` |
 | `tenantId` | Exact | `tenant_id` |
 | `createdAfter` / `createdBefore` | Half-open window `[after, before)` | `created_at` |
@@ -209,7 +209,7 @@ The summary deliberately has no per-workflow breakdown: that needs a `GROUP BY` 
 
 ## Connector calls
 
-Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is false for an error status, or for a `200` a connector's error mapper rejected — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, and `attempts`. `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
+Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` reflects the HTTP status alone; a `200` the connector's error mapper later rejects is announced as successful, because the event is emitted before mapping — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, and `attempts`. `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
 
 Both carry identifiers and measurements only. The target is the **path**, never the query string, which may carry a token; there are no headers, options, or bodies on either; and the failure message passes through the configured `ErrorRedactor` and honours `events.include_error_messages`, exactly as workflow failure events do.
 

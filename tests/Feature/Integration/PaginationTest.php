@@ -194,6 +194,27 @@ class PaginationTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_a_downgraded_or_reported_next_page_link_is_refused(): void
+    {
+        foreach ([
+            'scheme downgrade' => 'http://api.github.com/repos?page=2',
+            'different port' => 'https://api.github.com:8443/repos?page=2',
+        ] as $case => $link) {
+            Http::fake([
+                'api.github.com/*' => Http::response([['id' => 1]], 200, [
+                    'Link' => "<{$link}>; rel=\"next\"",
+                ]),
+            ]);
+
+            try {
+                iterator_to_array($this->github()->pages(new ConnectorRequest('GET', '/repos')));
+                $this->fail("Expected PaginationException for {$case}.");
+            } catch (PaginationException $exception) {
+                $this->assertStringContainsString('carries credentials', $exception->getMessage(), $case);
+            }
+        }
+    }
+
     public function test_a_connector_without_a_base_url_cannot_verify_a_link_and_refuses_it(): void
     {
         Http::fake([

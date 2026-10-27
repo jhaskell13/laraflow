@@ -164,6 +164,23 @@ class ConnectorResponseTest extends TestCase
         }
     }
 
+    public function test_the_obsolete_http_date_forms_are_accepted_and_weekdays_never_shift_the_date(): void
+    {
+        $now = new DateTimeImmutable('2026-10-25 12:00:00 GMT');
+
+        foreach ([
+            'RFC 850' => 'Sunday, 25-Oct-26 12:05:00 GMT',
+            'asctime' => 'Sun Oct 25 12:05:00 2026',
+            // A weekday that disagrees with the date: PHP would silently
+            // shift the date to the named day if the weekday were parsed.
+            'lying weekday' => 'Fri, 25 Oct 2026 12:05:00 GMT',
+        ] as $case => $header) {
+            $response = new ConnectorResponse(429, ['Retry-After' => $header]);
+
+            $this->assertSame(300, $response->retryAfterSeconds($now), $case);
+        }
+    }
+
     public function test_an_rfc2822_retry_after_keeps_its_own_offset(): void
     {
         $response = new ConnectorResponse(429, ['Retry-After' => 'Sun, 25 Oct 2026 08:05:00 -0400']);

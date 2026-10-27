@@ -25,7 +25,9 @@ Milestone 4 is complete (October 2026). Applications inspect and operate executi
 
 Milestone 5 is complete (October 2026). The connector layer is a coherent capability rather than a prototype: connectors are registered once and resolved per named connection, credentials are resolved per request through a `CredentialProvider` and wrapped in a `Secret` that no PHP rendering can print, HTTP behaviour (base URL, timeouts, headers, transport retries, a client-side rate limit, a page budget, a pinned provider API version) resolves connector class → connection → `laraflow.http` defaults, responses keep their raw body and map onto five shared exception types, a provider's `Retry-After` drives the durable step retry, pagination is lazy and refuses rather than truncates, every call is announced and named in the log context, and `Laraflow\Testing\ConnectorContract` ships so third-party connectors are held to the same standard as the bundled GitHub and Slack ones. The contract lives in `docs/connectors.md`; a test fails if a bundled connector ever depends on anything internal.
 
-What remains is release readiness: the CI matrix, the schema freeze, and the upgrade path. Milestone 6 addresses those.
+Milestone 6 is complete (October 2026). CI proves the declared matrix — PHP 8.2–8.5 against Laravel 12 and 13, a `prefer-lowest` floor cell that must also pass static analysis, the full suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job that walks a fresh `laravel/laravel` application from `composer require` to a persisted, recovered execution. The schema is frozen and the freeze is enforced by test; `docs/upgrading.md` is the upgrade/rollback/recovery contract, with `UpgradePathTest` as its harness. Versioning and deprecation are operational (`docs/compatibility.md`), the API document is enforced in both directions, and a tag-triggered workflow re-runs the matrix and drafts a release a human publishes. Laravel 13 support was added along the way — the engines and versions found ten real defects between them, the worst being compare-and-set guards misread on MySQL (affected-rows vs matched-rows, fixed with a version counter) and a `Retry-After` parsed in local time. The closing audit reviewed the entire project and fixed six more, including a release that could erase a concurrent cancellation request; what it deferred is recorded under Milestone 7.
+
+The next horizon is Milestone 7, driven by real user needs.
 
 ## Product principles
 
@@ -185,7 +187,7 @@ The second connector is Slack, chosen for behaving nothing like GitHub: failure 
 - Connector tests run without real credentials or network access.
 - Authentication secrets are not exposed by serialization, logs, or exception messages.
 
-## Milestone 6 — Compatibility, quality, and release readiness
+## Milestone 6 — Compatibility, quality, and release readiness ✅
 
 ### Work
 
@@ -204,6 +206,14 @@ The second connector is Slack, chosen for behaving nothing like GitHub: failure 
 - A release can be installed, upgraded, and rolled back or recovered from using documented procedures.
 
 ## Milestone 7 — Advanced workflow capabilities (evaluate after core stability)
+
+Hardening deferred from the Milestone 6 closing audit, to take before or alongside new capability work:
+
+- Claim-guard the step-row writes (`saveStep`) so a stale worker cannot scribble step status or attempt history before its first checkpoint fails (documented in `docs/execution-lifecycle.md`, *Known limits of the claim discipline*).
+- Bound the claim-to-first-step recovery loop (same document): a deterministic fault before the first step write is currently re-dispatched unbounded.
+- Fire `WorkflowExecutionDispatched` after the commit it waits for, instead of documenting that it may precede it.
+- Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.
+- Case-insensitive header merging across `HttpOptions` and the transport.
 
 These are intentionally later and should be driven by real user needs:
 
@@ -228,7 +238,7 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 7. ~~Add bounded retry policy for failed work — attempts, backoff, timeouts, cancellation.~~ Done.
 8. ~~Stabilize inspection/observability APIs, including retention for the attempt history.~~ Done.
 9. ~~Harden the connector contracts.~~ Done.
-10. Release automation and the schema freeze. Milestone 6 is the next priority.
+10. ~~Release automation and the schema freeze.~~ Done. Milestone 6 is complete; the roadmap's remaining horizon is Milestone 7.
 
 ## Out of scope until the core is proven
 

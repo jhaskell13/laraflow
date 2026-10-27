@@ -291,6 +291,26 @@ abstract class HttpConnector implements Connector
         if (strcasecmp($host, $expected) !== 0) {
             throw PaginationException::foreignHost($this->connection, $expected, $host);
         }
+
+        // Same hostname is not enough. A link downgraded to http would
+        // put the Authorization header on the wire in clear text, and a
+        // different port is a different service that happens to share a
+        // name; both are refused like any other foreign destination.
+        $base = (string) $this->options->baseUrl;
+        $baseScheme = strtolower((string) (parse_url($base, PHP_URL_SCHEME) ?: 'https'));
+        $linkScheme = strtolower((string) (parse_url($request->uri, PHP_URL_SCHEME) ?: $baseScheme));
+
+        $defaultPort = fn (string $scheme): int => $scheme === 'http' ? 80 : 443;
+        $basePort = parse_url($base, PHP_URL_PORT) ?: $defaultPort($baseScheme);
+        $linkPort = parse_url($request->uri, PHP_URL_PORT) ?: $defaultPort($linkScheme);
+
+        if ($linkScheme !== $baseScheme || $linkPort !== $basePort) {
+            throw PaginationException::foreignHost(
+                $this->connection,
+                "{$baseScheme}://{$expected}:{$basePort}",
+                "{$linkScheme}://{$host}:{$linkPort}",
+            );
+        }
     }
 
     /**

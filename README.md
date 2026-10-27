@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: pre-release.** Laraflow is under active development and has not been tagged. The API is expected to change before the first release. See [Current limitations](#current-limitations) and [docs/public-api.md](docs/public-api.md) before depending on it.
+> **Status: tag-ready pre-release.** The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. No version has been tagged yet, so the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -129,9 +129,9 @@ vendor/bin/testbench laraflow:show 4 --attempts
 The history shows both attempts and the retry the failure scheduled:
 
 ```
-| Step             | Attempt | Outcome   | Started             | Duration | Scheduled retry     |
-| ReserveInventory | 1       | completed | 2026-10-23 23:29:24 | 11 ms    |                     |
-| ChargePayment    | 1       | failed    | 2026-10-23 23:29:24 | 3 ms     | 2026-10-23 23:29:29 |
+| Step             | Attempt | Outcome   | Started             | Duration | Scheduled retry     | Error               |
+| ReserveInventory | 1       | completed | 2026-10-23 23:29:24 | 11 ms    |                     |                     |
+| ChargePayment    | 1       | failed    | 2026-10-23 23:29:24 | 3 ms     | 2026-10-23 23:29:29 | Payment gateway ... |
 ```
 
 The backoff is enforced, and overriding it is explicit:
@@ -344,7 +344,7 @@ Publish the configuration file if you need to change defaults:
 php artisan vendor:publish --tag=laraflow-config
 ```
 
-This creates `config/laraflow.php`:
+This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector and carries a documenting comment block per section):
 
 ```php
 return [

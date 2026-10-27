@@ -227,6 +227,8 @@ Step exception messages are persisted (execution, step, attempt history), logged
 'errors' => ['redactor' => \App\Support\StripSecretsRedactor::class],
 ```
 
+One sink is outside the chokepoint, by design but worth knowing: when the last queue delivery of an execution fails, `ExecuteWorkflowJob` rethrows the step exception so Laravel's failed-job tooling sees it — and **Laravel persists that exception's raw message and stack trace to `failed_jobs` itself**, unredacted. The redactor governs every sink Laraflow writes; it cannot govern that one. If step exceptions may carry secrets, prune or secure `failed_jobs` accordingly.
+
 ```php
 use Laraflow\Support\ErrorRedactor;
 

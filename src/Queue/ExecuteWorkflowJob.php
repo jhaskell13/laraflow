@@ -104,7 +104,7 @@ class ExecuteWorkflowJob implements ShouldQueue
                 'execution_id' => $execution->id,
             ]);
         } catch (ExecutionNotRunnableException) {
-            $logger->info('Laraflow ignored a delivery for an execution that is already complete.', [
+            $logger->info('Laraflow ignored a delivery for an execution that is already finished (completed or cancelled).', [
                 'execution_id' => $execution->id,
             ]);
         } catch (ClaimLostException) {
@@ -245,8 +245,22 @@ class ExecuteWorkflowJob implements ShouldQueue
 
         $config = $container->make(Config::class);
 
-        $this->tries = (int) $config->get('laraflow.queue.tries', $this->tries);
-        $this->timeout = (int) $config->get('laraflow.queue.timeout', $this->timeout);
-        $this->backoff = (int) $config->get('laraflow.queue.backoff', $this->backoff);
+        $this->tries = $this->intSetting($config, 'laraflow.queue.tries', $this->tries);
+        $this->timeout = $this->intSetting($config, 'laraflow.queue.timeout', $this->timeout);
+        $this->backoff = $this->intSetting($config, 'laraflow.queue.backoff', $this->backoff);
+    }
+
+    /**
+     * Read an integer setting, treating blank as unset — the same rule
+     * the service provider applies everywhere else. A stray empty env
+     * line reaches config as '', and a blind (int) cast turns it into 0,
+     * which for $tries means *unlimited* queue retries: the exact
+     * authority this package promises the queue never has by default.
+     */
+    protected function intSetting(Config $config, string $key, int $default): int
+    {
+        $value = $config->get($key, $default);
+
+        return $value === '' || $value === null ? $default : (int) $value;
     }
 }

@@ -41,6 +41,43 @@ class CancellationTest extends TestCase
     // Immediate cancellation of unclaimed work
     // ------------------------------------------------------------------
 
+    public function test_a_request_made_mid_step_survives_the_retry_that_follows(): void
+    {
+        // The review-R?? race: an operator cancels while a worker is mid
+        // step; the step then fails and its retry schedule releases the
+        // claim. The worker's handle predates the request, and releasing
+        // its stale null used to erase it durably — after which every
+        // retry ran to completion against an operator who had been told
+        // the execution would stop at the next boundary.
+        PolicyWorkflow::$steps = [StepOne::class, StepTwo::class];
+        PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 60, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+
+        $repository = $this->app->make(ExecutionRepository::class);
+        $runner = $this->app->make(WorkflowRunner::class);
+        $execution = $runner->start(new PolicyWorkflow);
+
+        StepTwo::$beforeRun = function () use ($repository, $execution): void {
+            $repository->requestCancellation(
+                $execution->id,
+                'operator changed their mind',
+                new DateTimeImmutable('2026-10-27 12:00:30'),
+            );
+        };
+
+        $result = $runner->execute($execution->id, new PolicyWorkflow);
+
+        $this->assertSame(ExecutionStatus::Retrying, $result->status);
+
+        $stored = WorkflowExecutionModel::query()->findOrFail($execution->id);
+
+        $this->assertNotNull(
+            $stored->cancel_requested_at,
+            'Releasing the claim for a retry must not erase a cancellation requested mid-step: nothing clears the request until a worker acts on it.',
+        );
+        $this->assertSame('operator changed their mind', $stored->cancel_reason);
+    }
+
     public function test_a_pending_execution_is_cancelled_immediately(): void
     {
         $runner = $this->app->make(WorkflowRunner::class);
@@ -164,7 +201,7 @@ class CancellationTest extends TestCase
 
         // Requested during the final step: there is no later boundary,
         // so the execution legitimately completes.
-        StepTwo::$beforeReturn = function () use ($runner) {
+        StepTwo::$beforeRun = function () use ($runner) {
             $runner->cancel(WorkflowExecutionModel::query()->value('id'), 'too late');
         };
 

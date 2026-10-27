@@ -305,25 +305,39 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function release(
         WorkflowExecution $execution
     ): void {
+        $values = [
+            'status' => $execution->status->value,
+            'context' => $this->asJson($execution->context),
+            'error' => $execution->error,
+            'error_class' => $execution->errorClass,
+            'completed_at' => $execution->completedAt,
+            'failed_at' => $execution->failedAt,
+            'finished_at' => $execution->finishedAt,
+            'duration_ms' => $execution->durationMs(),
+            'next_retry_at' => $execution->nextRetryAt,
+            'claim_token' => null,
+            'claimed_at' => null,
+        ];
+
+        // Cancellation columns are written only when this worker's handle
+        // carries them. The handle was hydrated at claim time; an operator
+        // may have called cancel() since, and requestCancellation() wrote
+        // cancel_requested_at behind this worker's back. Releasing the
+        // handle's stale nulls would erase that request — and the contract
+        // says nothing clears it until a worker acts on it.
+        if ($execution->cancelledAt !== null) {
+            $values['cancelled_at'] = $execution->cancelledAt;
+            $values['cancel_reason'] = $execution->cancelReason;
+        }
+
+        if ($execution->cancelRequestedAt !== null) {
+            $values['cancel_requested_at'] = $execution->cancelRequestedAt;
+        }
+
         $updated = WorkflowExecutionModel::query()
             ->whereKey($execution->id)
             ->where('claim_token', $execution->claimToken)
-            ->update($this->counted([
-                'status' => $execution->status->value,
-                'context' => $this->asJson($execution->context),
-                'error' => $execution->error,
-                'error_class' => $execution->errorClass,
-                'completed_at' => $execution->completedAt,
-                'failed_at' => $execution->failedAt,
-                'finished_at' => $execution->finishedAt,
-                'duration_ms' => $execution->durationMs(),
-                'next_retry_at' => $execution->nextRetryAt,
-                'cancel_requested_at' => $execution->cancelRequestedAt,
-                'cancelled_at' => $execution->cancelledAt,
-                'cancel_reason' => $execution->cancelReason,
-                'claim_token' => null,
-                'claimed_at' => null,
-            ]));
+            ->update($this->counted($values));
 
         if ($updated === 0) {
             throw ClaimLostException::forId($execution->id);

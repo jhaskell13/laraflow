@@ -112,7 +112,7 @@ class ExecuteWorkflowJobTest extends TestCase
 
         $this->assertTrue($this->logger->hasRecordContaining(
             'info',
-            'already complete',
+            'already finished',
         ));
     }
 
@@ -227,6 +227,24 @@ class ExecuteWorkflowJobTest extends TestCase
     // ------------------------------------------------------------------
     // Queue settings
     // ------------------------------------------------------------------
+
+    public function test_a_blank_setting_means_the_default_not_zero(): void
+    {
+        // A stray empty env line reaches config as ''. (int) '' is 0,
+        // and $tries = 0 is Laravel for *unlimited* queue retries — the
+        // exact authority this package promises the queue never has.
+        config([
+            'laraflow.queue.tries' => '',
+            'laraflow.queue.timeout' => '',
+            'laraflow.queue.backoff' => '',
+        ]);
+
+        $job = new ExecuteWorkflowJob(1);
+
+        $this->assertSame(1, $job->tries, 'Blank must mean the default, never unlimited retries.');
+        $this->assertSame(60, $job->timeout);
+        $this->assertSame(0, $job->backoff);
+    }
 
     public function test_the_job_reads_queue_settings_from_configuration(): void
     {

@@ -56,15 +56,15 @@ class RecoverCommand extends Command
         try {
             $staleAfter = $this->positiveIntOption(
                 'stale-after',
-                (int) $config->get('laraflow.execution.stale_after', 300),
+                $this->intSetting($config, 'laraflow.execution.stale_after', 300),
             );
             $limit = $this->positiveIntOption(
                 'limit',
-                (int) $config->get('laraflow.recovery.limit', 100),
+                $this->intSetting($config, 'laraflow.recovery.limit', 100),
             );
             $abandonAfter = $this->positiveIntOption(
                 'abandon-after',
-                (int) $config->get('laraflow.recovery.abandon_after_attempts', 3),
+                $this->intSetting($config, 'laraflow.recovery.abandon_after_attempts', 3),
             );
             $pendingAfter = $this->pendingAfterOption($config);
         } catch (InvalidArgumentException $exception) {
@@ -275,7 +275,22 @@ class RecoverCommand extends Command
 
         $configured = $config->get('laraflow.recovery.pending_after');
 
-        return $configured === null ? null : (int) $configured;
+        // Blank means unset, exactly like null: a stray empty env line
+        // must not switch on the pending scan at zero seconds — the one
+        // configuration the option validator above exists to refuse.
+        return $configured === null || $configured === '' ? null : (int) $configured;
+    }
+
+    /**
+     * An integer config default, blank treated as unset. A blank env
+     * line reaches config as '', and (int) '' is 0 — which for these
+     * settings means "everything is stale / everything is abandoned".
+     */
+    protected function intSetting(Config $config, string $key, int $default): int
+    {
+        $value = $config->get($key, $default);
+
+        return $value === null || $value === '' ? $default : (int) $value;
     }
 
     protected function validatePositiveInt(string $name, mixed $value): int

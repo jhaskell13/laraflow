@@ -201,6 +201,26 @@ class RecoverCommandTest extends TestCase
         );
     }
 
+    public function test_a_blank_pending_after_config_does_not_enable_the_scan(): void
+    {
+        Queue::fake();
+
+        // '' is what a stray empty env line becomes; cast blindly it is
+        // 0, which would switch the pending scan on at zero seconds —
+        // the one value the option validator refuses deliberately.
+        config(['laraflow.recovery.pending_after' => '']);
+
+        Date::setTestNow('2026-10-22 10:00:00');
+        $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+        Date::setTestNow('2026-10-22 11:00:00');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover');
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Nothing to recover', $output);
+        Queue::assertNothingPushed();
+    }
+
     public function test_pending_executions_are_not_recovered_unless_asked(): void
     {
         Queue::fake();

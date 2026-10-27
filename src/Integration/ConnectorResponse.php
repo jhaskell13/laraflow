@@ -31,7 +31,22 @@ final class ConnectorResponse
      * `Sun, 06 Nov 1994 08:49:37 GMT`. Always GMT by specification;
      * the zone is supplied to createFromFormat() rather than parsed.
      */
-    private const HTTP_DATE = 'D, d M Y H:i:s \\G\\M\\T';
+    /**
+     * HTTP-date formats, weekday already stripped. RFC 9110 requires
+     * accepting the preferred RFC 5322/7231 form and the obsolete
+     * RFC 850 and asctime forms. The weekday is stripped before parsing
+     * because PHP's parser does not treat it as redundant: a name that
+     * disagrees with the date silently SHIFTS the result to that
+     * weekday. It is also why DateTimeInterface::RFC7231 is not used —
+     * that constant additionally escapes "GMT" instead of reading it as
+     * a zone (deprecated in PHP 8.5 for exactly that reason).
+     */
+    private const HTTP_DATE_FORMATS = [
+        'd M Y H:i:s \G\M\T', // preferred: 06 Nov 1994 08:49:37 GMT
+        'd-M-y H:i:s \G\M\T', // obsolete RFC 850: 06-Nov-94 08:49:37 GMT
+        'M j H:i:s Y',        // obsolete asctime: Nov  6 08:49:37 1994
+        'd M Y H:i:s O',      // RFC 2822 with explicit offset
+    ];
 
     /**
      * @var array<string, list<string>>
@@ -217,19 +232,18 @@ final class ConnectorResponse
             return (int) $value;
         }
 
-        // The HTTP-date format spelled out rather than
-        // DateTimeInterface::RFC7231: that constant escapes the literal
-        // "GMT" instead of parsing it as a zone, so the value would be
-        // read in the application's default timezone and the wait would
-        // be off by its offset. PHP 8.5 deprecates the constant for
-        // exactly that reason. Passing the zone explicitly is the fix
-        // either way. RFC2822 carries its own offset and is unaffected.
         $gmt = new DateTimeZone('GMT');
+        $bare = preg_replace('/^[A-Za-z]+,?\s+/', '', $value) ?? $value;
 
-        $until = DateTimeImmutable::createFromFormat(self::HTTP_DATE, $value, $gmt)
-            ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value, $gmt);
+        foreach (self::HTTP_DATE_FORMATS as $format) {
+            $until = DateTimeImmutable::createFromFormat($format, $bare, $gmt);
 
-        return $until === false ? null : max(0, $until->getTimestamp() - $now->getTimestamp());
+            if ($until !== false) {
+                return max(0, $until->getTimestamp() - $now->getTimestamp());
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -22,8 +22,8 @@ $execution->isPending(); // true — nothing has run yet
 
 | Method | Behaviour |
 |--------|-----------|
-| `dispatch(Workflow $workflow, array $input = [], ?string $connection = null, ?string $queue = null): WorkflowExecution` | Create the execution, then queue it. Nothing runs in the calling process. Validation failures (`InvalidWorkflowDefinitionException`, `UnserializableValueException`) happen *before* anything is persisted or queued. |
-| `dispatchExecution(int\|string $id, ?string $connection = null, ?string $queue = null): WorkflowExecution` | Queue an execution that already exists — a failed one to retry, an interrupted one to recover. Refuses a `completed` execution with `ExecutionNotRunnableException`; accepts `running` on purpose (see below). |
+| `dispatch(Workflow $workflow, array $input = [], ?string $connection = null, ?string $queue = null, ?ExecutionOptions $options = null): WorkflowExecution` | Create the execution, then queue it. Nothing runs in the calling process. Validation failures (`InvalidWorkflowDefinitionException`, `UnserializableValueException`) happen *before* anything is persisted or queued. |
+| `dispatchExecution(int\|string $id, ?string $connection = null, ?string $queue = null, ?DateTimeInterface $availableAt = null): WorkflowExecution` | Queue an execution that already exists — a failed one to retry, an interrupted one to recover, optionally delayed until `$availableAt`. Refuses a `completed` or `cancelled` execution with `ExecutionNotRunnableException`; accepts `running` on purpose (see below). |
 
 `dispatchExecution()` accepts a `running` execution deliberately: that is exactly the state a dead worker leaves behind, so refusing it would make recovery impossible. Dispatching is cheap and the claim decides which worker actually proceeds — a job that arrives while a live worker holds the claim simply no-ops.
 
@@ -272,6 +272,11 @@ Event::listen(function (WorkflowExecutionFailed $event) {
     ]);
 });
 ```
+
+## Known limits (recorded at the Milestone 6 audit)
+
+- **`WorkflowExecutionDispatched` can fire before anything is durable.** With `laraflow.queue.after_commit` (the default) and `dispatch()` called inside an application transaction, the job push is correctly deferred to the commit — but the event is emitted when `dispatch()` returns, which is before that commit. A listener that reads the database on this event may find nothing yet, and if the application rolls back, the event has announced an execution that never existed. Treat it as "a dispatch was requested", not "a dispatch is durable"; every other lifecycle event fires after its durable write.
+- **The abandon bound does not cover the claim-to-first-step window.** See *Known limits of the claim discipline* in [execution-lifecycle.md](execution-lifecycle.md): a deterministic fault in that window is re-dispatched on every recovery run rather than abandoned.
 
 ## Operational checklist
 

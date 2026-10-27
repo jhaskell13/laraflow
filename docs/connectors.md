@@ -186,6 +186,8 @@ Connector [github:default] received 404 for GET /repos/acme/missing: Not Found
 
 The provider's own explanation is taken from the usual JSON fields and truncated. Like every message Laraflow retains, it passes the configured `ErrorRedactor` before it reaches the execution record, a log, or an event.
 
+Two sharp edges, recorded at the Milestone 6 audit: `throw()` raises a generic `RequestFailedException` for **any** non-2xx the mapper declined to classify — including a `304 Not Modified`, which the mapper deliberately does not consider an error, so conditional-GET connectors should inspect rather than `throw()`. And header names merge **case-sensitively** at every layer: a connection configuring `accept:` under a class declaring `Accept:` sends both headers rather than overriding. Spell header names the way the layer below you spelled them.
+
 ## Retries and rate limits
 
 Both are specified alongside the step retry policy in [retry-and-failure-policy.md](retry-and-failure-policy.md#transport-retries-are-the-inner-loop), because the point of the design is how the two loops relate. In summary:
@@ -212,9 +214,11 @@ Five things are **refused rather than tolerated**, all as `PaginationException`:
 
 A failed page throws rather than ending the iteration quietly. And **do not accumulate pages into a step's output**: a result set large enough to need paging is large enough to meet `laraflow.execution.max_payload_bytes`. Handle each item, or store identifiers.
 
+When paginating, pass query parameters through `options['query']` rather than embedding them in the URI string: Guzzle's `query` option *replaces* a URI query, so a paginator adding `cursor`/`page` to `options['query']` silently drops `?limit=200` written into the URI from page 2 onward. (The bundled connectors use `options['query']` throughout.)
+
 ## What a call announces
 
-`ConnectorRequestSent` fires for every response the provider gave — `successful` is false for an error status or a rejected `200` — and `ConnectorRequestFailed` when there was no response at all. Both carry connector, connection, method, **path without the query string**, duration for the whole call, and wire attempts; neither carries headers, options, or bodies. The failure message is redacted and honours `laraflow.events.include_error_messages`. Neither carries a correlation id, deliberately: a connector may be called outside any workflow, and inside one Laravel's log context already has it.
+`ConnectorRequestSent` fires for every response the provider gave. Its `successful` flag reflects the **HTTP status alone**: the event is emitted by the outermost transport layer, before the connector's error mapper runs, so a `200` the mapper rejects (Slack's `ok: false`) is announced as successful — the mapped error lives on the response, not in this event. A listener that must count in-body failures should inspect responses, not this flag. `ConnectorRequestFailed` fires when there was no response at all — and `ConnectorRequestFailed` when there was no response at all. Both carry connector, connection, method, **path without the query string**, duration for the whole call, and wire attempts; neither carries headers, options, or bodies. The failure message is redacted and honours `laraflow.events.include_error_messages`. Neither carries a correlation id, deliberately: a connector may be called outside any workflow, and inside one Laravel's log context already has it.
 
 While a request is in flight, `laraflow.connector` and `laraflow.connection` join the log context, restored afterwards including on failure. `laraflow:connectors` lists what is configured, naming each connection's credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy. Details and listener recipes are in [inspection-and-observability.md](inspection-and-observability.md#connector-calls).
 

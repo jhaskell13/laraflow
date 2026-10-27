@@ -121,8 +121,24 @@ trait AppliesRetention
                 return ['executions' => 0, 'rows' => 0];
             }
 
+            // The guard is re-applied inside the DELETE itself, not only
+            // in the SELECT above: a worker may reclaim one of these
+            // executions between the two statements (and under REPEATABLE
+            // READ the select's snapshot cannot even see that claim), and
+            // a running execution must not lose its attempt history.
             $rows = StepAttemptModel::query()
                 ->whereIn('workflow_execution_id', $eligible)
+                ->whereExists(
+                    fn ($query) => $query
+                        ->from('laraflow_workflow_executions')
+                        ->whereColumn('laraflow_workflow_executions.id', 'laraflow_step_attempts.workflow_execution_id')
+                        ->whereIn('status', array_map(
+                            fn (ExecutionStatus $status): string => $status->value,
+                            $statuses,
+                        ))
+                        ->whereNotNull('finished_at')
+                        ->where('finished_at', '<=', $finishedBefore),
+                )
                 ->delete();
 
             return ['executions' => count($eligible), 'rows' => $rows];

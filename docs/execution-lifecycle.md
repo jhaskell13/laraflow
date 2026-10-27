@@ -4,7 +4,7 @@ This document is the contract for how Laraflow persists, claims, runs, and recov
 
 ## Runner API
 
-All three run the workflow in the calling process. To run one on a queue worker instead, use `WorkflowDispatcher` ([docs/queue-and-recovery.md](queue-and-recovery.md)); it creates the execution the same way and the worker calls `execute()`, so everything below applies unchanged.
+The two that run anything (`execute()` and `run()`) do so in the calling process. To run one on a queue worker instead, use `WorkflowDispatcher` ([docs/queue-and-recovery.md](queue-and-recovery.md)); it creates the execution the same way and the worker calls `execute()`, so everything below applies unchanged.
 
 | Method | Behaviour |
 |--------|-----------|
@@ -85,6 +85,13 @@ The context is seeded from the workflow input (`array_merge(input, persisted con
 2. On recovery, the context is rebuilt from `input` + the persisted `context` column — not by re-running steps. Completed steps are skipped and their contribution to the context is exactly what the checkpoint recorded.
 
 Because the step output and context snapshot commit atomically, there is no reachable state where a step is `completed` but its context contribution is missing.
+
+### Known limits of the claim discipline (recorded at the Milestone 6 audit)
+
+Two windows exist where the claim does not protect everything, both bounded, both candidates for hardening before 1.0:
+
+- **Step rows are last-writer-wins until the next checkpoint.** Only the executions row is compare-and-set on every write; `saveStep()` writes the step row by id. A worker stalled past `stale_after` whose execution is reclaimed will have its *next* step-row write land (marking a step the new worker owns as running/failed, or appending a stale attempt row) before its first checkpoint or release fails with `ClaimLostException` and stops it. The executions row — status, context, outcome — is never corrupted this way; the blast radius is step-row status and attempt history written by a worker that is already dead by contract.
+- **A deterministic fault between `claim()` and the first step write recurs unbounded.** The abandon bound counts durable step attempts, and a worker that fails after claiming but before `startStep()` (a fatal while building the plan, a listener throwing on `WorkflowExecutionStarted`, a definition mismatch) leaves attempts at zero, so `laraflow:recover` will re-dispatch it every run, each occupying a claim for `stale_after`. Watch for an execution whose `claimed_at` keeps advancing while its attempt count stays at zero.
 
 ## Persistence boundaries and the at-least-once contract
 
