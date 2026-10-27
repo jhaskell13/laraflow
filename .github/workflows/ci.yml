@@ -226,3 +226,80 @@ jobs:
           LARAFLOW_TEST_DB_USERNAME: ${{ matrix.username }}
           LARAFLOW_TEST_DB_PASSWORD: ${{ matrix.password }}
         run: composer test
+
+  # The Milestone 0 exit criterion, held for good: a new application can
+  # go from `composer require` to a persisted, recoverable execution
+  # using only documented steps. A real `laravel/laravel` skeleton, the
+  # package required from a path repository, and every assertion is a
+  # command an actual user would run.
+  install:
+    name: Install (Laravel ${{ matrix.laravel }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported pairing and the newest.
+          - laravel: '12'
+            php: '8.2'
+          - laravel: '13'
+            php: '8.4'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: package
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, json
+          coverage: none
+
+      - name: Create a fresh Laravel application
+        run: composer create-project "laravel/laravel:^${{ matrix.laravel }}.0" app --no-interaction --no-progress
+
+      - name: Require Laraflow from the local path
+        working-directory: app
+        run: |
+          composer config repositories.laraflow path "${GITHUB_WORKSPACE}/package"
+          composer require "laraflow/laraflow:@dev" --no-interaction --no-progress
+
+      - name: Auto-discovery registered the provider
+        working-directory: app
+        run: |
+          php artisan package:discover | grep -q "laraflow/laraflow"
+          test "$(php artisan list --raw | grep -c '^laraflow:')" -ge 8
+
+      - name: Config and migrations publish
+        working-directory: app
+        run: |
+          php artisan vendor:publish --tag=laraflow-config --no-interaction
+          test -f config/laraflow.php
+          php artisan vendor:publish --tag=laraflow-migrations --no-interaction
+          test "$(ls database/migrations | grep -c laraflow)" -eq 3
+
+      - name: Migrations run
+        working-directory: app
+        run: |
+          touch database/database.sqlite
+          php artisan migrate --force | grep -c "laraflow.*DONE" | grep -qx 3
+
+      - name: A workflow runs to a persisted execution
+        working-directory: app
+        run: |
+          php artisan laraflow:demo
+          php artisan laraflow:show 1 | grep -q completed
+          php artisan laraflow:list | grep -q "1 of 1"
+
+      - name: A failed execution recovers from its checkpoint
+        working-directory: app
+        run: |
+          php artisan laraflow:demo --fail && exit 1 || test $? -eq 1
+          php artisan laraflow:execute 2 | grep -q "Execution completed"
+
+      - name: Connectors resolve and the schema rolls back
+        working-directory: app
+        run: |
+          php artisan laraflow:connectors --check
+          php artisan migrate:rollback --force | grep -c "laraflow.*DONE" | grep -qx 3
