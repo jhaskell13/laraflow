@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use DateInterval;
 use DateTimeImmutable;
 use InvalidArgumentException;
 
@@ -117,7 +118,11 @@ readonly class RetentionPolicy
             RetentionTier::Delete => $failed ? $this->deleteFailedAfterDays : $this->deleteAfterDays,
         };
 
-        return $days === null ? null : $now->modify("-{$days} days");
+        // sub() rather than modify(): modify() returns false for an
+        // unparseable string on PHP 8.2 (it throws from 8.3), so its
+        // type is DateTimeImmutable|false there. The days are validated
+        // at or above 1 above, so an interval cannot fail to build.
+        return $days === null ? null : $now->sub(new DateInterval("P{$days}D"));
     }
 
     /**

@@ -27,6 +27,13 @@ use Laraflow\Exceptions\Connector\ResponseDecodingException;
 final class ConnectorResponse
 {
     /**
+     * RFC 7231 section 7.1.1.1 preferred HTTP-date, e.g.
+     * `Sun, 06 Nov 1994 08:49:37 GMT`. Always GMT by specification;
+     * the zone is supplied to createFromFormat() rather than parsed.
+     */
+    private const HTTP_DATE = 'D, d M Y H:i:s \\G\\M\\T';
+
+    /**
      * @var array<string, list<string>>
      */
     private array $headers;
@@ -210,13 +217,16 @@ final class ConnectorResponse
             return (int) $value;
         }
 
-        // RFC7231's format escapes the literal "GMT" rather than parsing it
-        // as a zone, so without this an HTTP-date would be read in the
-        // application's default timezone and the wait would be off by its
-        // offset. RFC2822 carries its own offset and is unaffected.
+        // The HTTP-date format spelled out rather than
+        // DateTimeInterface::RFC7231: that constant escapes the literal
+        // "GMT" instead of parsing it as a zone, so the value would be
+        // read in the application's default timezone and the wait would
+        // be off by its offset. PHP 8.5 deprecates the constant for
+        // exactly that reason. Passing the zone explicitly is the fix
+        // either way. RFC2822 carries its own offset and is unaffected.
         $gmt = new DateTimeZone('GMT');
 
-        $until = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value, $gmt)
+        $until = DateTimeImmutable::createFromFormat(self::HTTP_DATE, $value, $gmt)
             ?: DateTimeImmutable::createFromFormat(DateTimeInterface::RFC2822, $value, $gmt);
 
         return $until === false ? null : max(0, $until->getTimestamp() - $now->getTimestamp());

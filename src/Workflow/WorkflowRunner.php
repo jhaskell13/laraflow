@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use DateInterval;
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Events\EventEmitter;
@@ -338,7 +339,7 @@ class WorkflowRunner
                 : null;
 
             $timeoutAt = $policy->timeoutSeconds !== null
-                ? $startedAt->modify("+{$policy->timeoutSeconds} seconds")
+                ? $startedAt->add(new DateInterval("PT{$policy->timeoutSeconds}S"))
                 : null;
 
             $this->startStep($execution, $stepExecution, $context, $startedAt, $timeoutAt, $interrupted);
