@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: tag-ready pre-release.** The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. No version has been tagged yet, so the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.1.0`, the first tagged release.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable. The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Branching, fan-out, sub-workflows, human approval, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md) Milestone 7). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -37,7 +37,7 @@ See [docs/compatibility.md](docs/compatibility.md) for the full policy, includin
 
 ## Installation
 
-The package is not yet published on Packagist. Add the repository to your application's `composer.json` and require the development branch:
+The package is not yet published on Packagist. Add the repository to your application's `composer.json` and require a tagged version:
 
 ```json
 {
@@ -48,7 +48,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:dev-main
+composer require laraflow/laraflow:^0.1.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.
@@ -982,7 +982,8 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 - **Two bundled connectors, both experimental.** GitHub and Slack exist to prove the contracts, not to cover their providers' APIs; they offer the generic request, error, and paging machinery plus a handful of helpers. Provider-specific conveniences are yours to add on top, and the connectors stay experimental until the first release.
 - **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
 - **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
-- **No tagged release yet.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the package has not been tagged, so `dev-main` is the only thing to install and the public API may still move before 1.0.
+- **`0.x`, so minor versions may break.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the public API may still move before 1.0; breaking changes are listed in [CHANGELOG.md](CHANGELOG.md) under **Breaking**. Pin a version you have tested.
+- **No production usage yet.** Everything here is proven by 877 tests across five database engines and the CI matrix, not by having survived a real incident. Read [docs/execution-lifecycle.md](docs/execution-lifecycle.md) — in particular *Known limits of the claim discipline* — before depending on it for work you cannot afford to re-run.
 
 ## Design principles
 

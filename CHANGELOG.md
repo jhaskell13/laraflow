@@ -8,6 +8,16 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-10-27
+
+First tagged release. Everything below is the pre-release work, grouped by the
+milestone that produced it; later releases use the plain Keep a Changelog
+headings. **Laraflow runs linear workflows**: an ordered list of steps, made
+durable, resumable, and observable. Branching, fan-out, sub-workflows, human
+approval, and compensation are not implemented — see `ROADMAP.md` Milestone 7.
+
 ### Milestone 6 — compatibility, quality, and release readiness
 
 #### Closing audit (full-project review)
@@ -347,4 +357,5 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/commits/main
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/jhaskell13/laraflow/releases/tag/v0.1.0
