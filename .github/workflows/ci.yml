@@ -191,9 +191,9 @@ jobs:
       # with IMSSP before reaching the server.
       - name: Install the Microsoft ODBC driver
         if: matrix.driver == 'sqlsrv'
+        # The runner image already carries Microsoft's apt repository,
+        # so adding it again only conflicts with the existing keyring.
         run: |
-          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
-          echo "deb [arch=amd64] https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/mssql-release.list > /dev/null
           sudo apt-get update -qq
           sudo ACCEPT_EULA=Y apt-get install -y -qq msodbcsql18
 
