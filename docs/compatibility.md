@@ -8,11 +8,11 @@ This policy states which platform versions Laraflow supports, what "supported" m
 |-----------|----------|--------|
 | PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
 | Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors and a `prefer-lowest` leg, so the floor of every constraint is proven, not assumed. |
-| SQLite | 3.x | Used by the test suite (in-memory by default). |
-| MySQL | 8.0+ | Expected to work; not yet in CI. |
-| MariaDB | 10.6+ | Expected to work; not yet in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |
-| PostgreSQL | 13+ | Expected to work; not yet in CI. |
-| SQL Server | 2019+ | Expected to work; not yet in CI. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv`. |
+| SQLite | 3.x | Tested: the suite's default (in-memory). |
+| MySQL | 8.0+ | Tested: the full suite runs against MySQL 8.0 in CI. |
+| MariaDB | 10.6+ | Tested: the full suite runs against MariaDB 10.6 in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |
+| PostgreSQL | 13+ | Tested: the full suite runs against PostgreSQL 13 in CI. |
+| SQL Server | 2019+ | Tested: the full suite runs against SQL Server 2019 in CI. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
 
 Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
 
@@ -32,7 +32,7 @@ The whole test suite runs against any of these engines by setting `LARAFLOW_TEST
 - **Tested** means the test suite runs against it in the repository's own development or CI workflow.
 - **Expected to work** means the package uses only portable Laravel abstractions (schema builder, Eloquent, JSON casts) for that platform, but no automated run proves it. Bug reports for these platforms are welcome and will be treated as defects, not feature requests.
 
-Milestone 6 of the roadmap promotes every "expected to work" entry to "tested" by expanding the CI matrix, or removes it from this table.
+Milestone 6 promoted every entry on this table to **tested**: the CI matrix runs the whole suite against each engine on every push.
 
 ## Database requirements
 
