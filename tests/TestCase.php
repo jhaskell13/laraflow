@@ -7,6 +7,7 @@ namespace Laraflow\Tests;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Env;
 use Illuminate\Testing\PendingCommand;
 use Laraflow\Core\LaraflowServiceProvider;
 use Laraflow\Tests\Support\FixtureState;
@@ -110,15 +111,76 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('database.default', 'testing');
+        $app['config']->set('database.connections.testing', static::databaseConnection());
+    }
 
-        $app['config']->set('database.connections.testing', [
-            'driver' => 'sqlite',
-            'database' => ':memory:',
+    /**
+     * The connection the whole suite runs against, driver chosen by the
+     * environment so CI can prove the engines the compatibility policy
+     * names rather than only SQLite.
+     *
+     *   LARAFLOW_TEST_DB_DRIVER      sqlite (default), mysql, mariadb,
+     *                                pgsql, sqlsrv — or any driver the
+     *                                installed Laravel resolves.
+     *   LARAFLOW_TEST_DB_DATABASE    database name; for sqlite, a file
+     *                                path or :memory: (default).
+     *   LARAFLOW_TEST_DB_HOST        default 127.0.0.1
+     *   LARAFLOW_TEST_DB_PORT        default per driver
+     *   LARAFLOW_TEST_DB_USERNAME    default laraflow
+     *   LARAFLOW_TEST_DB_PASSWORD    default secret
+     *
+     * @return array<string, mixed>
+     */
+    protected static function databaseConnection(): array
+    {
+        $driver = (string) Env::get('LARAFLOW_TEST_DB_DRIVER', 'sqlite');
+
+        if ($driver === 'sqlite') {
+            return [
+                'driver' => 'sqlite',
+                'database' => (string) Env::get('LARAFLOW_TEST_DB_DATABASE', ':memory:'),
+                'prefix' => '',
+                // The schema has always declared cascading foreign keys, but
+                // SQLite only enforces them when asked — without this, tests
+                // asserting on cascade behaviour pass vacuously.
+                'foreign_key_constraints' => true,
+            ];
+        }
+
+        $connection = [
+            'driver' => $driver,
+            'host' => (string) Env::get('LARAFLOW_TEST_DB_HOST', '127.0.0.1'),
+            'port' => (int) Env::get('LARAFLOW_TEST_DB_PORT', match ($driver) {
+                'pgsql' => 5432,
+                'sqlsrv' => 1433,
+                default => 3306,
+            }),
+            'database' => (string) Env::get('LARAFLOW_TEST_DB_DATABASE', 'laraflow_test'),
+            'username' => (string) Env::get('LARAFLOW_TEST_DB_USERNAME', 'laraflow'),
+            'password' => (string) Env::get('LARAFLOW_TEST_DB_PASSWORD', 'secret'),
             'prefix' => '',
-            // The schema has always declared cascading foreign keys, but
-            // SQLite only enforces them when asked — without this, tests
-            // asserting on cascade behaviour pass vacuously.
-            'foreign_key_constraints' => true,
-        ]);
+        ];
+
+        return $connection + match ($driver) {
+            'mysql', 'mariadb' => [
+                'charset' => 'utf8mb4',
+                'collation' => 'utf8mb4_unicode_ci',
+                'strict' => true,
+            ],
+            'pgsql' => [
+                'charset' => 'utf8',
+                'search_path' => 'public',
+                'sslmode' => 'prefer',
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * The driver the suite is currently running against.
+     */
+    protected function databaseDriver(): string
+    {
+        return (string) $this->app['config']->get('database.connections.testing.driver');
     }
 }

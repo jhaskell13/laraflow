@@ -8,12 +8,17 @@ This policy states which platform versions Laraflow supports, what "supported" m
 |-----------|----------|--------|
 | PHP | 8.2, 8.3, 8.4 | All three run in the GitHub Actions matrix (`.github/workflows/ci.yml`): code style, static analysis, and tests. |
 | Laravel | 12.x | Declared via `illuminate/*` `^12.0`; tested with Orchestra Testbench 10. |
-| SQLite | 3.x | Used by the test suite (in-memory). |
+| SQLite | 3.x | Used by the test suite (in-memory by default). |
 | MySQL | 8.0+ | Expected to work; not yet in CI. |
 | MariaDB | 10.6+ | Expected to work; not yet in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |
 | PostgreSQL | 13+ | Expected to work; not yet in CI. |
+| SQL Server | 2019+ | Expected to work; not yet in CI. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv`. |
 
 Laravel versions below 12 and PHP below 8.2 are **not** supported and will not be added.
+
+The whole test suite runs against any of these engines by setting `LARAFLOW_TEST_DB_DRIVER` and the connection variables documented in [CONTRIBUTING.md](../CONTRIBUTING.md) — that is the mechanism the Milestone 6 CI matrix uses to turn "expected to work" into "tested".
+
+**MongoDB is not a supported persistence backend.** It is not one of Laravel's native database drivers, and Laraflow's durability contract is built on what relational engines provide: a migrated schema, foreign keys, compare-and-set `UPDATE ... WHERE` claiming, and indexed keyset pagination. The third-party `mongodb/laravel-mongodb` Eloquent layer does not change that. A document-store persistence driver would be a Milestone 7 item ("additional persistence drivers only when the abstractions have real consumers"), designed against the `ExecutionRepository` contract rather than by pointing the existing migrations at Mongo.
 
 ### What "supported" means before 1.0
 

@@ -25,7 +25,23 @@ The individual checks, which CI runs on PHP 8.2, 8.3, and 8.4:
 | `composer analyse` | PHPStan via Larastan at level 8 over `src/`, `database/`, `tests/`, and `workbench/`. |
 | `composer test` | PHPUnit. The configuration fails on risky tests, warnings, notices, and deprecations. |
 
-Tests use Orchestra Testbench with an in-memory SQLite database. No external services or credentials are required, and connector tests must keep it that way: fake HTTP with `Http::fake()` rather than calling real APIs.
+Tests use Orchestra Testbench with an in-memory SQLite database by default. No external services or credentials are required, and connector tests must keep it that way: fake HTTP with `Http::fake()` rather than calling real APIs.
+
+The database driver is selectable, so the suite can prove the engines the compatibility policy names. `Laraflow\Tests\TestCase::testDatabaseConnection()` reads:
+
+```bash
+# Defaults: in-memory SQLite, nothing to install.
+composer test
+
+# Any server Laravel's native drivers speak: mysql, mariadb, pgsql, sqlsrv.
+LARAFLOW_TEST_DB_DRIVER=mysql \
+LARAFLOW_TEST_DB_HOST=127.0.0.1 LARAFLOW_TEST_DB_PORT=3306 \
+LARAFLOW_TEST_DB_DATABASE=laraflow_test \
+LARAFLOW_TEST_DB_USERNAME=laraflow LARAFLOW_TEST_DB_PASSWORD=secret \
+composer test
+```
+
+The matching PHP PDO extension must be installed (`pdo_mysql`, `pdo_pgsql`, `pdo_sqlsrv`), and the named database must exist and be disposable — the suite migrates and truncates it. A test that can only be staged on one engine (for example switching SQLite's foreign-key enforcement off) must check `$this->databaseDriver()` and skip with a reason on the others, so a matrix run reports the skip rather than an error.
 
 Tests should prove behaviour, not just the absence of errors: assert on persisted rows, outgoing requests, log records, and exception messages. Test doubles live in `tests/Support/` (for example `CrashingExecutionRepository`, which simulates a worker dying at a chosen persistence boundary, and `ArrayLogger`, an in-memory PSR-3 logger).
 

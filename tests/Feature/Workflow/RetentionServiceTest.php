@@ -175,7 +175,13 @@ class RetentionServiceTest extends TestCase
     {
         // SQLite enforces the declared cascade only when the connection
         // asks. Retention must clean up either way, so this proves the
-        // behaviour with enforcement off.
+        // behaviour with enforcement off. Only SQLite lets a session
+        // switch enforcement off, so only SQLite can stage this case;
+        // on the other engines the ordinary delete tests cover cascades.
+        if ($this->databaseDriver() !== 'sqlite') {
+            $this->markTestSkipped('Staging a cascade-less schema needs SQLite\'s PRAGMA.');
+        }
+
         DB::statement('PRAGMA foreign_keys = OFF');
 
         $doomed = $this->aged('completed', 100, attempts: 2);
