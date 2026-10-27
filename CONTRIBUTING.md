@@ -60,6 +60,8 @@ Tests should prove behaviour, not just the absence of errors: assert on persiste
 
 ### Code style
 
+- `laravel/pint` is pinned to 1.30.4 — the last version installable on PHP 8.2, which the package supports until its December 2026 security end-of-life. Do not bump it before then; when PHP 8.2 is dropped, restore a caret constraint.
+- To verify a change against the oldest supported platform without installing it, simulate it: `composer config platform.php 8.2.0 && composer update && composer analyse && composer test` (then revert `composer.json` and the lock). PHP version differences change dependency resolution *and* PHPStan's core stubs.
 - Formatting is enforced by Laravel Pint (`pint.json`: Laravel preset plus `declare(strict_types=1)` and imported global classes). Run `composer format` before committing.
 - Static analysis must pass at PHPStan level 8, over the tests and the playground as well as the package. There is no baseline file: a finding is fixed, not recorded. Treat user-supplied values (workflow step lists, connector factories) as untrusted and validate them at runtime.
 - `@phpstan-ignore` has exactly one accepted use: a test that **deliberately** passes a value the declared type forbids, in order to prove the runtime rejects it. Those lines carry a comment saying so, and the tag names the single identifier it suppresses. Anywhere else — and anywhere in `src/` — fix the type or the code.
