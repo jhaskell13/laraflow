@@ -1,15 +1,47 @@
 {
     "name": "laraflow/laraflow",
-    "description": "Laravel-native integration and automation framework",
+    "description": "Laravel-native framework for building integrations and durable, recoverable workflows.",
     "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "workflow",
+        "integration",
+        "automation",
+        "durable-execution",
+        "orchestration"
+    ],
+    "authors": [
+        {
+            "name": "James Haskell"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/jhaskell13/laraflow/issues",
+        "source": "https://github.com/jhaskell13/laraflow",
+        "security": "https://github.com/jhaskell13/laraflow/blob/main/SECURITY.md"
+    },
     "require": {
         "php": "^8.2",
-        "illuminate/support": "^12.0",
-        "illuminate/http": "^12.0"
+        "illuminate/bus": "^12.0|^13.0",
+        "illuminate/cache": "^12.0|^13.0",
+        "illuminate/console": "^12.0|^13.0",
+        "illuminate/container": "^12.0|^13.0",
+        "illuminate/contracts": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/events": "^12.0|^13.0",
+        "illuminate/http": "^12.0|^13.0",
+        "illuminate/log": "^12.0|^13.0",
+        "illuminate/queue": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0",
+        "psr/clock": "^1.0",
+        "psr/log": "^3.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^11.0",
-        "orchestra/testbench": "^10.12"
+        "larastan/larastan": "^3.13",
+        "laravel/pint": "^1.30",
+        "orchestra/testbench": "^10.12|^11.0",
+        "phpunit/phpunit": "^11.0"
     },
     "autoload": {
         "psr-4": {
@@ -18,8 +50,25 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Laraflow\\Tests\\": "tests/"
+            "Laraflow\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/"
         }
+    },
+    "scripts": {
+        "test": "./vendor/bin/phpunit",
+        "lint": "./vendor/bin/pint --test",
+        "format": "./vendor/bin/pint",
+        "analyse": "./vendor/bin/phpstan analyse --memory-limit=1G",
+        "check": [
+            "@lint",
+            "@analyse",
+            "@test"
+        ],
+        "playground": [
+            "@php vendor/bin/testbench package:create-sqlite-db",
+            "@php vendor/bin/testbench migrate:fresh",
+            "@php -r \"echo PHP_EOL.'Playground ready (database reset). Try:'.PHP_EOL.'  vendor/bin/testbench laraflow:demo --fail'.PHP_EOL.'  vendor/bin/testbench laraflow:list'.PHP_EOL.'  vendor/bin/testbench laraflow:execute 1'.PHP_EOL.'  vendor/bin/testbench laraflow:show 1'.PHP_EOL;\""
+        ]
     },
     "extra": {
         "laravel": {
@@ -27,5 +76,10 @@
                 "Laraflow\\Core\\LaraflowServiceProvider"
             ]
         }
-    }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

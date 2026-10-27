@@ -1,13 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.0/phpunit.xsd"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
     bootstrap="vendor/autoload.php"
+    cacheDirectory=".phpunit.cache"
     colors="true"
+    failOnRisky="true"
+    failOnWarning="true"
+    failOnDeprecation="true"
+    failOnNotice="true"
+    beStrictAboutOutputDuringTests="true"
+    displayDetailsOnTestsThatTriggerDeprecations="true"
+    displayDetailsOnTestsThatTriggerWarnings="true"
+    displayDetailsOnTestsThatTriggerNotices="true"
 >
     <testsuites>
-        <testsuite name="Laraflow">
-            <directory>tests</directory>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
+        <env name="DB_CONNECTION" value="testing"/>
+        <env name="LOG_CHANNEL" value="null"/>
+        <!-- Pinned, not inherited: Testbench's skeleton .env appears the
+             first time anyone runs the playground and sets
+             CACHE_STORE=database, which has no cache table in the test
+             database. The suite's results must not depend on whether a
+             developer has run the playground. -->
+        <env name="CACHE_STORE" value="array"/>
+        <!-- Same reason: the skeleton sets QUEUE_CONNECTION=database for
+             the playground, but the suite's default must be sync — the
+             tests that want a real queue configure one themselves. -->
+        <env name="QUEUE_CONNECTION" value="sync"/>
+    </php>
 </phpunit>

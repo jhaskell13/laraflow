@@ -1,0 +1,45 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Laraflow\Events;
+
+use DateTimeImmutable;
+
+/**
+ * A step failure was durably persisted and the execution marked failed.
+ *
+ * Failed is not terminal: the execution can be re-executed (manually or
+ * via recovery), so this event can fire more than once for one execution.
+ *
+ * Lifecycle events carry identifiers and metadata only — never workflow
+ * input, step output, or context. `error` is the exception message
+ * (truncated to laraflow.execution.max_error_length), or null when
+ * laraflow.events.include_error_messages is disabled.
+ */
+readonly class WorkflowExecutionFailed
+{
+    /**
+     * @param  string  $workflow  Workflow class name.
+     * @param  string  $errorClass  Class of the exception the failing step threw.
+     * @param  string|null  $correlationId  Application-supplied identifier
+     *                                      recorded on the execution, or null if none was supplied.
+     * @param  string|null  $tenantId  Application-supplied tenant identifier,
+     *                                 or null if none was supplied.
+     * @param  int|null  $durationMs  Wall-clock milliseconds from the execution's
+     *                                first start to this finish. End-to-end latency, not compute
+     *                                time: it includes any time spent failed, cancelled-pending, or
+     *                                waiting out a retry backoff. Null when the execution never
+     *                                started.
+     */
+    public function __construct(
+        public int|string $executionId,
+        public string $workflow,
+        public string $errorClass,
+        public ?string $error,
+        public DateTimeImmutable $failedAt,
+        public ?string $correlationId = null,
+        public ?string $tenantId = null,
+        public ?int $durationMs = null,
+    ) {}
+}

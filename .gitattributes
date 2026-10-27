@@ -1,0 +1,27 @@
+# Normalize line endings: store LF in the repository, check out LF everywhere.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Exclude development files from Composer dist archives
+/.github         export-ignore
+/tests           export-ignore
+/workbench       export-ignore
+/.gitattributes  export-ignore
+/.gitignore      export-ignore
+/phpunit.xml     export-ignore
+/testbench.yaml  export-ignore
+/phpstan.neon    export-ignore
+/pint.json       export-ignore
+# Decided in Milestone 6 step 10: the dist archive is what an application
+# vendors. Planning documents and development scaffolding stay out of it;
+# README, CHANGELOG, LICENSE, SECURITY, CONTRIBUTING, and docs/ ship,
+# because the README links into docs/ and an offline copy should resolve.
+/ROADMAP.md      export-ignore
+/.env.example    export-ignore
+/composer.lock   export-ignore

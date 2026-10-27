@@ -1,15 +1,18 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Tests\Feature\Workflow;
 
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Step;
+use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowContext;
 use Laraflow\Workflow\WorkflowRunner;
-use Laraflow\Workflow\StepStatus;
-use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use RuntimeException;
 
 class WorkflowRunnerPersistenceTest extends TestCase
 {
@@ -18,8 +21,8 @@ class WorkflowRunnerPersistenceTest extends TestCase
         $runner = app(WorkflowRunner::class);
 
         try {
-            $runner->run(new FailingWorkflow());
-        } catch (\RuntimeException) {
+            $runner->run(new FailingWorkflow);
+        } catch (RuntimeException) {
             // Expected.
         }
 
@@ -28,79 +31,55 @@ class WorkflowRunnerPersistenceTest extends TestCase
             ->first();
 
         $this->assertNotNull($execution);
-
-        $this->assertSame(
-            ExecutionStatus::Failed->value,
-            $execution->status
-        );
-
+        $this->assertSame(ExecutionStatus::Failed->value, $execution->status);
         $this->assertNotNull($execution->failed_at);
+        $this->assertSame('Something went wrong.', $execution->error);
+        $this->assertSame(RuntimeException::class, $execution->error_class);
+        $this->assertNull($execution->claim_token);
 
         $this->assertCount(1, $execution->steps);
-
-        $this->assertSame(
-            StepStatus::Failed->value,
-            $execution->steps[0]->status
-        );
-
-        $this->assertSame(
-            'Something went wrong.',
-            $execution->steps[0]->error
-        );
+        $this->assertSame(StepStatus::Failed->value, $this->stepAt($execution, 0)->status);
+        $this->assertSame('Something went wrong.', $this->stepAt($execution, 0)->error);
+        $this->assertSame(RuntimeException::class, $this->stepAt($execution, 0)->error_class);
+        $this->assertSame(1, $this->stepAt($execution, 0)->attempts);
     }
 
-    public function test_it_persists_workflow_and_step_execution_state(): void
+    public function test_it_persists_workflow_step_state_outputs_and_context(): void
     {
         $runner = app(WorkflowRunner::class);
 
-        $context = $runner->run(new TestWorkflow());
+        $result = $runner->run(new TestWorkflow);
 
-        $this->assertSame(
-            ExecutionStatus::Completed->value,
-            WorkflowExecutionModel::query()->first()->status
-        );
+        $this->assertTrue($result->isCompleted());
 
         $execution = WorkflowExecutionModel::query()
             ->with('steps')
             ->first();
 
         $this->assertNotNull($execution);
-        $this->assertSame(
-            TestWorkflow::class,
-            $execution->workflow
-        );
+        $this->assertSame(ExecutionStatus::Completed->value, $execution->status);
+        $this->assertSame(TestWorkflow::class, $execution->workflow);
+        $this->assertNotNull($execution->completed_at);
+        $this->assertNull($execution->claim_token);
 
         $this->assertCount(2, $execution->steps);
+        $this->assertSame(TestStepOne::class, $this->stepAt($execution, 0)->step);
+        $this->assertSame(TestStepTwo::class, $this->stepAt($execution, 1)->step);
+        $this->assertSame(StepStatus::Completed->value, $this->stepAt($execution, 0)->status);
+        $this->assertSame(StepStatus::Completed->value, $this->stepAt($execution, 1)->status);
 
-        $this->assertSame(
-            TestStepOne::class,
-            $execution->steps[0]->step
-        );
+        // Step outputs are persisted at each checkpoint...
+        $this->assertSame(['result' => 'one'], $this->stepAt($execution, 0)->output);
+        $this->assertSame(['result' => 'two'], $this->stepAt($execution, 1)->output);
 
+        // ...and so is the accumulated context, both on the row and on the
+        // returned handle.
         $this->assertSame(
-            TestStepTwo::class,
-            $execution->steps[1]->step
+            ['step_one' => 'one', 'step_two' => 'two'],
+            $execution->context
         );
-
-        $this->assertSame(
-            StepStatus::Completed->value,
-            $execution->steps[0]->status
-        );
-
-        $this->assertSame(
-            StepStatus::Completed->value,
-            $execution->steps[1]->status
-        );
-
-        $this->assertSame(
-            'one',
-            $context->get('step_one')
-        );
-
-        $this->assertSame(
-            'two',
-            $context->get('step_two')
-        );
+        $this->assertSame('one', $result->context['step_one']);
+        $this->assertSame('two', $result->context['step_two']);
     }
 }
 
@@ -149,6 +128,6 @@ class FailingStep implements Step
 {
     public function handle(WorkflowContext $context): mixed
     {
-        throw new \RuntimeException('Something went wrong.');
+        throw new RuntimeException('Something went wrong.');
     }
 }

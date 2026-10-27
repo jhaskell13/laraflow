@@ -1,46 +1,65 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Laraflow\Integration\Github;
 
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Http;
 use Laraflow\Auth\Authenticator;
-use Laraflow\Exceptions\TransportException;
-use Laraflow\Integration\Connector;
-use Laraflow\Integration\ConnectorRequest;
-use Laraflow\Integration\ConnectorResponse;
+use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Integration\Http\ErrorMapper;
+use Laraflow\Integration\HttpConnector;
+use Laraflow\Integration\Pagination\LinkHeaderPaginator;
+use Laraflow\Integration\Pagination\Paginator;
 
-class GithubConnector implements Connector
+/**
+ * @experimental Prototype connector, kept experimental until the first release.
+ */
+class GithubConnector extends HttpConnector
 {
-    public function __construct(protected Authenticator $authenticator) {}
+    public const BASE_URL = 'https://api.github.com';
 
-    public function name(): string
+    /**
+     * The REST API version this connector is written and tested against.
+     * GitHub selects it per request by header; a connection may pin
+     * another with `api_version`.
+     */
+    public const API_VERSION = '2022-11-28';
+
+    protected function baseUrl(): ?string
     {
-        return 'github';
+        return self::BASE_URL;
     }
 
-    public function request(ConnectorRequest $request): ConnectorResponse {
-        $options = $this->authenticator->authenticate($request->options);
+    /**
+     * @return array<string, string>
+     */
+    protected function headers(): array
+    {
+        return ['Accept' => 'application/vnd.github+json'];
+    }
 
-        try {
-            $response = Http::baseUrl('https://api.github.com')
-                ->acceptJson()
-                ->send(
-                    $request->method,
-                    $request->uri,
-                    $options
-                );
-        } catch (ConnectionException $exception) {
-            throw new TransportException(
-                message: 'Unable to connect to Github.',
-                previous: $exception,
-            );
-        }
+    protected function apiVersion(): ?string
+    {
+        return self::API_VERSION;
+    }
 
-        return new ConnectorResponse(
-            status: $response->status(),
-            headers: $response->headers(),
-            body: $response->json()
-        );
+    protected function apiVersionHeader(): ?string
+    {
+        return 'X-GitHub-Api-Version';
+    }
+
+    protected function authenticator(): Authenticator
+    {
+        return new BearerTokenAuthenticator('token', 'LARAFLOW_GITHUB_TOKEN');
+    }
+
+    protected function errorMapper(): ErrorMapper
+    {
+        return new GithubErrorMapper;
+    }
+
+    protected function paginator(): ?Paginator
+    {
+        return new LinkHeaderPaginator;
     }
 }
