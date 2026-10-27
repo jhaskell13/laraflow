@@ -6,13 +6,61 @@ on:
   pull_request:
 
 jobs:
-  checks:
-    name: PHP ${{ matrix.php }}
+  # Lint, static analysis, and package hygiene run once: they read the
+  # source, not the matrix, so repeating them per cell buys nothing.
+  quality:
+    name: Quality (PHP 8.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, json
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      # Audits the committed lock file — the set applications actually
+      # install. The prefer-lowest leg below deliberately resolves old
+      # dev dependencies and would always fail an audit.
+      - name: Audit dependencies
+        run: composer audit
+
+      - name: Code style
+        run: composer lint
+
+      - name: Static analysis
+        run: composer analyse -- --no-progress
+
+  tests:
+    name: Tests (PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php: ['8.2', '8.3', '8.4']
+        # One row per supported Laravel major, pinned through Testbench
+        # (Testbench 10 is the Laravel 12 series): adding Laravel 13 is
+        # one matrix line plus its Testbench mapping.
+        laravel: ['12']
+        dependencies: [prefer-stable]
+        include:
+          - laravel: '12'
+            testbench: '^10.0'
+          # The floor of every declared constraint, resolved as low as
+          # the dev dependencies allow, on the oldest supported PHP:
+          # proves the ^-constraints in composer.json are honest.
+          - php: '8.2'
+            laravel: '12'
+            testbench: '^10.0'
+            dependencies: prefer-lowest
 
     steps:
       - uses: actions/checkout@v4
@@ -23,14 +71,25 @@ jobs:
           extensions: mbstring, pdo_sqlite, json
           coverage: none
 
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Pin the Laravel major via Testbench
+        run: >
+          composer require --dev --no-update --no-interaction
+          "orchestra/testbench:${{ matrix.testbench }}"
 
-      - name: Code style
-        run: composer lint
+      - name: Install dependencies (prefer-stable)
+        if: matrix.dependencies == 'prefer-stable'
+        run: composer update --prefer-dist --prefer-stable --no-interaction --no-progress
 
-      - name: Static analysis
-        run: composer analyse -- --no-progress
+      - name: Install dependencies (prefer-lowest)
+        if: matrix.dependencies == 'prefer-lowest'
+        run: composer update --prefer-dist --prefer-lowest --prefer-stable --no-interaction --no-progress
 
       - name: Tests
         run: composer test
+
+      # The analysis must hold on the floor as well as the lock: stub
+      # and signature drift between dependency versions is a real
+      # compatibility failure, found exactly this way in development.
+      - name: Static analysis (prefer-lowest)
+        if: matrix.dependencies == 'prefer-lowest'
+        run: composer analyse -- --no-progress

@@ -129,8 +129,11 @@ final class ConnectorContract
 
         $connector->request($probe);
 
-        Assert::assertNotEmpty(
-            Http::recorded(),
+        // Not assertNotEmpty(collection): PHPUnit treats a Countable
+        // right, but older stub versions type it as an always-truthy
+        // object and static analysis on the lowest supported set balks.
+        Assert::assertTrue(
+            Http::recorded()->isNotEmpty(),
             'This connector does not send through Laravel\'s HTTP client, so this harness cannot intercept it '
             .'and the assertions that follow would reach the network. Have its transport() use the '
             .'Illuminate\Http\Client\Factory the container provides, or fake your own transport and assert '

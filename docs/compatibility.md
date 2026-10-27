@@ -6,8 +6,8 @@ This policy states which platform versions Laraflow supports, what "supported" m
 
 | Component | Versions | Status |
 |-----------|----------|--------|
-| PHP | 8.2, 8.3, 8.4 | All three run in the GitHub Actions matrix (`.github/workflows/ci.yml`): code style, static analysis, and tests. |
-| Laravel | 12.x | Declared via `illuminate/*` `^12.0`; tested with Orchestra Testbench 10. |
+| PHP | 8.2, 8.3, 8.4 | All three run in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
+| Laravel | 12.x | Declared via `illuminate/*` `^12.0`; tested with Orchestra Testbench 10. CI pins the major through Testbench and runs a `prefer-lowest` leg, so the floor of every constraint is proven, not assumed. |
 | SQLite | 3.x | Used by the test suite (in-memory by default). |
 | MySQL | 8.0+ | Expected to work; not yet in CI. |
 | MariaDB | 10.6+ | Expected to work; not yet in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |

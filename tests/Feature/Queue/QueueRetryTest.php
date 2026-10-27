@@ -75,8 +75,11 @@ class QueueRetryTest extends TestCase
         $this->assertSame(1, StepTwo::$runs, 'The worker must not run a retry before it is due.');
 
         // One delayed delivery waits, available at the scheduled time.
-        $job = DB::table('jobs')->sole();
-        $this->assertEqualsWithDelta($before + 120, (int) $job->available_at, 15);
+        // Read as vars: the builder types sole() as plain `object` on
+        // the oldest supported dependency set.
+        $job = get_object_vars(DB::table('jobs')->sole());
+        $this->assertIsNumeric($job['available_at'] ?? null);
+        $this->assertEqualsWithDelta($before + 120, (int) $job['available_at'], 15);
         $this->assertSame(0, DB::table('failed_jobs')->count());
     }
 
