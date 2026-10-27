@@ -58,6 +58,14 @@ return new class extends Migration
             // audit trail; the payloads it carried do not.
             $table->timestamp('payloads_scrubbed_at')->nullable();
 
+            // Bumped by every repository write. Not optimistic locking:
+            // it exists so an UPDATE that rewrites identical values is
+            // still counted on engines that report rows *changed*
+            // rather than rows *matched* (MySQL, MariaDB), which the
+            // compare-and-set guards depend on to tell "lost the claim"
+            // from "wrote the same bytes twice".
+            $table->unsignedBigInteger('version')->default(0);
+
             // When a step's retry policy schedules another attempt, the
             // due time is mirrored here from the retrying step so the
             // recovery scan stays a single-table indexed query. The step

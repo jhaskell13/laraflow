@@ -83,13 +83,16 @@ trait AppliesRetention
                 return 0;
             }
 
+            // counted(): a rescrub writing values that are already
+            // null must still report the rows it matched, or the dry
+            // run and the real run would disagree on MySQL/MariaDB.
             $scrubbed = $this->finishedBefore($statuses, $finishedBefore)
                 ->whereIn('id', $eligible)
-                ->update([
+                ->update($this->counted([
                     'input' => null,
                     'context' => null,
                     'payloads_scrubbed_at' => $scrubbedAt,
-                ]);
+                ]));
 
             StepExecutionModel::query()
                 ->whereIn('workflow_execution_id', $eligible)

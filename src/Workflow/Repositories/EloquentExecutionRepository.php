@@ -6,6 +6,7 @@ namespace Laraflow\Workflow\Repositories;
 
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Database\Query\Expression;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -137,7 +138,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                             });
                     });
             })
-            ->update([
+            ->update($this->counted([
                 'status' => ExecutionStatus::Running->value,
                 'claim_token' => $claimToken,
                 'claimed_at' => $now,
@@ -153,7 +154,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // claim is superseding.
                 'finished_at' => null,
                 'duration_ms' => null,
-            ]);
+            ]));
 
         if ($claimed === 0) {
             $this->explainFailedClaim($id);
@@ -165,7 +166,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->whereKey($id)
             ->where('claim_token', $claimToken)
             ->whereNull('started_at')
-            ->update(['started_at' => $now]);
+            ->update($this->counted(['started_at' => $now]));
 
         return $this->find($id);
     }
@@ -212,9 +213,9 @@ class EloquentExecutionRepository implements ExecutionRepository
             $updated = WorkflowExecutionModel::query()
                 ->whereKey($execution->id)
                 ->where('claim_token', $execution->claimToken)
-                ->update([
+                ->update($this->counted([
                     'context' => $execution->context,
-                ]);
+                ]));
 
             if ($updated === 0) {
                 // Rolls back the step write and the attempt row with it:
@@ -231,14 +232,14 @@ class EloquentExecutionRepository implements ExecutionRepository
     ): void {
         $updated = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->update([
+            ->update($this->counted([
                 'dispatched_at' => $dispatchedAt,
                 // A delivery cannot be available before it was dispatched;
                 // a caller passing an earlier instant meant "now".
                 'available_at' => $availableAt !== null && $availableAt > $dispatchedAt
                     ? $availableAt
                     : $dispatchedAt,
-            ]);
+            ]));
 
         if ($updated === 0) {
             throw ExecutionNotFoundException::forId($id);
@@ -260,7 +261,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ExecutionStatus::Failed->value,
                 ExecutionStatus::Retrying->value,
             ])
-            ->update([
+            ->update($this->counted([
                 'status' => ExecutionStatus::Cancelled->value,
                 'cancelled_at' => $at,
                 'cancel_requested_at' => $at,
@@ -272,7 +273,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'next_retry_at' => null,
                 'claim_token' => null,
                 'claimed_at' => null,
-            ]);
+            ]));
 
         if ($cancelled === 1) {
             return $this->find($id);
@@ -283,10 +284,10 @@ class EloquentExecutionRepository implements ExecutionRepository
         $requested = WorkflowExecutionModel::query()
             ->whereKey($id)
             ->where('status', ExecutionStatus::Running->value)
-            ->update([
+            ->update($this->counted([
                 'cancel_requested_at' => $at,
                 'cancel_reason' => $reason,
-            ]);
+            ]));
 
         if ($requested === 1) {
             return $this->find($id);
@@ -307,7 +308,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         $updated = WorkflowExecutionModel::query()
             ->whereKey($execution->id)
             ->where('claim_token', $execution->claimToken)
-            ->update([
+            ->update($this->counted([
                 'status' => $execution->status->value,
                 'context' => $execution->context,
                 'error' => $execution->error,
@@ -322,7 +323,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'cancel_reason' => $execution->cancelReason,
                 'claim_token' => null,
                 'claimed_at' => null,
-            ]);
+            ]));
 
         if ($updated === 0) {
             throw ClaimLostException::forId($execution->id);
@@ -411,6 +412,23 @@ class EloquentExecutionRepository implements ExecutionRepository
         return WorkflowExecutionModel::query()
             ->getConnection()
             ->transaction($callback);
+    }
+
+    /**
+     * Values for an executions-table update whose affected-row count
+     * must mean "a row matched the WHERE". MySQL and MariaDB report
+     * rows *changed*, not rows matched, so rewriting identical values —
+     * a duplicate dispatch in the same second, a checkpoint whose
+     * context did not move — would count zero and read as a lost claim
+     * or a missing row. Bumping the version column on every write makes
+     * the two counts the same thing on every engine.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array<string, mixed>
+     */
+    protected function counted(array $values): array
+    {
+        return $values + ['version' => new Expression('version + 1')];
     }
 
     protected function toDomain(

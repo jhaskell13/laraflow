@@ -35,6 +35,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $finished_at
  * @property int|null $duration_ms
  * @property Carbon|null $payloads_scrubbed_at
+ * @property int $version
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
