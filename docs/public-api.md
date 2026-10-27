@@ -10,7 +10,9 @@ Laraflow is pre-release. "Public" here means *intended to become stable*, not *s
 |-------|---------|--------------------------|
 | **Public** | Intended for application code. Documented in the README. | Breaking changes announced in the changelog with migration notes. |
 | **Experimental** | Shipped so the design can be evaluated. Behaviour is incomplete or unproven. | May change or be removed without notice. Marked with `@experimental` in docblocks. |
-| **Internal** | Implementation detail. Not covered by any compatibility promise. | May change at any time. Marked with `@internal` in docblocks where practical. |
+| **Internal** | Implementation detail. Not covered by any compatibility promise. | May change at any time. Marked with `@internal` in docblocks. |
+
+Two tests keep this document honest in both directions: every class in `src/` must either appear here or carry an `@internal`/`@experimental` marker, and every class this document names must exist with the stability level its docblock claims (`tests/Feature/ProjectContractsTest.php`). Retiring something **Public** follows the deprecation path in [compatibility.md](compatibility.md#how-a-deprecation-works): `@deprecated` naming the replacement, a changelog *Deprecated* entry with the planned removal, then removal no sooner than the policy allows.
 
 ## Workflow definition
 

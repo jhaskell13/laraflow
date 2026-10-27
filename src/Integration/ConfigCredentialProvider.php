@@ -11,6 +11,9 @@ use Laraflow\Exceptions\ConnectorConfigurationException;
  * Default CredentialProvider: the `credentials` array of the connection's
  * configuration, read from the repository on every call so that a
  * change there is seen by the next request.
+ *
+ * @internal The default binding. Applications replace it by binding their
+ *           own CredentialProvider; nothing should depend on this class.
  */
 class ConfigCredentialProvider implements CredentialProvider
 {

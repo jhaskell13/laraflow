@@ -14,6 +14,9 @@ namespace Laraflow\Workflow;
  * recovery will report it but refuse to retry it, so a crash-looping
  * workflow cannot be re-dispatched forever by a scheduler. Abandoned work
  * can still be re-run deliberately via laraflow:execute.
+ *
+ * @internal Produced and consumed by RecoveryService; applications read
+ *           recovery results through the command or the lifecycle events.
  */
 readonly class RecoveryCandidate
 {

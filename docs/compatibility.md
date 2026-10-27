@@ -90,10 +90,20 @@ Connectors talk to services Laraflow does not control, so a second compatibility
 
 ## Versioning
 
-Laraflow follows [Semantic Versioning 2.0](https://semver.org).
+Laraflow follows [Semantic Versioning 2.0](https://semver.org). What counts as the public API for versioning purposes is exactly what [public-api.md](public-api.md) marks **Public**: experimental classes may change in any minor, and internal ones in any release.
 
-- **Before 1.0:** `0.x` minor versions may contain breaking changes. Each is documented in `CHANGELOG.md` with upgrade notes. Patch versions are backwards compatible.
+- **Before 1.0:** `0.x` minor versions may contain breaking changes. Each is documented in `CHANGELOG.md` under **Breaking** with upgrade notes. Patch versions are backwards compatible.
 - **After 1.0:** breaking changes only in major versions, with a deprecation period of at least one minor version where practical.
+
+### How a deprecation works
+
+A deprecation is visible in three places before anything is removed, so no removal is a surprise:
+
+1. **The docblock** gains `@deprecated`, naming the replacement — this is what an IDE and static analysis surface at the call site.
+2. **The changelog** lists it under a *Deprecated* heading in the release that introduces it, with the replacement and the planned removal version.
+3. **The removal** happens no sooner than the next major (post-1.0) or the next minor (pre-1.0), and is listed under *Removed*.
+
+Deprecated code keeps working and keeps its tests until it is removed. Laraflow does not emit runtime deprecation notices for its own API — the suite runs with `failOnDeprecation`, and a library that warns on every call punishes the applications that upgrade most carefully. Configuration keys follow the same path: a renamed key keeps its old name working for the deprecation window, with the old name noted in `config/laraflow.php`.
 
 The database schema is **frozen**: the shipped migrations are immutable, and any later change arrives as a new dated migration that an installed application applies with `php artisan migrate`. Upgrading, rolling back, and recovering interrupted work are specified in [upgrading.md](upgrading.md). A schema change is still a notable change and is called out in `CHANGELOG.md` with its operational impact.
 

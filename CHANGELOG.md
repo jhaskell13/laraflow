@@ -2,7 +2,9 @@
 
 All notable changes to Laraflow are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until the first tagged release, breaking changes may land in any commit and are recorded under *Unreleased*.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as specified in [docs/compatibility.md](docs/compatibility.md). Until the first tagged release, breaking changes may land in any commit and are recorded under *Unreleased*.
+
+Cutting a release renames *Unreleased* to the version and date, starts a fresh *Unreleased* above it, and updates the compare links at the end of this file. The milestone groupings below are the shape of the pre-release work and will ship as-is inside the first version's section; releases after it use the plain Keep-a-Changelog headings (*Added*, *Changed*, *Deprecated*, *Removed*, *Fixed*, *Security*).
 
 ## [Unreleased]
 
@@ -25,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Date arithmetic no longer goes through `modify()`.** On PHP 8.2 `DateTimeImmutable::modify()` returns `false` for an unparseable string (it throws from 8.3), so its return type is `DateTimeImmutable|false` there — which static analysis on the `prefer-lowest` PHP 8.2 cell correctly refused. `RetentionPolicy::cutoff()` and the runner's attempt deadline now use `DateInterval` arithmetic, which cannot fail for the validated positive values they pass.
 
 - **PHP 8.5 joins the matrix**, and `laravel/pint` relaxes from `^1.32` to `^1.30`. Pint 1.31+ requires PHP 8.3, so the declared PHP 8.2 support could not actually install its own dev dependencies — the first CI run on the repository failed on exactly that, in both PHP 8.2 cells. A formatter's floor is not the package's floor: on PHP 8.2 Composer now resolves Pint 1.30.4, on 8.3+ it still resolves 1.32.1, and the lint job runs on 8.4 either way.
+
+- **Versioning and deprecation are operational, and the API document is enforced in both directions.** `docs/compatibility.md` states what the public API *is* for versioning purposes — exactly what `public-api.md` marks Public — and gains a concrete deprecation path: `@deprecated` naming the replacement, a changelog *Deprecated* entry with the planned removal, removal no sooner than the next major (post-1.0) or next minor (pre-1.0), no runtime deprecation notices. Two new contract tests close the loop the existing one left open: every class `public-api.md` names must exist (a rename can no longer leave a stale row), and every stability level it promises must match the `@internal`/`@experimental` marker in the code — which immediately caught `RecoveryCandidate` and `ConfigCredentialProvider` documented as Internal while their docblocks claimed nothing. The changelog itself now states how a release converts *Unreleased* into a version section and carries its compare-link footer.
 
 - **The suite no longer inherits the playground's environment.** Testbench writes a skeleton `.env` the first time anyone runs `composer playground`, and it sets `CACHE_STORE=database` and `QUEUE_CONNECTION=database`. The test suite picked both up: eleven tests then failed against a cache table the test database does not have, and three more because code commented "the default sync connection runs the job inside the dispatch call" was suddenly queueing instead. `phpunit.xml` now pins both alongside the database connection it already pinned, so running the playground and then running the tests — an entirely ordinary sequence — no longer changes the result. Found while verifying the schema freeze; CI never saw it because no CI job runs the playground.
 
@@ -330,3 +334,5 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - Connector, factory, manager, and authenticator abstractions with a GitHub connector prototype.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
+
+[Unreleased]: https://github.com/jhaskell13/laraflow/commits/main

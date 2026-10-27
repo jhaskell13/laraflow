@@ -228,6 +228,49 @@ class ProjectContractsTest extends TestCase
         );
     }
 
+    public function test_every_class_the_api_document_names_exists(): void
+    {
+        $missing = [];
+
+        foreach ($this->apiDocumentClasses() as $class => $level) {
+            if (! class_exists($class) && ! interface_exists($class) && ! enum_exists($class)) {
+                $missing[] = $class;
+            }
+        }
+
+        $this->assertSame([], $missing, 'public-api.md names classes that no longer exist; renames must update the document.');
+    }
+
+    public function test_the_api_documents_stability_levels_match_the_code_markers(): void
+    {
+        $conflicts = [];
+
+        foreach ($this->apiDocumentClasses() as $class => $level) {
+            if (! class_exists($class) && ! interface_exists($class) && ! enum_exists($class)) {
+                continue;
+            }
+
+            $docblock = (string) (new ReflectionClass($class))->getDocComment();
+
+            $marked = match (true) {
+                str_contains($docblock, '@internal') => 'Internal',
+                str_contains($docblock, '@experimental') => 'Experimental',
+                default => 'Public',
+            };
+
+            if ($marked !== $level) {
+                $conflicts[] = "{$class} is {$level} in public-api.md but {$marked} by its docblock";
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $conflicts,
+            'A class must carry the stability level the document promises: '
+            .'the docblock is what an IDE shows, the document is what a reader trusts.',
+        );
+    }
+
     public function test_the_shipped_defaults_are_the_documented_defaults(): void
     {
         // Every retry authority in Laraflow ships off. This is the
@@ -459,6 +502,29 @@ class ProjectContractsTest extends TestCase
                 class_basename($class).' is never retried but the contract does not say so.',
             );
         }
+    }
+
+    /**
+     * Every class row of docs/public-api.md with its stability level.
+     *
+     * @return array<class-string, string>
+     */
+    protected function apiDocumentClasses(): array
+    {
+        $rows = [];
+        $doc = (string) file_get_contents($this->path('docs/public-api.md'));
+
+        foreach (explode("\n", $doc) as $line) {
+            if (preg_match('/^\|\s*`(Laraflow\\\\[A-Za-z0-9\\\\]+)`.*\|\s*(Public|Experimental|Internal)\s*\|/', $line, $match)) {
+                /** @var class-string $class */
+                $class = $match[1];
+                $rows[$class] = $match[2];
+            }
+        }
+
+        $this->assertNotEmpty($rows, 'public-api.md has stability tables; parsing them found nothing, so the format moved.');
+
+        return $rows;
     }
 
     /**

@@ -55,7 +55,7 @@ Tests should prove behaviour, not just the absence of errors: assert on persiste
 4. Keep persisted values JSON-serialisable. Do not introduce persistence of live PHP objects.
 5. Never log, persist, or include in exception messages any credential or authentication header.
 6. Run `composer test` and make sure everything passes.
-7. Update `CHANGELOG.md` under *Unreleased* if you changed anything an application could observe.
+7. Update `CHANGELOG.md` under *Unreleased* if you changed anything an application could observe. Breaking changes go under **Breaking**; retiring a public class or config key starts with `@deprecated` and a *Deprecated* entry naming the replacement and the planned removal, per [docs/compatibility.md](docs/compatibility.md#how-a-deprecation-works) — not with deletion.
 8. Update the README or `docs/` if you changed documented behaviour.
 
 ### Code style
