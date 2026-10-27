@@ -169,5 +169,11 @@ class MigrationTest extends TestCase
         $this->command('migrate:rollback')->assertSuccessful();
 
         $this->assertFalse(Schema::hasTable('laraflow_step_attempts'));
+
+        // Migrate back up before the test ends. SQLite and PostgreSQL
+        // would roll the drop back with the test transaction, but MySQL
+        // and MariaDB commit on DDL, and the rest of the suite needs
+        // the tables regardless of which engine is running.
+        $this->command('migrate')->assertSuccessful();
     }
 }

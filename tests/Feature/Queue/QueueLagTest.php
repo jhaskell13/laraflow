@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Queue;
 
 use DateTimeImmutable;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\Schema;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Queue\ExecuteWorkflowJob;
@@ -136,7 +134,6 @@ class QueueLagTest extends TestCase
 
     public function test_the_fast_path_retry_is_available_at_its_due_time(): void
     {
-        $this->createQueueTables();
         PolicyWorkflow::$steps = [StepOne::class, StepTwo::class];
         PolicyWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 120, jitter: 0.0);
         StepTwo::$failTimes = 1;
@@ -308,18 +305,5 @@ class QueueLagTest extends TestCase
     protected function repository(): ExecutionRepository
     {
         return $this->app->make(ExecutionRepository::class);
-    }
-
-    protected function createQueueTables(): void
-    {
-        Schema::create('jobs', function (Blueprint $table) {
-            $table->id();
-            $table->string('queue')->index();
-            $table->longText('payload');
-            $table->unsignedTinyInteger('attempts');
-            $table->unsignedInteger('reserved_at')->nullable();
-            $table->unsignedInteger('available_at');
-            $table->unsignedInteger('created_at');
-        });
     }
 }

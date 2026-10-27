@@ -50,5 +50,11 @@ class ServiceProviderTest extends TestCase
 
         $this->assertFalse(Schema::hasTable('laraflow_step_executions'));
         $this->assertFalse(Schema::hasTable('laraflow_workflow_executions'));
+
+        // Migrate back up before the test ends. SQLite and PostgreSQL
+        // would roll the drop back with the test transaction, but MySQL
+        // and MariaDB commit on DDL, and the rest of the suite needs
+        // the tables regardless of which engine is running.
+        $this->command('migrate')->assertSuccessful();
     }
 }

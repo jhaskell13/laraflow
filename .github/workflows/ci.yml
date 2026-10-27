@@ -98,3 +98,108 @@ jobs:
       - name: Static analysis (prefer-lowest)
         if: matrix.dependencies == 'prefer-lowest'
         run: composer analyse -- --no-progress
+
+  # The engine matrix: the whole suite against every database the
+  # compatibility policy names, through the LARAFLOW_TEST_DB_* seam.
+  # One shared env block configures every image — each ignores the
+  # variables that are not its own — and health options come from the
+  # matrix because every engine answers "are you up" differently.
+  databases:
+    name: Database (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: MySQL 8.0
+            driver: mysql
+            image: mysql:8.0
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - name: MariaDB 10.6
+            driver: mariadb
+            image: mariadb:10.6
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - name: PostgreSQL 13
+            driver: pgsql
+            image: postgres:13
+            port: 5432
+            extensions: pdo_pgsql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="pg_isready -U laraflow"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - name: SQL Server 2019
+            driver: sqlsrv
+            image: mcr.microsoft.com/mssql/server:2019-latest
+            port: 1433
+            extensions: pdo_sqlsrv
+            username: sa
+            password: "Laraflow!Passw0rd"
+            options: >-
+              --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd' -Q 'SELECT 1' -b"
+              --health-interval=10s --health-timeout=10s --health-retries=30
+
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laraflow_test
+          MYSQL_USER: laraflow
+          MYSQL_PASSWORD: secret
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: laraflow_test
+          MARIADB_USER: laraflow
+          MARIADB_PASSWORD: secret
+          POSTGRES_DB: laraflow_test
+          POSTGRES_USER: laraflow
+          POSTGRES_PASSWORD: secret
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Laraflow!Passw0rd"
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: ${{ matrix.options }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, json, ${{ matrix.extensions }}
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      # SQL Server creates no database from environment variables the
+      # way the other images do; ask the server itself for one.
+      - name: Create the SQL Server database
+        if: matrix.driver == 'sqlsrv'
+        run: >
+          docker exec ${{ job.services.database.id }}
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd'
+          -Q 'CREATE DATABASE laraflow_test' -b
+
+      - name: Tests
+        env:
+          LARAFLOW_TEST_DB_DRIVER: ${{ matrix.driver }}
+          LARAFLOW_TEST_DB_HOST: 127.0.0.1
+          LARAFLOW_TEST_DB_PORT: ${{ matrix.port }}
+          LARAFLOW_TEST_DB_DATABASE: laraflow_test
+          LARAFLOW_TEST_DB_USERNAME: ${{ matrix.username }}
+          LARAFLOW_TEST_DB_PASSWORD: ${{ matrix.password }}
+        run: composer test

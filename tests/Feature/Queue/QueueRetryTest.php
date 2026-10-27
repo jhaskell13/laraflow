@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Queue;
 
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Tests\Support\PolicyWorkflow;
@@ -34,8 +32,6 @@ class QueueRetryTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-
-        $this->createQueueTables();
 
         PolicyWorkflow::$steps = [StepOne::class, StepTwo::class];
     }
@@ -233,28 +229,5 @@ class QueueRetryTest extends TestCase
             '--max-time' => 15,
             '--sleep' => 0,
         ]);
-    }
-
-    protected function createQueueTables(): void
-    {
-        Schema::create('jobs', function (Blueprint $table) {
-            $table->id();
-            $table->string('queue')->index();
-            $table->longText('payload');
-            $table->unsignedTinyInteger('attempts');
-            $table->unsignedInteger('reserved_at')->nullable();
-            $table->unsignedInteger('available_at');
-            $table->unsignedInteger('created_at');
-        });
-
-        Schema::create('failed_jobs', function (Blueprint $table) {
-            $table->id();
-            $table->string('uuid')->unique();
-            $table->text('connection');
-            $table->text('queue');
-            $table->longText('payload');
-            $table->longText('exception');
-            $table->timestamp('failed_at')->useCurrent();
-        });
     }
 }

@@ -6,8 +6,10 @@ namespace Laraflow\Tests;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
 use Laraflow\Core\LaraflowServiceProvider;
 use Laraflow\Tests\Support\FixtureState;
@@ -101,6 +103,41 @@ abstract class TestCase extends Orchestra
         return $row;
     }
 
+    /**
+     * Laravel's queue tables, for the tests that run a real database
+     * queue. Created here — once, after the refresh, before any test's
+     * transaction — rather than in a queue test's setUp(): MySQL and
+     * MariaDB commit the open transaction on any DDL, so a mid-test
+     * CREATE TABLE would break the rollback isolation every other test
+     * relies on. SQLite only tolerated it because its DDL rolls back.
+     */
+    protected function afterRefreshingDatabase(): void
+    {
+        if (! Schema::hasTable('jobs')) {
+            Schema::create('jobs', function (Blueprint $table) {
+                $table->id();
+                $table->string('queue')->index();
+                $table->longText('payload');
+                $table->unsignedTinyInteger('attempts');
+                $table->unsignedInteger('reserved_at')->nullable();
+                $table->unsignedInteger('available_at');
+                $table->unsignedInteger('created_at');
+            });
+        }
+
+        if (! Schema::hasTable('failed_jobs')) {
+            Schema::create('failed_jobs', function (Blueprint $table) {
+                $table->id();
+                $table->string('uuid')->unique();
+                $table->text('connection');
+                $table->text('queue');
+                $table->longText('payload');
+                $table->longText('exception');
+                $table->timestamp('failed_at')->useCurrent();
+            });
+        }
+    }
+
     protected function getPackageProviders($app): array
     {
         return [
@@ -171,6 +208,13 @@ abstract class TestCase extends Orchestra
                 'charset' => 'utf8',
                 'search_path' => 'public',
                 'sslmode' => 'prefer',
+            ],
+            'sqlsrv' => [
+                // ODBC Driver 18 encrypts by default and refuses a
+                // container's self-signed certificate; a test database
+                // trusts it rather than provisioning real certificates.
+                'encrypt' => (string) Env::get('LARAFLOW_TEST_DB_ENCRYPT', 'yes'),
+                'trust_server_certificate' => true,
             ],
             default => [],
         };
