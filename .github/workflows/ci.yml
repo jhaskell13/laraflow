@@ -148,9 +148,10 @@ jobs:
             extensions: pdo_sqlsrv
             username: sa
             password: "Laraflow!Passw0rd"
-            options: >-
-              --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd' -Q 'SELECT 1' -b"
-              --health-interval=10s --health-timeout=10s --health-retries=30
+            # No docker health probe: where sqlcmd lives inside the image
+            # moved between CUs (mssql-tools vs mssql-tools18), so the
+            # wait step below asks from outside, trying both.
+            options: --env MSSQL_PID=Developer
 
     services:
       database:
@@ -186,13 +187,24 @@ jobs:
         run: composer install --prefer-dist --no-interaction --no-progress
 
       # SQL Server creates no database from environment variables the
-      # way the other images do; ask the server itself for one.
-      - name: Create the SQL Server database
+      # way the other images do, and its startup is the slowest of the
+      # four. Wait for it and create the database in one idempotent
+      # loop, trying both sqlcmd locations the image has shipped.
+      - name: Wait for SQL Server and create the database
         if: matrix.driver == 'sqlsrv'
-        run: >
-          docker exec ${{ job.services.database.id }}
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd'
-          -Q 'CREATE DATABASE laraflow_test' -b
+        run: |
+          QUERY="IF DB_ID('laraflow_test') IS NULL CREATE DATABASE laraflow_test"
+          for i in $(seq 1 60); do
+            if docker exec ${{ job.services.database.id }} sh -c \
+              "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b \
+               || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b"; then
+              echo "SQL Server is ready."; exit 0
+            fi
+            sleep 5
+          done
+          echo "SQL Server never became ready; container log follows."
+          docker logs ${{ job.services.database.id }}
+          exit 1
 
       - name: Tests
         env:

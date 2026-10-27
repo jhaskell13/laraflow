@@ -1,0 +1,64 @@
+# A hand-dispatched magnifying glass, not a check: runs a chosen slice
+# of the suite against one engine with the SQL/transaction tracer on.
+# Exists because the development machine cannot run these engines at
+# all; expected to be dispatched from work branches and never required.
+name: Debug database
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: PHPUnit --filter expression
+        required: true
+      driver:
+        description: mysql or mariadb
+        default: mysql
+      trace:
+        description: Set LARAFLOW_TEST_LOG_SQL
+        default: '1'
+
+jobs:
+  debug:
+    name: Debug (${{ inputs.driver }})
+    runs-on: ubuntu-latest
+
+    services:
+      database:
+        image: ${{ inputs.driver == 'mariadb' && 'mariadb:10.6' || 'mysql:8.0' }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laraflow_test
+          MYSQL_USER: laraflow
+          MYSQL_PASSWORD: secret
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: laraflow_test
+          MARIADB_USER: laraflow
+          MARIADB_PASSWORD: secret
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, json, pdo_mysql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run the filtered tests, traced
+        env:
+          LARAFLOW_TEST_DB_DRIVER: ${{ inputs.driver }}
+          LARAFLOW_TEST_DB_HOST: 127.0.0.1
+          LARAFLOW_TEST_DB_PORT: 3306
+          LARAFLOW_TEST_DB_DATABASE: laraflow_test
+          LARAFLOW_TEST_DB_USERNAME: laraflow
+          LARAFLOW_TEST_DB_PASSWORD: secret
+          LARAFLOW_TEST_LOG_SQL: ${{ inputs.trace }}
+        run: ./vendor/bin/phpunit --filter "${{ inputs.filter }}"
