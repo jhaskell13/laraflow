@@ -17,7 +17,7 @@ composer install
 composer check   # code style + static analysis + tests
 ```
 
-CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.4 per supported Laravel major, plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
+CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.5 against Laravel 12 and 13 (excluding PHP 8.2 + Laravel 13, which Laravel does not support), plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
 
 The individual checks:
 

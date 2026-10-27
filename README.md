@@ -29,9 +29,9 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 
 | Dependency | Supported |
 |------------|-----------|
-| PHP        | 8.2, 8.3, 8.4 |
-| Laravel    | 12.x |
-| Database   | SQLite (tested), MySQL 8+, PostgreSQL 13+, MariaDB 10.6+ |
+| PHP        | 8.2, 8.3, 8.4, 8.5 |
+| Laravel    | 12.x, 13.x (Laravel 13 requires PHP 8.3+) |
+| Database   | SQLite (tested), MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ |
 
 See [docs/compatibility.md](docs/compatibility.md) for the full policy, including what "supported" means at this stage.
 

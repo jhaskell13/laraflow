@@ -6,15 +6,22 @@ This policy states which platform versions Laraflow supports, what "supported" m
 
 | Component | Versions | Status |
 |-----------|----------|--------|
-| PHP | 8.2, 8.3, 8.4 | All three run in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
-| Laravel | 12.x | Declared via `illuminate/*` `^12.0`; tested with Orchestra Testbench 10. CI pins the major through Testbench and runs a `prefer-lowest` leg, so the floor of every constraint is proven, not assumed. |
+| PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
+| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors and a `prefer-lowest` leg, so the floor of every constraint is proven, not assumed. |
 | SQLite | 3.x | Used by the test suite (in-memory by default). |
 | MySQL | 8.0+ | Expected to work; not yet in CI. |
 | MariaDB | 10.6+ | Expected to work; not yet in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |
 | PostgreSQL | 13+ | Expected to work; not yet in CI. |
 | SQL Server | 2019+ | Expected to work; not yet in CI. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv`. |
 
-Laravel versions below 12 and PHP below 8.2 are **not** supported and will not be added.
+Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
+
+**Laravel 11 and below, and PHP 8.1 and below, are not supported and will not be added.** This follows the drop policy below rather than taste:
+
+- Laravel 10 (February 2023) and Laravel 11 (March 2024) are both past the end of their bug-fix windows, and Laravel 10 requires only PHP 8.1. Supporting a major that upstream no longer fixes would mean carrying compatibility shims for a platform whose own bugs will never be repaired.
+- PHP 8.1 reached security end-of-life in December 2025. Laraflow's value objects are `final readonly class`, which is PHP 8.2 syntax; dropping to 8.1 would mean giving up compile-time immutability across the durable boundaries in exchange for an unsupported runtime.
+
+If an application is pinned to Laravel 10 or 11, the right answer is to upgrade the application — not to widen this package.
 
 The whole test suite runs against any of these engines by setting `LARAFLOW_TEST_DB_DRIVER` and the connection variables documented in [CONTRIBUTING.md](../CONTRIBUTING.md) — that is the mechanism the Milestone 6 CI matrix uses to turn "expected to work" into "tested".
 

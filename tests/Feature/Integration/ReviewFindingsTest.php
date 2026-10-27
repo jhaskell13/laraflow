@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Feature\Integration;
 
 use GuzzleHttp\Exception\TooManyRedirectsException;
 use GuzzleHttp\Psr7\Request as PsrRequest;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpClient;
 use Illuminate\Support\Facades\Event;
@@ -50,9 +51,12 @@ class ReviewFindingsTest extends TestCase
 
     public function test_guzzles_own_transfer_failures_become_transport_exceptions(): void
     {
+        // The response argument is optional on Guzzle 7 and required on
+        // Guzzle 8 (Laravel 13's); passing it works on both.
         Http::fake(fn () => throw new TooManyRedirectsException(
             'Will not follow more than 5 redirects to https://api.example/x?token=leak',
             new PsrRequest('GET', 'https://api.example/x?token=leak'),
+            new PsrResponse(302),
         ));
 
         try {

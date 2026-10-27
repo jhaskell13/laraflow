@@ -400,6 +400,12 @@ class EloquentExecutionRepository implements ExecutionRepository
         );
     }
 
+    /**
+     * @template TReturn
+     *
+     * @param  Closure(): TReturn  $callback
+     * @return TReturn
+     */
     protected function transaction(Closure $callback): mixed
     {
         return WorkflowExecutionModel::query()
