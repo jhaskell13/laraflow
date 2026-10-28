@@ -13,6 +13,7 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
@@ -93,6 +94,14 @@ class ExecuteWorkflowJob implements ShouldQueue
                 // no instant to deliver — the signaller re-dispatches.
                 $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
             }
+        } catch (ExecutionStillWaitingException) {
+            // A delivery raced a park: a heartbeat landed after a signal
+            // already resumed and re-parked the execution, or a delayed
+            // delivery outlived the wait it was scheduled for. The park
+            // stands and this delivery has nothing to do.
+            $logger->info('Laraflow ignored a delivery for an execution that is parked on a wait.', [
+                'execution_id' => $execution->id,
+            ]);
         } catch (RetryNotDueException) {
             // A delivery raced the schedule: a duplicate, an imprecise
             // driver, or an operator who already ran it. The schedule

@@ -15,6 +15,7 @@ class FixtureState
         PolicyWorkflow::$failurePolicy = FailurePolicy::Stop;
         StepOne::$runs = 0;
         StepOne::$beforeReturn = null;
+        StepOne::$throw = null;
         StepOne::$output = null;
         StepOne::$seenDeadline = null;
         StepOne::$seenCorrelationId = null;
@@ -33,12 +34,17 @@ class FixtureState
         ConditionalGate::$open = true;
         ConditionalGate::$runs = 0;
         ConditionalGate::$throw = null;
+        ConditionalGate::$asked = 0;
+        ConditionalGate::$readsKey = null;
+        GatedWorkflow::$failurePolicy = FailurePolicy::Stop;
+        PauseStep::$beforeReturn = null;
         ApprovalStep::$runs = 0;
         ApprovalStep::$timeoutSeconds = null;
         ApprovalWorkflow::$policy = null;
         PauseStep::$runs = 0;
         PauseStep::$seconds = 600;
         ParentWorkflow::$policy = null;
+        HookedSubStep::$beforeCreate = null;
         ConnectorStep::$connector = 'crm';
         ConnectorStep::$connection = null;
         ConnectorStep::$runs = 0;

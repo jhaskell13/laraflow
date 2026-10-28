@@ -274,6 +274,113 @@ class WaitStateTest extends TestCase
         );
     }
 
+    public function test_a_duplicate_signal_before_the_resume_overwrites_the_payload(): void
+    {
+        $execution = $this->runner()->run(new ApprovalWorkflow);
+
+        $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'dana']);
+
+        // An at-least-once source redelivers; the last delivery wins —
+        // and, crucially, an identical redelivery is not refused (on
+        // MySQL an unchanged UPDATE counts zero rows, which must not
+        // read as "not waiting").
+        $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'dana']);
+        $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'alex']);
+
+        $resumed = $this->runner()->execute($execution->id, new ApprovalWorkflow);
+
+        $this->assertTrue($resumed->isCompleted());
+        $this->assertSame(
+            ['approved_by' => 'alex'],
+            StepExecutionModel::query()->where('position', 1)->sole()->output,
+        );
+    }
+
+    public function test_a_cancellation_requested_mid_step_is_honoured_at_the_park_boundary(): void
+    {
+        // cancel() lands while handle() runs; the step then asks to
+        // park. The park is a step boundary, and an indefinite wait
+        // must not swallow the request.
+        $runner = $this->runner();
+        PauseStep::$beforeReturn = function () use ($runner): void {
+            $runner->cancel(WorkflowExecutionModel::query()->sole()->id, 'changed my mind');
+        };
+
+        $result = $runner->run(new PausedWorkflow);
+
+        $this->assertTrue($result->isCancelled(), 'The boundary honoured the request instead of parking.');
+        $this->assertSame(
+            ExecutionStatus::Cancelled->value,
+            WorkflowExecutionModel::query()->sole()->status,
+        );
+        $this->assertSame('changed my mind', WorkflowExecutionModel::query()->sole()->cancel_reason);
+    }
+
+    public function test_heartbeat_style_reparks_do_not_count_toward_abandonment(): void
+    {
+        // A park, then two early claims that correctly park again: each
+        // claim concludes in an orderly release, so none of them is
+        // "fruitless" — only a claim that dies before any orderly write
+        // may count toward the abandonment bound.
+        Date::setTestNow('2026-10-28 10:00:00');
+        $execution = $this->runner()->run(new ApprovalWorkflow);
+
+        foreach ([1, 2] as $i) {
+            $reparked = $this->runner()->execute($execution->id, new ApprovalWorkflow, ignoreRetrySchedule: true);
+            $this->assertTrue($reparked->isWaiting());
+        }
+
+        $this->assertSame(
+            0,
+            WorkflowExecutionModel::query()->sole()->fruitless_claims,
+            'An orderly re-park is progress, not a fruitless claim.',
+        );
+    }
+
+    public function test_a_due_timed_wait_is_found_and_resumed_by_recovery(): void
+    {
+        Date::setTestNow('2026-10-28 10:00:00');
+        $execution = $this->runner()->run(new PausedWorkflow);
+
+        Date::setTestNow('2026-10-28 10:05:00');
+        $service = $this->app->make(\Laraflow\Workflow\RecoveryService::class);
+        $this->assertCount(0, $service->scan(300, null, 100, 3), 'Not due yet: the scan leaves it alone.');
+
+        Date::setTestNow('2026-10-28 10:10:00');
+        $candidates = $service->scan(300, null, 100, 3);
+
+        $this->assertCount(1, $candidates);
+        $this->assertSame(
+            \Laraflow\Events\WorkflowExecutionRetryScheduled::REASON_WAIT_DUE,
+            $candidates[0]->reason,
+        );
+        $this->assertFalse($candidates[0]->abandoned, 'Due waits are exempt from the abandonment bound.');
+
+        $resumed = $service->runInline($candidates[0]);
+
+        $this->assertTrue($resumed->isCompleted());
+        $this->assertSame(1, StepTwo::$runs, 'Recovery delivered the resume and the rest of the plan ran.');
+    }
+
+    public function test_a_delivery_for_a_parked_execution_is_a_quiet_no_op_for_the_queue_job(): void
+    {
+        $execution = $this->runner()->run(new ApprovalWorkflow);
+
+        // A delayed delivery outliving its wait, or a heartbeat racing a
+        // re-park: the job must absorb it like a not-due retry, not fail.
+        $logger = new \Laraflow\Tests\Support\ArrayLogger;
+        $this->app->instance(\Psr\Log\LoggerInterface::class, $logger);
+
+        $job = new \Laraflow\Queue\ExecuteWorkflowJob($execution->id);
+        $this->app->call([$job, 'handle']);
+
+        $this->assertTrue(
+            $logger->hasRecordContaining('info', 'parked on a wait'),
+            'The refused claim is information, not a failed job.',
+        );
+        $this->assertTrue($this->app->make(\Laraflow\Workflow\ExecutionRepository::class)->find($execution->id)->isWaiting());
+    }
+
     protected function runner(int $staleAfter = 300): WorkflowRunner
     {
         return new WorkflowRunner(

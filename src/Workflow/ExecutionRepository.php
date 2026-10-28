@@ -199,6 +199,8 @@ interface ExecutionRepository
      * execution becomes due immediately, in one transaction. Refused
      * with SignalRefusedException when the execution is not waiting on
      * that signal — resumed, timed out, finished, or a different name.
+     * A second signal before the execution resumes overwrites the
+     * payload: last delivery wins, as at-least-once sources require.
      * The caller bounds and serializes the payload (see
      * docs/advanced-workflows.md); recording does not deliver — the
      * queue fast path and laraflow:recover do.
@@ -228,7 +230,8 @@ interface ExecutionRepository
     public function waitingDue(
         DateTimeImmutable $dueBefore,
         int $limit = 100,
-        ?string $workflow = null
+        ?string $workflow = null,
+        ?string $tenantId = null
     ): array;
 
     /**

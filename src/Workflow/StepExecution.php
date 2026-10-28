@@ -81,10 +81,12 @@ class StepExecution
         $this->error = null;
         $this->errorClass = null;
         $this->failedAt = null;
-        // The signal name is live wait state and clears; timeout_at and
-        // next_retry_at stay — the last attempt's deadline and due time
-        // are part of its record, as the timeout tests pin.
+        // Live wait state clears: the signal name, and a consumed due
+        // time that would otherwise read as a pending schedule.
+        // timeout_at stays — the last attempt's deadline is part of its
+        // record, as the timeout tests pin.
         $this->waitSignal = null;
+        $this->nextRetryAt = null;
     }
 
     /**
@@ -106,6 +108,10 @@ class StepExecution
         $this->waitSignal = $signal;
         $this->nextRetryAt = $resumeAt;
         $this->timeoutAt = $timeoutAt;
+        // A wait starts clean: output is where a signal's payload (or a
+        // child's outcome) lands, and a stale payload from a previous,
+        // already-charged attempt must not read as this wait's answer.
+        $this->output = null;
     }
 
     /**
@@ -117,6 +123,10 @@ class StepExecution
     {
         $this->assertTransition(StepStatus::Skipped, [
             StepStatus::Pending,
+            // A re-executed step whose condition answers false now: the
+            // earlier failure may have been the condition itself throwing.
+            StepStatus::Failed,
+            StepStatus::Retrying,
         ]);
 
         $this->status = StepStatus::Skipped;

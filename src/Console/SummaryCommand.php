@@ -133,6 +133,26 @@ class SummaryCommand extends Command
             ));
         }
 
+        $dueWaits = $repository->waitingDue(
+            $now,
+            ExecutionRepository::MAX_PAGE_SIZE,
+            $filter->workflows[0] ?? null,
+            $filter->tenantId,
+        );
+
+        if ($dueWaits !== []) {
+            $attention = true;
+            $oldest = $dueWaits[0];
+
+            $this->components->warn(sprintf(
+                '%d wait%s due for delivery; the most overdue is execution [%s], due %s. Deliver them with: laraflow:recover',
+                count($dueWaits),
+                count($dueWaits) === 1 ? ' is' : 's are',
+                $oldest->id,
+                $this->formatDate($oldest->nextRetryAt),
+            ));
+        }
+
         $overdue = $this->overdueSteps($repository, $filter, $now);
 
         if ($overdue !== []) {
@@ -151,7 +171,7 @@ class SummaryCommand extends Command
 
         $unfinished = $repository->list(
             $filter
-                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying])
+                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting])
                 ->withOldestFirst(),
             limit: 1,
         );

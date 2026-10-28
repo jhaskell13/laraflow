@@ -40,7 +40,11 @@ readonly class ExecutionOptions
      * @param  string|null  $tenantId  Ties it to a tenant, for listing and retention
      *                                 in multi-tenant applications.
      * @param  int|string|null  $parentExecutionId  The execution whose step spawned
-     *                                              this one; written by the sub-workflow machinery.
+     *                                              this one. Written by the sub-workflow machinery;
+     *                                              setting it yourself makes the execution behave as
+     *                                              a child — cancelled by the parent's cascade and
+     *                                              adoptable by its step — with no validation that
+     *                                              the ids exist.
      * @param  int|string|null  $parentStepExecutionId  The exact parent step row waiting
      *                                                  on this execution.
      *
@@ -64,7 +68,8 @@ readonly class ExecutionOptions
     {
         return $this->correlationId === null
             && $this->tenantId === null
-            && $this->parentExecutionId === null;
+            && $this->parentExecutionId === null
+            && $this->parentStepExecutionId === null;
     }
 
     /**

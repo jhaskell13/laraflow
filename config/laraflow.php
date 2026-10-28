@@ -173,7 +173,8 @@ return [
     |
     | abandon_after_attempts: an *interrupted* execution where any step
     | has already been attempted this many times — or which has been
-    | claimed this many times without reaching a step — is reported as
+    | claimed this many times without reaching a step or an orderly
+    | release — is reported as
     | abandoned instead of re-dispatched, so a crash-looping workflow
     | cannot be retried forever by the scheduler. This bound is crash-loop
     | protection and deliberately independent of step retry policies,

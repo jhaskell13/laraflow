@@ -160,9 +160,10 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 | `stale claim` | `running`, with `claimed_at` older than `stale_after` (or null) | Always scanned |
 | `step timeout` | A stale claim whose interrupted step had also passed its deadline; the recovering worker charges that attempt to the step's retry policy | Always scanned |
 | `retry due` | `retrying`, with `next_retry_at` at or before now | Scanned unless `--skip-retries` |
+| `wait due` | `waiting`, with `next_retry_at` at or before now — a timed resume, a signal deadline, a recorded signal, or a sub-workflow heartbeat | Scanned unless `--skip-retries` |
 | `never dispatched` | `pending`, created more than `pending_after` ago | **Off** — opt in |
 
-Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight.
+Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight. Note that `--skip-retries` withholds due *waits* as well as due retries: it reduces recovery to interrupted and lost work only.
 
 The pending scan is off by default on purpose. `pending` is not only the state of a lost dispatch; it is also the state of an execution created with `start()` and deliberately not yet run. Recovery must never start work the application was intentionally holding. Enable it — with `--pending-after=300` or `laraflow.recovery.pending_after` — only if every pending execution in your application is meant to run immediately.
 
@@ -188,7 +189,7 @@ The pending scan is off by default on purpose. `pending` is not only the state o
 
 Scheduled recovery that blindly re-dispatches would retry a crash-looping workflow until something gives. Three bounds prevent that:
 
-1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across both scans (stale work first, pending work fills the remainder).
+1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across all scans (stale work first, then due retries and waits, pending work last).
 2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
    The same bound is also held against `fruitless_claims` — the number of consecutive claims on the execution that ended before any step row was written. A fault *between* claiming and the first step (a listener throwing on `WorkflowExecutionStarted`, a workflow whose steps no longer match the persisted plan) never moves the step attempt counter, so without this second measure it would be re-dispatched by every run forever. The report names which measure tripped: `abandoned (reached 3 step attempts)` or `abandoned (was claimed 3 times without reaching a step)`. See [execution-lifecycle.md](execution-lifecycle.md#claiming-and-concurrency).
 3. **Missing-class bound.** An execution whose recorded workflow class no longer exists is reported as **unrecoverable** and is never dispatched. This bound exists because such a retry fails *before* any step runs — attempts never increment, so the attempt bound alone could never stop the scheduler from re-queueing it (and filling `failed_jobs`) forever. Restore or redeploy the class, or handle the execution manually.
@@ -230,13 +231,16 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionDispatched` | An execution was handed to the queue. |
 | `WorkflowExecutionStarted` | A worker claimed an execution and is about to run it. |
 | `WorkflowStepStarted` | A step was marked running. |
-| `WorkflowStepCompleted` | A step's checkpoint committed. |
+| `WorkflowStepCompleted` | A step's checkpoint committed — including a wait resolving. |
+| `WorkflowStepSkipped` | A conditional step's condition answered false and the skip was durably recorded. |
+| `WorkflowStepWaiting` | A step returned a `Wait` and the execution durably parked. |
 | `WorkflowStepFailed` | A step's failure was persisted. |
 | `WorkflowStepRetryScheduled` | A step's retry policy durably scheduled another attempt — with why and when. |
 | `WorkflowExecutionCompleted` | The execution was marked completed. Fires once. |
 | `WorkflowExecutionFailed` | The execution was marked failed. **Terminal only** — never for a scheduled retry. |
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `never_dispatched`). |
+| `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
 
 Two properties hold for all of them:
 
@@ -283,7 +287,7 @@ The audit recorded that `WorkflowExecutionDispatched` could fire before the tran
 ## Operational checklist
 
 - Run workers for the queue you configured: `php artisan queue:work --queue=workflows`.
-- Schedule `laraflow:recover` with `withoutOverlapping()`. With retries enabled it is not only a repair tool — it is the contractual delivery path for due retries.
+- Schedule `laraflow:recover` with `withoutOverlapping()`. It is not only a repair tool — it is the contractual delivery path for due retries, due waits, recorded signals, and sub-workflow heartbeats; wait-based workflows need it even with retries disabled.
 - Keep `queue.timeout` below `execution.stale_after`.
 - Alert on a non-zero exit from `laraflow:recover` — it means work was abandoned or a recovery action failed.
 - Watch `failed_jobs` for step failures and definition mismatches; `laraflow:list --status=failed` shows the same from Laraflow's side.

@@ -183,7 +183,7 @@ class ListCommand extends Command
     }
 
     /**
-     * Completed steps out of the plan.
+     * Steps done — completed or skipped — out of the plan.
      *
      * @param  array<string, array{total: int, completed: int, skipped: int}>  $progress
      */

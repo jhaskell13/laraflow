@@ -94,9 +94,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->recordSignal($id, $signal, $payload, $at));
     }
 
-    public function waitingDue(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null): array
+    public function waitingDue(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow));
+        return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow, $tenantId));
     }
 
     public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void

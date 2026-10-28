@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.1.0`, the first tagged release.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable. The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Branching, fan-out, sub-workflows, human approval, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md) Milestone 7). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), or run another workflow as a child ([docs/advanced-workflows.md](docs/advanced-workflows.md)). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching, fan-out/fan-in, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md)). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -600,8 +600,8 @@ A step that repeats this way may re-perform external side effects — that is th
 
 | Record | Fields |
 |--------|--------|
-| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry time, cancellation request/time/reason |
-| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's deadline, next retry time |
+| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `waiting`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry/resume time, cancellation request/time/reason, parent linkage for sub-workflows |
+| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`, `skipped`, `waiting`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's (or signal wait's) deadline, next retry/resume time, awaited signal name |
 | Step attempt | attempt number, outcome (`completed`, `failed`, `timed_out`, `interrupted`), error message and class, started/ended timestamps, duration, scheduled retry time |
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
@@ -970,7 +970,7 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 5; they are the focus of the next milestone in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 7; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
@@ -983,7 +983,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 - **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
 - **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
 - **`0.x`, so minor versions may break.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the public API may still move before 1.0; breaking changes are listed in [CHANGELOG.md](CHANGELOG.md) under **Breaking**. Pin a version you have tested.
-- **No production usage yet.** Everything here is proven by 877 tests across five database engines and the CI matrix, not by having survived a real incident. Read [docs/execution-lifecycle.md](docs/execution-lifecycle.md) — in particular *Known limits of the claim discipline* — before depending on it for work you cannot afford to re-run.
+- **No production usage yet.** Everything here is proven by the test suite across five database engines and the CI matrix, not by having survived a real incident. Read [docs/execution-lifecycle.md](docs/execution-lifecycle.md) before depending on it for work you cannot afford to re-run.
 
 ## Design principles
 

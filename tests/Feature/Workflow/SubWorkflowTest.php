@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Queue;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Tests\Support\HookedParentWorkflow;
+use Laraflow\Tests\Support\HookedSubStep;
 use Laraflow\Tests\Support\ParentWorkflow;
 use Laraflow\Tests\Support\RecursiveWorkflow;
 use Laraflow\Tests\Support\StepTwo;
@@ -134,7 +136,9 @@ class SubWorkflowTest extends TestCase
         $this->runner()->execute($child->id, new TwoStepWorkflow);
         $resumed = $this->runner()->execute($parent->id, new ParentWorkflow);
         $this->assertTrue($resumed->isCompleted());
-        $this->assertSame(1, \Laraflow\Tests\Support\StepOne::$runs - 1, 'The child re-ran only its failed step.');
+        // StepOne ran once in the parent and once in the child's first
+        // attempt; the child's resume skipped its completed checkpoint.
+        $this->assertSame(2, \Laraflow\Tests\Support\StepOne::$runs, 'The child re-ran only its failed step.');
     }
 
     public function test_the_heartbeat_re_parks_and_redelivers_an_unfinished_child(): void
@@ -156,10 +160,16 @@ class SubWorkflowTest extends TestCase
             WorkflowExecutionModel::query()->whereKey($parent->id)->sole()->next_retry_at?->format('Y-m-d H:i:s'),
             'A fresh heartbeat was scheduled.',
         );
-        Queue::assertPushed(
-            ExecuteWorkflowJob::class,
-            2,
-        );
+        // The second push targeted the child, not something else.
+        $deliveries = 0;
+        Queue::assertPushed(ExecuteWorkflowJob::class, function (ExecuteWorkflowJob $job) use ($child, &$deliveries): bool {
+            if ($job->executionId === $child->id) {
+                $deliveries++;
+            }
+
+            return true;
+        });
+        $this->assertSame(2, $deliveries, 'The lost dispatch was re-delivered to the child.');
     }
 
     public function test_a_recursive_workflow_is_refused_at_the_depth_bound(): void
@@ -240,6 +250,116 @@ class SubWorkflowTest extends TestCase
         $this->assertCount(1, $page->executions);
         $this->assertSame(TwoStepWorkflow::class, $page->executions[0]->workflow);
         $this->assertSame($parent->id, $page->executions[0]->parentExecutionId);
+    }
+
+    public function test_a_stale_child_failure_payload_cannot_be_recharged_after_a_retry(): void
+    {
+        // The child's failure signalled the parent (payload on the step
+        // row) and was charged; the parent's retry re-parks. The stale
+        // payload must not survive into the new wait, and the heartbeat
+        // must resume the re-delivered child rather than charging the
+        // same failure twice.
+        Queue::fake();
+        ParentWorkflow::$policy = new StepPolicy(maxAttempts: 3, baseDelaySeconds: 30, jitter: 0.0);
+        StepTwo::$failTimes = 1;
+        Date::setTestNow('2026-10-28 10:00:00');
+
+        $parent = $this->runner()->run(new ParentWorkflow);
+        $child = WorkflowExecutionModel::query()->where('workflow', TwoStepWorkflow::class)->sole();
+
+        try {
+            $this->runner()->execute($child->id, new TwoStepWorkflow);
+            $this->fail('Expected the child failure.');
+        } catch (RuntimeException) {
+            // Charged to the parent step below.
+        }
+
+        $this->runner()->execute($parent->id, new ParentWorkflow);   // charges attempt 1, schedules retry
+        Date::setTestNow('2026-10-28 10:00:30');
+        $parked = $this->runner()->execute($parent->id, new ParentWorkflow); // retry re-parks
+
+        $this->assertTrue($parked->isWaiting());
+        $parentStep = StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole();
+        $this->assertNull($parentStep->output, 'The charged failure payload must not survive into the new wait.');
+
+        // Heartbeat with the child still failed (its re-delivery is
+        // sitting on the faked queue): the failure predates this
+        // attempt, so the parent re-delivers and parks — no new charge.
+        Date::setTestNow('2026-10-28 10:05:30');
+        $stillWaiting = $this->runner()->execute($parent->id, new ParentWorkflow);
+
+        $this->assertTrue($stillWaiting->isWaiting(), 'A pre-attempt failure is resumed, not recharged.');
+        $this->assertSame(2, StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole()->attempts);
+    }
+
+    public function test_a_cancellation_honoured_at_a_boundary_cascades_to_children(): void
+    {
+        // cancel() lands while the sub-workflow step runs — after
+        // cancel()'s own cascade swept past (finding nothing), before
+        // the child exists. The park boundary honours the request; the
+        // cascade must run there too, or the just-created child keeps
+        // working for a cancelled parent.
+        Queue::fake();
+        $runner = $this->runner();
+
+        HookedSubStep::$beforeCreate = function () use ($runner): void {
+            $parent = WorkflowExecutionModel::query()->where('workflow', HookedParentWorkflow::class)->sole();
+            $runner->cancel($parent->id, 'raced the cascade');
+        };
+
+        $result = $runner->run(new HookedParentWorkflow);
+
+        $this->assertTrue($result->isCancelled());
+        $this->assertSame(
+            ExecutionStatus::Cancelled->value,
+            WorkflowExecutionModel::query()->where('workflow', TwoStepWorkflow::class)->sole()->status,
+            'The boundary cascade must catch a child created mid-race.',
+        );
+    }
+
+    public function test_a_pruned_child_fails_the_parent_as_missing_rather_than_hanging(): void
+    {
+        Queue::fake();
+        Date::setTestNow('2026-10-28 10:00:00');
+        $parent = $this->runner()->run(new ParentWorkflow);
+        $child = WorkflowExecutionModel::query()->where('workflow', TwoStepWorkflow::class)->sole();
+
+        WorkflowExecutionModel::query()->whereKey($child->id)->delete();
+
+        Date::setTestNow('2026-10-28 10:05:00');
+
+        try {
+            $this->runner()->execute($parent->id, new ParentWorkflow);
+            $this->fail('Expected the missing child to fail the step.');
+        } catch (ChildWorkflowFailedException $exception) {
+            $this->assertStringContainsString('no longer exists', $exception->getMessage());
+        }
+
+        $this->assertSame(
+            ExecutionStatus::Failed->value,
+            WorkflowExecutionModel::query()->whereKey($parent->id)->sole()->status,
+        );
+    }
+
+    public function test_a_pruned_ancestor_does_not_break_the_depth_walk(): void
+    {
+        Queue::fake();
+        $root = $this->runner()->run(new RecursiveWorkflow);
+        $childId = WorkflowExecutionModel::query()->where('parent_execution_id', $root->id)->sole()->id;
+
+        // Retention pruned the long-finished root; the live child can
+        // still spawn its own sub-workflow without a bewildering
+        // not-found error from the depth walk.
+        WorkflowExecutionModel::query()->whereKey($root->id)->delete();
+
+        $waiting = $this->runner()->execute($childId, new RecursiveWorkflow);
+
+        $this->assertTrue($waiting->isWaiting());
+        $this->assertSame(
+            1,
+            WorkflowExecutionModel::query()->where('parent_execution_id', $childId)->count(),
+            'The grandchild was created; the walk stopped at the pruned link.',
+        );
     }
 
     protected function runner(): WorkflowRunner

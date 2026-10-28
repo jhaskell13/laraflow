@@ -8,6 +8,7 @@ use Closure;
 use DateTimeImmutable;
 use Laraflow\Workflow\Step;
 use Laraflow\Workflow\WorkflowContext;
+use Throwable;
 
 class StepOne implements Step
 {
@@ -31,8 +32,18 @@ class StepOne implements Step
     /** Replaces the step's output when set, for payload-size tests. */
     public static mixed $output = null;
 
+    /** Thrown at the very top of handle(), before any context write. */
+    public static ?Throwable $throw = null;
+
     public function handle(WorkflowContext $context): mixed
     {
+        if (static::$throw !== null) {
+            $throw = static::$throw;
+            static::$throw = null;
+
+            throw $throw;
+        }
+
         static::$runs++;
         static::$seenDeadline = $context->deadline();
         static::$seenCorrelationId = $context->correlationId();

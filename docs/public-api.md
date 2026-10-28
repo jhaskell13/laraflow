@@ -79,7 +79,7 @@ All events live in `Laraflow\Events`, are `readonly`, and are **public**: `Workf
 
 They carry **no** request options, headers, or bodies. They deliberately carry no correlation or tenant id: a connector may be called outside any workflow, and inside one Laravel's log context already has them — read `Context::get('laraflow.correlation_id')` in the listener. Note that paging a large result set fires one `ConnectorRequestSent` per page.
 
-The ten `Workflow*` lifecycle events, by contrast, each carry `correlationId` and `tenantId` (null when the application supplied none), so a listener can route or tag by them without re-reading the execution.
+The thirteen `Workflow*` lifecycle events, by contrast, each carry `correlationId` and `tenantId` (null when the application supplied none), so a listener can route or tag by them without re-reading the execution.
 
 `WorkflowStepCompleted` and `WorkflowStepFailed` carry `durationMs`, the attempt's own wall-clock time — the same value written to the attempt history, so telemetry and history cannot disagree. `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, and `WorkflowExecutionCancelled` carry `durationMs` spanning the execution's **first** start to this finish: end-to-end latency including any time spent failed or waiting out a backoff, not compute time. It is null when the execution never started. `WorkflowExecutionStarted` additionally carries `queueLagSeconds`: how long the execution waited for a worker, measured from when it was made *available* (not dispatched — a delayed retry's backoff is not queue wait) to this claim; null when it was never dispatched or was claimed ahead of availability. See [queue-and-recovery.md](queue-and-recovery.md#queue-lag).
 
@@ -211,6 +211,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | `config/laraflow.php` keys `queue.*` (`connection`, `queue`, `tries`, `backoff`, `timeout`, `after_commit`), `recovery.*` (`limit`, `abandon_after_attempts`, `pending_after`), `events.include_error_messages` | Public | Defaults and their rationale in [docs/queue-and-recovery.md](queue-and-recovery.md). `queue.tries` defaults to 1 and `recovery.pending_after` to null (pending scan disabled), deliberately. **Breaking in Milestone 3:** `recovery.max_attempts` was renamed `recovery.abandon_after_attempts`. |
 | `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`, `max_suggested_delay` — default 3600, the cap on a `SuggestsRetryDelay`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |
+| `config/laraflow.php` key `workflows.max_depth` (default 8) | Public | How deep sub-workflows may nest, counted from the root; exceeded nesting is refused at child creation with `WorkflowDepthExceededException`. |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 
 ## Console commands

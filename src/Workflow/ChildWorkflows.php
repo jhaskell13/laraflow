@@ -7,6 +7,7 @@ namespace Laraflow\Workflow;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
+use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use LogicException;
 
@@ -78,9 +79,13 @@ class ChildWorkflows
         }
 
         // Deliver, or re-deliver. On the sync driver this runs the
-        // child to an outcome before returning.
-        $this->delivery->deliver($child->id);
-        $child = $this->repository->find($child->id);
+        // child to an outcome before returning. A child parked on its
+        // own wait is not delivered: a worker could do nothing with it,
+        // and the delivery would only manufacture a refused claim.
+        if (! $child->isWaiting()) {
+            $this->delivery->deliver($child->id);
+            $child = $this->repository->find($child->id);
+        }
 
         // The refetch closes the sync fast path — and the race where a
         // child finishes before its parent parks and the signal is
@@ -108,16 +113,23 @@ class ChildWorkflows
      */
     protected function childOf(WorkflowExecution $parent, StepExecution $stepRow): ?WorkflowExecution
     {
-        $page = $this->repository->list(
-            new ExecutionFilter(parentId: $parent->id),
-            ExecutionRepository::MAX_PAGE_SIZE,
-        );
+        $cursor = null;
 
-        foreach ($page->executions as $candidate) {
-            if ($candidate->parentStepExecutionId === $stepRow->id) {
-                return $candidate;
+        do {
+            $page = $this->repository->list(
+                new ExecutionFilter(parentId: $parent->id),
+                ExecutionRepository::MAX_PAGE_SIZE,
+                $cursor,
+            );
+
+            foreach ($page->executions as $candidate) {
+                if ($candidate->parentStepExecutionId === $stepRow->id) {
+                    return $candidate;
+                }
             }
-        }
+
+            $cursor = $page->nextCursor;
+        } while ($cursor !== null);
 
         return null;
     }
@@ -135,7 +147,16 @@ class ChildWorkflows
 
         while ($current->parentExecutionId !== null && $depth <= $max) {
             $depth++;
-            $current = $this->repository->find($current->parentExecutionId);
+
+            try {
+                $current = $this->repository->find($current->parentExecutionId);
+            } catch (ExecutionNotFoundException) {
+                // An ancestor pruned by retention: the documented
+                // trade-off of linking without foreign keys. The chain
+                // above it cannot be deeper than what retention already
+                // finished, so the walk stops here.
+                break;
+            }
         }
 
         if ($depth + 1 > $max) {

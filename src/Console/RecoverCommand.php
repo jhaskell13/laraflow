@@ -12,6 +12,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryService;
@@ -45,7 +46,7 @@ class RecoverCommand extends Command
         {--pending-after= : Also recover pending executions older than this many seconds (default: laraflow.recovery.pending_after; scan disabled when unset)}
         {--limit= : Maximum executions handled in one run (default: laraflow.recovery.limit)}
         {--abandon-after= : Report interrupted executions whose steps reached this many attempts, or that were claimed this many times without reaching a step, as abandoned (default: laraflow.recovery.abandon_after_attempts)}
-        {--skip-retries : Do not deliver scheduled retries that have come due}
+        {--skip-retries : Do not deliver scheduled retries or due waits; only interrupted and lost work is recovered}
         {--workflow= : Only consider executions created from this workflow class}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
         {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
@@ -184,6 +185,12 @@ class RecoverCommand extends Command
             $counts['skipped']++;
 
             return 'claimed by another worker';
+        } catch (ExecutionStillWaitingException) {
+            // Signalled or re-parked between the scan and this action;
+            // whatever it waits for now owns the schedule.
+            $counts['skipped']++;
+
+            return 'parked meanwhile';
         } catch (RetryNotDueException) {
             // Someone ran the retry between scan and action and it
             // rescheduled itself into the future. The new schedule stands.

@@ -46,7 +46,7 @@ class ShowCommand extends Command
         }
 
         if ($execution->isWaiting()) {
-            $this->displayWait($steps);
+            $this->displayWait($execution, $steps);
         }
 
         if ($execution->claimToken !== null) {
@@ -83,18 +83,27 @@ class ShowCommand extends Command
      *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
      */
-    protected function displayWait(array $steps): void
+    protected function displayWait(WorkflowExecution $execution, array $steps): void
     {
+        $childPrefix = \Laraflow\Workflow\Wait::RESERVED_PREFIX.'child.';
+
         foreach ($steps as $step) {
             if (! $step->isWaiting()) {
                 continue;
             }
 
-            $detail = $step->waitSignal === null
-                ? 'until '.$this->formatDate($step->nextRetryAt)
-                : "for signal [{$step->waitSignal}]".($step->timeoutAt !== null
+            if ($step->waitSignal !== null && str_starts_with($step->waitSignal, $childPrefix)) {
+                // A child wait is never indefinite: the parent checks on
+                // the child at every heartbeat, recorded on the execution.
+                $detail = 'on child execution '.substr($step->waitSignal, strlen($childPrefix))
+                    .' (next check '.$this->formatDate($execution->nextRetryAt).')';
+            } elseif ($step->waitSignal === null) {
+                $detail = 'until '.$this->formatDate($step->nextRetryAt);
+            } else {
+                $detail = "for signal [{$step->waitSignal}]".($step->timeoutAt !== null
                     ? ', until '.$this->formatDate($step->timeoutAt)
                     : ', indefinitely');
+            }
 
             $this->components->twoColumnDetail(
                 '<fg=gray>Waiting</>',

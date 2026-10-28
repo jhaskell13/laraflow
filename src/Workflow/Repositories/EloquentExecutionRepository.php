@@ -258,22 +258,36 @@ class EloquentExecutionRepository implements ExecutionRepository
         DateTimeImmutable $at
     ): WorkflowExecution {
         $this->transaction(function () use ($id, $signal, $payload, $at) {
-            // The payload lands on the waiting step row first; zero rows
-            // means nothing is parked on that name. Both writes sit in
-            // one transaction, so a worker claiming on a concurrent
-            // timeout rolls the payload back with the refusal.
-            $step = StepExecutionModel::query()
+            // Whether anything is parked on this name is decided by a
+            // read, not by the payload UPDATE's affected-row count: a
+            // duplicate delivery rewriting an identical payload counts
+            // zero rows *changed* on MySQL and MariaDB and would read
+            // as a refusal. A duplicate before the resume overwrites
+            // the payload instead — last delivery wins, mirroring the
+            // at-least-once sources signals come from.
+            $stepId = StepExecutionModel::query()
                 ->where('workflow_execution_id', $id)
                 ->where('status', StepStatus::Waiting->value)
                 ->where('wait_signal', $signal)
+                ->value('id');
+
+            if ($stepId === null) {
+                throw SignalRefusedException::forSignal($id, $signal);
+            }
+
+            StepExecutionModel::query()
+                ->whereKey($stepId)
                 ->update(['output' => $this->asJson($payload)]);
 
+            // Compare-and-set on the executions row, counted, so a
+            // worker claiming on a concurrent timeout rolls the payload
+            // back with the refusal.
             $due = WorkflowExecutionModel::query()
                 ->whereKey($id)
                 ->where('status', ExecutionStatus::Waiting->value)
                 ->update($this->counted(['next_retry_at' => $at]));
 
-            if ($step !== 1 || $due !== 1) {
+            if ($due !== 1) {
                 throw SignalRefusedException::forSignal($id, $signal);
             }
         });
@@ -367,6 +381,12 @@ class EloquentExecutionRepository implements ExecutionRepository
     ): void {
         $values = [
             'status' => $execution->status->value,
+            // An orderly release means the claim concluded deliberately —
+            // a park, a scheduled retry, a terminal state. The fruitless
+            // counter exists for claims that die before any orderly
+            // write, so a heartbeat that claims, consults a child, and
+            // parks again must not be counted toward abandonment.
+            'fruitless_claims' => 0,
             'context' => $this->asJson($execution->context),
             'error' => $execution->error,
             'error_class' => $execution->errorClass,

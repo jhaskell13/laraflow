@@ -18,7 +18,7 @@ Everything stated here is exercised by `tests/Feature/Workflow/ExecutionQueryTes
 | `steps($execution)` | Its steps in position order | One query |
 | `attempts($step)` | One step's attempt history | One query |
 | `attemptHistory($execution)` | Every step's attempt history, ordered by step position then attempt | One query |
-| `stepProgress(array $ids)` | `[id => ['total' => n, 'completed' => n]]` for many executions | One query |
+| `stepProgress(array $ids)` | `[id => ['total' => n, 'completed' => n, 'skipped' => n]]` for many executions | One query |
 | `list(ExecutionFilter, $limit, $cursor)` | One page of executions | One query, plus one more to learn whether another page exists |
 | `count(ExecutionFilter)` | How many match | One query |
 
@@ -50,6 +50,7 @@ $failures = $repository->count($filter);
 | `status` (one or several) | `ExecutionStatus` cases | the `(status, *)` composite prefixes |
 | `correlationId` | Exact | `correlation_id` |
 | `tenantId` | Exact | `tenant_id` |
+| `parentId` | Exact — a sub-workflow's children | `parent_execution_id` |
 | `createdAfter` / `createdBefore` | Half-open window `[after, before)` | `created_at` |
 | `finishedAfter` / `finishedBefore` | Half-open window on `finished_at`; implicitly finished executions only | `(status, finished_at)` |
 | `oldestFirst` | Sort direction; default newest first | — |
@@ -203,7 +204,7 @@ Every listener is observational: one that throws is logged and swallowed, and ca
 |---|---|
 | `laraflow:list` | A filtered, paginated page with step progress, how many of the matching set it showed, and the command that continues it |
 | `laraflow:show {id}` | One execution: steps, correlation and tenant, finish time, queue timing, retry schedule, cancellation, scrub marker, and with `--attempts` the full history |
-| `laraflow:summary` | Counts by status for a scope, then what needs attention: retries due now, running steps past their deadline, the oldest unfinished execution. **Exits non-zero when anything needs attention**, so it doubles as a scheduled health check or deploy gate |
+| `laraflow:summary` | Counts by status for a scope, then what needs attention: retries due now, waits due for delivery, running steps past their deadline, the oldest unfinished execution (`waiting` included). **Exits non-zero when anything needs attention**, so it doubles as a scheduled health check or deploy gate |
 
 The summary deliberately has no per-workflow breakdown: that needs a `GROUP BY` the contract does not expose, and `--workflow=` scopes the same numbers through an indexed filter instead.
 
@@ -239,5 +240,5 @@ One caution: paging a large result set fires one `ConnectorRequestSent` per page
 - Pass a `tenantId` in multi-tenant applications — listing, summary, and retention all scope by it.
 - Alert on `WorkflowExecutionFailed`, not `WorkflowStepFailed`; the latter fires per attempt.
 - Build metrics from events, not from the tables: the tables are internal and will change.
-- Schedule `laraflow:summary` if you want a health check that exits non-zero when retries are due or steps are overdue.
+- Schedule `laraflow:summary` if you want a health check that exits non-zero when retries or waits are due, or steps are overdue.
 - Page through `list()` with the cursor, never with an offset you compute yourself.

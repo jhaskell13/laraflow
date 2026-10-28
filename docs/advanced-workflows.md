@@ -32,11 +32,11 @@ class NotifyAccountManager implements Step, ConditionalStep
 }
 ```
 
-**The condition is consulted at the step's turn** — after the cancellation check, before the step is marked running. A false answer durably marks the step `skipped` in a claim-guarded write and the runner moves on. A true answer is not recorded; the step simply runs.
+**The condition is consulted at the start of every attempt** — after the cancellation check, before anything is marked running; a step whose previous failure was the condition itself throwing gets its real vote on re-execution. A false answer durably marks the step `skipped` in a claim-guarded write and the runner moves on. A true answer is not recorded; the step simply runs.
 
 **Conditions must be pure functions of the context.** The contract: same context, same answer. The skip is persisted, so a *recorded* decision is never re-evaluated — but a worker that crashes after evaluating and before persisting will evaluate again on recovery, against the identical restored context. A condition that reads the clock, a random source, or external state breaks that window's determinism, and the document says so rather than pretending the window is closed.
 
-**A skipped step consumes nothing and contributes nothing.** No attempt is counted, no attempt-history row is written, no output is recorded, and the context is untouched — later steps must tolerate the absent keys (`$context->has()`). Retry policy never sees a skip; a skip is not a failure. `FailurePolicy::Continue` interacts the obvious way: a skip is not a failure there either.
+**A skipped step consumes nothing and contributes nothing.** No attempt is counted, no attempt-history row is written, no output is recorded, and the context is untouched — later steps must tolerate the absent keys (`$context->has()`). Retry policy never sees a skip; a skip is not a failure. Under `FailurePolicy::Continue`, a false answer reached *after an earlier step has already failed* is not persisted at all — that context is missing the failed step's contribution, so it is not the context the purity premise promises; the step stays pending and the condition votes again when the failure is re-executed with the full context.
 
 **State machine.** `pending → skipped` is the only way in; `skipped` is terminal for the execution's lifetime and treated exactly like `completed` by recovery: skipped steps are skipped again, from the record, not from re-evaluation. Re-executing a *failed* execution re-runs only non-completed, non-skipped steps.
 
@@ -100,9 +100,9 @@ class SyncSubsidiary extends SubWorkflowStep
 
 **Retrying the parent step resumes the same child.** The child row's backlink to the exact parent step is durable before the child is delivered, so a retry finds *that* child and re-delivers it — a failed child is re-executed from its own checkpoints, the package's normal recovery path — rather than creating a sibling. A new child is created only when none exists yet. A *cancelled* child cannot be resumed: the parent step reports the same outcome on every retry until an operator intervenes.
 
-**Linkage is schema, not convention.** The executions table gains nullable `parent_execution_id` (indexed) and `parent_step_execution_id` columns, written at child creation. Inspection reads them: listing gains a parent filter, and the show command names a child's parent and a parent's children.
+**Linkage is schema, not convention.** The executions table gains nullable `parent_execution_id` (indexed) and `parent_step_execution_id` columns, written at child creation. Inspection reads them: `ExecutionFilter` gains a `parentId` criterion, and the show command names a child's parent and what a waiting parent is parked on.
 
-**Cancellation cascades down, visibly.** Cancelling a parent also requests cancellation of its unfinished children in the same operation — found by the parent index, bounded, reported on the handle. A child's cancellation signals the parent as any outcome does. Cancelling a *child* alone does not cancel the parent; the parent step fails with the child's outcome and the parent's own policies decide.
+**Cancellation cascades down, visibly.** Cancelling a parent also requests cancellation of its unfinished children — found by the parent index, page by page, each child's own cancellation event firing — both at `cancel()` time and again at the boundary where a cooperative cancellation is honoured, so a child created mid-race is still caught. A child's cancellation signals the parent as any outcome does. Cancelling a *child* alone does not cancel the parent; the parent step fails with the child's outcome and the parent's own policies decide.
 
 **Bounds.** Child creation checks `laraflow.workflows.max_depth` (default 8, counted by walking parent links at creation — a walk bounded by the limit itself), so mutual recursion between workflow classes is refused at create time with `WorkflowDepthExceededException` rather than discovered as an infinite tree.
 

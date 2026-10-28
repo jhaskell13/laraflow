@@ -289,7 +289,12 @@ class WorkflowRunner
             ), ExecutionRepository::MAX_PAGE_SIZE, $cursor);
 
             foreach ($page->executions as $child) {
-                $this->cancel($child->id, $reason);
+                try {
+                    $this->cancel($child->id, $reason);
+                } catch (ExecutionNotCancellableException|ExecutionNotFoundException) {
+                    // Finished or pruned between the scan and this call;
+                    // the rest of the batch still deserves its cancel.
+                }
             }
 
             $cursor = $page->nextCursor;
@@ -373,12 +378,15 @@ class WorkflowRunner
                 throw $exception;
             }
 
-            // The condition is consulted only for a step that has never
-            // run — a step past `pending` already answered true, and a
-            // pure condition over an unchanged context cannot change its
-            // mind. A throwing condition is a definition-class fault,
-            // handled exactly like a step class that cannot be built.
-            if ($stepExecution->isPending() && $step instanceof ConditionalStep) {
+            // The condition is consulted at the start of every attempt
+            // — pending, failed, or retrying. Not only pending: a failed
+            // step may have failed in shouldRun() itself, which never
+            // answered. A throwing condition is a definition-class
+            // fault, handled exactly like a step class that cannot be
+            // built. A recorded skip is never re-evaluated (the loop
+            // skipped it above).
+            if ($step instanceof ConditionalStep
+                && ($stepExecution->isPending() || $stepExecution->isFailed() || $stepExecution->isRetrying())) {
                 try {
                     $shouldRun = $step->shouldRun($context);
                 } catch (Throwable $exception) {
@@ -389,6 +397,17 @@ class WorkflowRunner
                 }
 
                 if (! $shouldRun) {
+                    // Under FailurePolicy::Continue a failed earlier step
+                    // contributed nothing, so this context is not the
+                    // final one and a false answer is not a final answer.
+                    // The step stays pending and the condition gets its
+                    // real vote when the failure is re-executed with the
+                    // full context — the purity premise the durable skip
+                    // rests on.
+                    if ($firstFailure !== null) {
+                        continue;
+                    }
+
                     $stepExecution->markSkipped($this->now());
                     $this->repository->saveStep($execution, $stepExecution);
 
@@ -408,22 +427,14 @@ class WorkflowRunner
             if ($stepExecution->isWaiting()) {
                 $resolution = $this->resolveWait($execution, $stepExecution, $context, $policy, $failurePolicy, $waitsForcedDue, $startedAt);
 
-                if ($resolution === 'resumed') {
+                if ($resolution->resumed) {
                     continue;
                 }
 
-                if ($resolution === 'continue') {
-                    // Timed-out wait under FailurePolicy::Continue.
-                    $firstFailure ??= $this->waitTimeout($stepExecution);
-
-                    continue;
-                }
-
-                if ($resolution === 'continue-child') {
-                    // A failed child under FailurePolicy::Continue: the
-                    // step row already carries the exception; re-raise
-                    // its recorded form for the execution's outcome.
-                    $firstFailure ??= new ChildWorkflowFailedException((string) $stepExecution->error);
+                if ($resolution->continueFailure !== null) {
+                    // The step failed under FailurePolicy::Continue; the
+                    // failure is already recorded on the step row.
+                    $firstFailure ??= $resolution->continueFailure;
 
                     continue;
                 }
@@ -488,6 +499,13 @@ class WorkflowRunner
                 $output = $step->handle($context);
 
                 if ($output instanceof Wait) {
+                    // The park is a step boundary: a cancellation
+                    // requested while handle() ran is honoured here, not
+                    // deferred to a wait that nothing may ever resume.
+                    if ($this->honourCancellationRequest($execution)) {
+                        return $execution;
+                    }
+
                     $this->park($execution, $stepExecution, $context, $output);
 
                     return $execution;
@@ -499,32 +517,7 @@ class WorkflowRunner
                 DurableValue::check($output, 'output', $this->options->maxPayloadBytes);
                 DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
 
-                $completedAt = $this->now();
-                $stepExecution->markCompleted($output, $completedAt);
-                $execution->context = $context->all();
-
-                $attempt = new StepAttempt(
-                    executionId: $execution->id,
-                    stepExecutionId: $stepExecution->id,
-                    attempt: $stepExecution->attempts,
-                    status: StepAttemptStatus::Completed,
-                    startedAt: $stepExecution->startedAt,
-                    endedAt: $completedAt,
-                );
-
-                $this->repository->checkpoint($execution, $stepExecution, $attempt);
-
-                $this->event(new WorkflowStepCompleted(
-                    ...$this->outcomes->identity($execution),
-                    step: $stepExecution->step,
-                    position: $stepExecution->position,
-                    attempt: $stepExecution->attempts,
-                    completedAt: $completedAt,
-                    // The same record that went to history, so the
-                    // event and the stored attempt can never disagree
-                    // about how long the step took.
-                    durationMs: $attempt->durationMs(),
-                ));
+                $this->completeStep($execution, $stepExecution, $context, $output);
             } catch (ClaimLostException $exception) {
                 // Another worker owns the execution now; nothing we
                 // persist would be trustworthy, including a failure.
@@ -607,6 +600,11 @@ class WorkflowRunner
 
         $this->parents->childFinished($execution);
 
+        // The cascade runs here too: a child created after cancel()'s
+        // own cascade swept past — mid-step, before this boundary —
+        // must not keep working for a cancelled parent.
+        $this->cancelChildren($execution->id, $fresh->cancelReason);
+
         return true;
     }
 
@@ -656,11 +654,7 @@ class WorkflowRunner
     }
 
     /**
-     * Decide a claimed, parked step's fate. Returns 'resumed' when the
-     * step completed and the loop continues; 'continue' when a timed-out
-     * wait should count as a continue-policy failure; 'done' when this
-     * claim is finished with the execution (parked again, retry
-     * scheduled, or failed terminally).
+     * Decide a claimed, parked step's fate.
      */
     protected function resolveWait(
         WorkflowExecution $execution,
@@ -670,9 +664,9 @@ class WorkflowRunner
         FailurePolicy $failurePolicy,
         bool $forcedDue,
         DateTimeImmutable $now,
-    ): string {
+    ): WaitResolution {
         if ($stepExecution->waitSignal !== null && str_starts_with($stepExecution->waitSignal, Wait::RESERVED_PREFIX.'child.')) {
-            return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy);
+            return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy, $now);
         }
 
         $signalled = $stepExecution->waitSignal !== null && $stepExecution->output !== null;
@@ -681,60 +675,20 @@ class WorkflowRunner
 
         if ($signalled || $timedDue) {
             $payload = $stepExecution->output;
-            $completedAt = $this->now();
 
             if ($signalled) {
                 $context->set((string) $stepExecution->waitSignal, $payload);
             }
 
-            $stepExecution->markCompleted($payload, $completedAt);
-            $execution->context = $context->all();
+            $this->completeStep($execution, $stepExecution, $context, $payload);
 
-            // One handle() run is one attempt row, closed now that the
-            // wait resolved; its duration spans run and park alike.
-            $attempt = new StepAttempt(
-                executionId: $execution->id,
-                stepExecutionId: $stepExecution->id,
-                attempt: $stepExecution->attempts,
-                status: StepAttemptStatus::Completed,
-                startedAt: $stepExecution->startedAt,
-                endedAt: $completedAt,
-            );
-
-            $this->repository->checkpoint($execution, $stepExecution, $attempt);
-
-            $this->event(new WorkflowStepCompleted(
-                ...$this->outcomes->identity($execution),
-                step: $stepExecution->step,
-                position: $stepExecution->position,
-                attempt: $stepExecution->attempts,
-                completedAt: $completedAt,
-                durationMs: $attempt->durationMs(),
-            ));
-
-            return 'resumed';
+            return WaitResolution::resumed();
         }
 
-        $deadlinePassed = $stepExecution->waitSignal !== null
+        if ($stepExecution->waitSignal !== null
             && $stepExecution->timeoutAt !== null
-            && $stepExecution->timeoutAt <= $now;
-
-        if ($deadlinePassed) {
-            $timeout = $this->waitTimeout($stepExecution);
-
-            if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
-                return 'done';
-            }
-
-            if ($failurePolicy === FailurePolicy::Continue) {
-                $this->outcomes->stepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
-
-                return 'continue';
-            }
-
-            $this->outcomes->failure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
-
-            throw $timeout;
+            && $stepExecution->timeoutAt <= $now) {
+            return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $this->waitTimeout($stepExecution), StepAttemptStatus::TimedOut);
         }
 
         // Not due: a crash between checkpoint and release left the
@@ -742,23 +696,22 @@ class WorkflowRunner
         // — there is nothing to resume it with, so it parks again. A
         // forced claim resumes a *timed* wait early; a signal wait
         // without its signal has no output to complete with.
-        $execution->markWaiting(
-            $stepExecution->waitSignal === null
-                ? $stepExecution->nextRetryAt
-                : $stepExecution->timeoutAt,
-        );
-        $this->repository->release($execution);
-
-        return 'done';
+        return $this->parkAgain($execution, $stepExecution->waitSignal === null
+            ? $stepExecution->nextRetryAt
+            : $stepExecution->timeoutAt);
     }
 
     /**
      * A parent parked on its child. The signal payload is the child's
      * resting outcome; without one — the heartbeat came due, or the
      * child's signal was refused in the park race — the child's record
-     * is consulted directly, an unfinished child is re-delivered (the
-     * claim makes duplicates safe), and the parent parks for another
-     * heartbeat. A missing child was pruned; nothing can finish it.
+     * is consulted directly. A pending child lost its dispatch and is
+     * re-delivered; running, retrying, and waiting children are left to
+     * their own machinery, recovery's bounds included — re-delivering a
+     * stale child here would bypass the abandonment bound. A child
+     * whose failure predates this parent attempt was already charged
+     * for it, so it is resumed rather than charged twice. A missing
+     * child was pruned; nothing can finish it.
      */
     protected function resolveChildWait(
         WorkflowExecution $execution,
@@ -766,7 +719,8 @@ class WorkflowRunner
         WorkflowContext $context,
         Policy\StepPolicy $policy,
         FailurePolicy $failurePolicy,
-    ): string {
+        DateTimeImmutable $now,
+    ): WaitResolution {
         // The payload round-trips through JSON, so its shape is checked
         // rather than assumed: a malformed one reads as a failed child.
         /** @var array<array-key, mixed>|null $outcome */
@@ -780,52 +734,34 @@ class WorkflowRunner
             } catch (ExecutionNotFoundException) {
                 $missing = ChildWorkflowFailedException::missing($stepExecution->step, $stepExecution->position, $childId);
 
-                return $this->childOutcomeFailure($execution, $stepExecution, $policy, $failurePolicy, $missing);
+                return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $missing);
             }
 
-            if (! $child->status->isFinished()) {
-                try {
-                    $this->childDelivery?->deliver($child->id);
-                } catch (Throwable $deliveryFailure) {
-                    // The next heartbeat tries again; the child may also
-                    // already be running on a worker.
+            $staleFailure = $child->status === ExecutionStatus::Failed
+                && $child->finishedAt !== null
+                && $stepExecution->startedAt !== null
+                && $child->finishedAt < $stepExecution->startedAt;
+
+            if (! $child->status->isFinished() || $staleFailure) {
+                if ($child->status === ExecutionStatus::Pending || $staleFailure) {
+                    try {
+                        $this->childDelivery?->deliver($child->id);
+                    } catch (Throwable $deliveryFailure) {
+                        // The next heartbeat tries again; the child may
+                        // also already be running on a worker.
+                    }
                 }
 
-                $execution->markWaiting($this->now()->modify("+{$this->options->staleAfterSeconds} seconds"));
-                $this->repository->release($execution);
-
-                return 'done';
+                return $this->parkAgain($execution, $now->modify("+{$this->options->staleAfterSeconds} seconds"));
             }
 
             $outcome = ['execution_id' => $child->id, 'status' => $child->status->value];
         }
 
         if (($outcome['status'] ?? null) === ExecutionStatus::Completed->value) {
-            $completedAt = $this->now();
-            $stepExecution->markCompleted($outcome, $completedAt);
-            $execution->context = $context->all();
+            $this->completeStep($execution, $stepExecution, $context, $outcome);
 
-            $attempt = new StepAttempt(
-                executionId: $execution->id,
-                stepExecutionId: $stepExecution->id,
-                attempt: $stepExecution->attempts,
-                status: StepAttemptStatus::Completed,
-                startedAt: $stepExecution->startedAt,
-                endedAt: $completedAt,
-            );
-
-            $this->repository->checkpoint($execution, $stepExecution, $attempt);
-
-            $this->event(new WorkflowStepCompleted(
-                ...$this->outcomes->identity($execution),
-                step: $stepExecution->step,
-                position: $stepExecution->position,
-                attempt: $stepExecution->attempts,
-                completedAt: $completedAt,
-                durationMs: $attempt->durationMs(),
-            ));
-
-            return 'resumed';
+            return WaitResolution::resumed();
         }
 
         $childId = $outcome['execution_id'] ?? null;
@@ -838,33 +774,86 @@ class WorkflowRunner
             is_string($status) ? $status : 'unknown',
         );
 
-        return $this->childOutcomeFailure($execution, $stepExecution, $policy, $failurePolicy, $failed);
+        return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $failed);
     }
 
     /**
-     * A child's non-completion fails the parent step under its policy,
-     * exactly as a wait timeout does.
+     * Complete a step — fresh from handle(), or by resolving its wait —
+     * in one claim-guarded checkpoint: the step row, the context, and
+     * the attempt row that closes this handle() run, whose duration
+     * spans run and park alike. The event carries the same attempt
+     * record that went to history, so the two can never disagree about
+     * how long the step took.
      */
-    protected function childOutcomeFailure(
+    protected function completeStep(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        mixed $output,
+    ): void {
+        $completedAt = $this->now();
+        $stepExecution->markCompleted($output, $completedAt);
+        $execution->context = $context->all();
+
+        $attempt = new StepAttempt(
+            executionId: $execution->id,
+            stepExecutionId: $stepExecution->id,
+            attempt: $stepExecution->attempts,
+            status: StepAttemptStatus::Completed,
+            startedAt: $stepExecution->startedAt,
+            endedAt: $completedAt,
+        );
+
+        $this->repository->checkpoint($execution, $stepExecution, $attempt);
+
+        $this->event(new WorkflowStepCompleted(
+            ...$this->outcomes->identity($execution),
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $stepExecution->attempts,
+            completedAt: $completedAt,
+            durationMs: $attempt->durationMs(),
+        ));
+    }
+
+    /**
+     * A waiting step's failure — a timed-out wait, or a child that
+     * ended badly — charged under the step's policy exactly as a thrown
+     * failure would be.
+     */
+    protected function failWaitingStep(
         WorkflowExecution $execution,
         StepExecution $stepExecution,
         Policy\StepPolicy $policy,
         FailurePolicy $failurePolicy,
-        ChildWorkflowFailedException $exception,
-    ): string {
-        if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
-            return 'done';
+        Throwable $exception,
+        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed,
+    ): WaitResolution {
+        if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $exception, $attemptStatus)) {
+            return WaitResolution::settled();
         }
 
         if ($failurePolicy === FailurePolicy::Continue) {
-            $this->outcomes->stepFailure($execution, $stepExecution, $exception);
+            $this->outcomes->stepFailure($execution, $stepExecution, $exception, $attemptStatus);
 
-            return 'continue-child';
+            return WaitResolution::continueWith($exception);
         }
 
-        $this->outcomes->failure($execution, $stepExecution, $exception);
+        $this->outcomes->failure($execution, $stepExecution, $exception, $attemptStatus);
 
         throw $exception;
+    }
+
+    /**
+     * Park the execution again and release the claim: the wait is not
+     * due, or a child is still working.
+     */
+    protected function parkAgain(WorkflowExecution $execution, ?DateTimeImmutable $nextEventAt): WaitResolution
+    {
+        $execution->markWaiting($nextEventAt);
+        $this->repository->release($execution);
+
+        return WaitResolution::settled();
     }
 
     protected function waitTimeout(StepExecution $stepExecution): WaitTimedOutException

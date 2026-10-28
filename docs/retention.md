@@ -21,14 +21,14 @@ If you schedule the command without configuring any bound, it **exits non-zero**
 
 Every bound counts from **`finished_at`** — the moment the execution stopped — not from creation. A long-running execution is never pruned for having *started* a long time ago.
 
-Only finished work is eligible at all. `pending`, `running`, and `retrying` executions are invisible to every retention scan and every retention write. A retry waiting out its backoff is not old work; it is future work.
+Only finished work is eligible at all. `pending`, `running`, `retrying`, and `waiting` executions are invisible to every retention scan and every retention write — a parked approval can sit unfinished for weeks and stays untouchable. A retry waiting out its backoff is not old work; it is future work.
 
 | Status | Finished? | Why it matters here |
 |---|---|---|
 | `completed` | Yes | Done. Eligible for every tier. |
 | `cancelled` | Yes | Terminal. Eligible for every tier. |
 | `failed` | Yes | **Finished but re-executable.** `laraflow:execute` on a failed execution is the documented recovery path, so retention treats it with care — see below. |
-| `pending`, `running`, `retrying` | No | Never touched. |
+| `pending`, `running`, `retrying`, `waiting` | No | Never touched. |
 
 ## The three tiers
 
@@ -162,3 +162,7 @@ Run that from a scheduled job that completes before the prune runs. Because both
 - Run `laraflow:prune --dry-run` after changing any bound, and read the warnings.
 - Decide deliberately about `delete_failed_after_days`; the default leaves recoverable work alone forever.
 - If you archive, archive on the same `finished_at` cutoffs and schedule it to finish first.
+
+## Sub-workflows
+
+Parent-child links are plain columns, not foreign keys, so retention can prune a long-finished parent while its children's audit records live on. The trade-off is a dangling `parent_execution_id` on those children: the parent filter simply returns nothing for it, `laraflow:show` names an id that no longer resolves, and a live child's depth walk treats the pruned link as the root. A *waiting* parent is never prunable (it is unfinished), and a parent waits only on an unfinished child, so retention can never separate a live pair. A child that finishes after its parent was deleted signals no one — a recorded signal for a missing execution is a logged no-op. See [advanced-workflows.md](advanced-workflows.md#sub-workflows).
