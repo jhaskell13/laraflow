@@ -103,6 +103,7 @@ class WorkflowExecutionModel extends Model
             'duration_ms' => 'integer',
             'payloads_scrubbed_at' => 'datetime',
             // pdo_sqlsrv returns every column as a string.
+            'version' => 'integer',
             'fruitless_claims' => 'integer',
         ];
     }
