@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Integration\Http;
 
+use Closure;
 use Illuminate\Cache\RateLimiter;
 use Laraflow\Integration\Connection;
 use Laraflow\Support\LoggingContext;
@@ -29,10 +30,14 @@ class TransportPipeline
 
     /**
      * Throttle innermost so a retried attempt is counted like any
-     * other; retries around it; observation outermost, so one logical
-     * call is one event covering the time the caller actually waited.
+     * other; retries around it; error mapping over the response that
+     * survives them; observation outermost, so one logical call is one
+     * event covering the time the caller actually waited — with a
+     * `successful` flag the connector's mapper has already ruled on.
+     *
+     * @param  Closure(\Laraflow\Integration\ConnectorResponse): \Laraflow\Integration\ConnectorResponse|null  $map
      */
-    public function through(HttpTransport $base, HttpOptions $options, Connection $connection): HttpTransport
+    public function through(HttpTransport $base, HttpOptions $options, Connection $connection, ?Closure $map = null): HttpTransport
     {
         $transport = $base;
 
@@ -42,6 +47,10 @@ class TransportPipeline
 
         if ($options->retries->enabled()) {
             $transport = new RetryingTransport($transport, $options->retries, $this->sleeper, $this->clock);
+        }
+
+        if ($map !== null) {
+            $transport = new MappingTransport($transport, $map);
         }
 
         return new ObservingTransport($transport, $connection, $this->observer, $this->clock, $this->logging);

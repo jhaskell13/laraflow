@@ -15,6 +15,7 @@ use Laraflow\Events\ConnectorRequestSent;
 use Laraflow\Exceptions\TransportException;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\Http\HttpTransport;
+use Laraflow\Integration\Slack\SlackConnector;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Tests\Support\FakeHttpConnector;
 use Laraflow\Tests\Support\ScriptedTransport;
@@ -70,6 +71,35 @@ class ConnectorObservabilityTest extends TestCase
 
         Event::assertNotDispatched(ConnectorRequestFailed::class);
         Event::assertDispatched(ConnectorRequestSent::class, fn (ConnectorRequestSent $event): bool => $event->status === 404 && $event->successful === false);
+    }
+
+    public function test_a_rejected_200_is_a_sent_event_reporting_it_unsuccessful(): void
+    {
+        // Slack's shape: the provider rejects the call inside a 200 body.
+        // The connector's mapper runs before the observing layer emits,
+        // so the event agrees with the response the caller gets.
+        Event::fake([ConnectorRequestSent::class, ConnectorRequestFailed::class]);
+        config(['laraflow.integrations.slack.connections.default.credentials.token' => 'xoxb-test']);
+        $this->app->register(LaraflowServiceProvider::class, force: true);
+        Http::fake(['slack.com/*' => Http::response(['ok' => false, 'error' => 'channel_not_found'])]);
+
+        $slack = $this->app->make(LaraflowManager::class)->connector('slack');
+        assert($slack instanceof SlackConnector);
+        $response = $slack->request($slack->write('chat.postMessage', ['channel' => 'C9']));
+
+        $this->assertTrue($response->failed(), 'The event and the response must agree.');
+        // A response was received, so this is a sent event, not a failed one.
+        Event::assertNotDispatched(ConnectorRequestFailed::class);
+        Event::assertDispatched(ConnectorRequestSent::class, function (ConnectorRequestSent $event): bool {
+            $this->assertSame(200, $event->status);
+            $this->assertFalse($event->successful, 'The provider said no inside the 200.');
+
+            // Identifiers only, still: the mapped error and its detail
+            // live on the response, never on this event.
+            $this->assertStringNotContainsString('channel_not_found', json_encode($event) ?: '');
+
+            return true;
+        });
     }
 
     public function test_no_response_at_all_is_a_failed_event(): void
