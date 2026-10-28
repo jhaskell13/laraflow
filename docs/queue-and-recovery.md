@@ -63,6 +63,8 @@ php artisan queue:work redis --queue=workflows
 
 This works correctly in tests that use `RefreshDatabase`: Laravel treats the wrapping test transaction as one that after-commit callbacks should ignore, so dispatched jobs are queued rather than held back.
 
+`WorkflowExecutionDispatched` follows the push. When the push is deferred to the commit, so is the event — registered through the same transaction manager, after the push's own callback — so a listener receives it once the job is genuinely on the queue and the execution row is visible to other connections. If the application rolls back, neither the job nor the event goes out. With `after_commit` off, both happen inside `dispatch()`.
+
 ## Retries: one system, not two
 
 Laravel retries failed jobs. Laraflow counts step attempts. If both were active, a failure would be retried `queue tries × Laraflow attempts` times, on two unrelated schedules.
@@ -276,7 +278,7 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 
 ## Known limits (recorded at the Milestone 6 audit)
 
-- **`WorkflowExecutionDispatched` can fire before anything is durable.** With `laraflow.queue.after_commit` (the default) and `dispatch()` called inside an application transaction, the job push is correctly deferred to the commit — but the event is emitted when `dispatch()` returns, which is before that commit. A listener that reads the database on this event may find nothing yet, and if the application rolls back, the event has announced an execution that never existed. Treat it as "a dispatch was requested", not "a dispatch is durable"; every other lifecycle event fires after its durable write.
+The audit recorded that `WorkflowExecutionDispatched` could fire before the transaction its push waited for had committed. Closed in Milestone 7: the event is now deferred through the same mechanism as the push (see [`after_commit`](#after_commit)), so every lifecycle event fires after its durable write.
 
 ## Operational checklist
 

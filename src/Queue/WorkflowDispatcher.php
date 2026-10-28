@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
+use Illuminate\Database\DatabaseTransactionsManager;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionDispatched;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -44,6 +45,7 @@ class WorkflowDispatcher
         protected Config $config,
         protected ?EventEmitter $events = null,
         ?ClockInterface $clock = null,
+        protected ?DatabaseTransactionsManager $transactions = null,
     ) {
         $this->clock = $clock ?? new Clock;
     }
@@ -148,14 +150,28 @@ class WorkflowDispatcher
 
         $this->bus->dispatch($job);
 
-        $this->events?->emit(new WorkflowExecutionDispatched(
+        $event = new WorkflowExecutionDispatched(
             executionId: $execution->id,
             workflow: $execution->workflow,
             correlationId: $execution->correlationId,
             tenantId: $execution->tenantId,
             connection: $connection,
             queue: $queue,
-        ));
+        );
+
+        // The event describes a push. When the push is deferred to the
+        // surrounding transaction's commit, so is the event — registered
+        // with the same manager and after the push's own callback, so on
+        // commit it fires once the job is genuinely on the queue, and on
+        // rollback it never fires, exactly as the job never goes out.
+        // Outside a transaction the manager runs the callback at once.
+        if ($job->afterCommit === true && $this->transactions !== null) {
+            $this->transactions->addCallback(fn () => $this->events?->emit($event));
+
+            return;
+        }
+
+        $this->events?->emit($event);
     }
 
     protected function stringConfig(string $key): ?string

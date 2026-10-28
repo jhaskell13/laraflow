@@ -7,9 +7,14 @@ namespace Laraflow\Events;
 /**
  * An execution was pushed onto the queue.
  *
- * Fired by the WorkflowDispatcher after the job is dispatched. Dispatch is
- * at-least-once: duplicate deliveries are resolved later by claiming, so
- * one execution can be dispatched more than once.
+ * Fired by the WorkflowDispatcher after the job is dispatched — and,
+ * when the push is deferred to the surrounding database transaction's
+ * commit (laraflow.queue.after_commit), after that commit, so the
+ * execution it names is visible to any listener that goes looking for
+ * it. If the transaction rolls back, the job never goes out and this
+ * event never fires. Dispatch is at-least-once: duplicate deliveries are
+ * resolved later by claiming, so one execution can be dispatched more
+ * than once.
  *
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, or context (see docs/execution-lifecycle.md).
