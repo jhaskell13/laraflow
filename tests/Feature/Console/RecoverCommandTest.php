@@ -157,7 +157,9 @@ class RecoverCommandTest extends TestCase
         $after = WorkflowExecutionModel::query()->sole();
         $this->assertSame(3, $after->fruitless_claims, 'An abandoned execution is not claimed again.');
         $this->assertSame($before->claim_token, $after->claim_token);
-        $this->assertSame(0, StepExecutionModel::query()->max('attempts'));
+        // Cast: an aggregate bypasses the model casts, and pdo_sqlsrv
+        // returns it as a string.
+        $this->assertSame(0, (int) StepExecutionModel::query()->max('attempts'));
     }
 
     public function test_an_execution_with_a_deleted_workflow_class_is_never_requeued(): void
