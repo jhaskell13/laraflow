@@ -106,6 +106,70 @@ class RecoveryServiceTest extends TestCase
         $this->assertFalse($candidates[0]->abandoned);
     }
 
+    public function test_scan_flags_executions_claimed_to_the_bound_without_progress_as_abandoned(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $repository = $this->app->make(ExecutionRepository::class);
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        // Claimed three times, each claim ending before a step write —
+        // the shape of a deterministic fault in the claim-to-first-step
+        // window. No step row ever moved.
+        foreach ([1, 2, 3] as $claim) {
+            Date::setTestNow("2026-10-22 1{$claim}:00:00");
+            $repository->claim($execution->id, "worker-{$claim}", 300);
+        }
+
+        Date::setTestNow('2026-10-22 14:00:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
+
+        $this->assertSame(0, $candidate->attempts, 'The attempt bound cannot see this fault.');
+        $this->assertSame(3, $candidate->fruitlessClaims);
+        $this->assertTrue($candidate->abandoned);
+        $this->assertSame('was claimed 3 times without reaching a step', $candidate->abandonedBecause());
+
+        // One claim below the bound is still recoverable.
+        WorkflowExecutionModel::query()->whereKey($execution->id)->update(['fruitless_claims' => 2]);
+
+        [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
+
+        $this->assertFalse($candidate->abandoned);
+    }
+
+    public function test_a_step_write_resets_the_fruitless_claim_count(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $repository = $this->app->make(ExecutionRepository::class);
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        // Two claims that got nowhere, then one that reaches a step: the
+        // count is of *consecutive* fruitless claims, so progress under
+        // the third claim clears the first two.
+        $repository->claim($execution->id, 'worker-1', 300);
+        Date::setTestNow('2026-10-22 11:00:00');
+        $repository->claim($execution->id, 'worker-2', 300);
+        Date::setTestNow('2026-10-22 12:00:00');
+        $claimed = $repository->claim($execution->id, 'worker-3', 300);
+
+        $this->assertSame(3, $claimed->fruitlessClaims);
+
+        $step = $repository->steps($claimed)[0];
+        $step->markRunning(Date::now()->toImmutable());
+        $repository->saveStep($claimed, $step);
+
+        $this->assertSame(0, $repository->find($execution->id)->fruitlessClaims);
+
+        Date::setTestNow('2026-10-22 13:00:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
+
+        $this->assertFalse($candidate->abandoned);
+        $this->assertSame(0, $candidate->fruitlessClaims);
+    }
+
     public function test_the_scan_limit_is_shared_across_stale_and_pending_work(): void
     {
         Date::setTestNow('2026-10-22 10:00:00');
@@ -341,7 +405,7 @@ class RecoveryServiceTest extends TestCase
         [$candidate] = $this->service()->scan(300, null, 100, 3);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('abandoned by recovery');
+        $this->expectExceptionMessage('has reached 3 step attempts and is abandoned by recovery');
 
         try {
             $this->service()->dispatch($candidate);

@@ -105,6 +105,41 @@ class UpgradePathTest extends TestCase
         $this->assertSame(['customer_id' => 42], $stored->input);
     }
 
+    public function test_the_first_real_post_freeze_migration_upgrades_an_installed_database(): void
+    {
+        // The Milestone 7 migration, exercised the way an installed
+        // application meets it: rows written under the frozen schema,
+        // then the new migration applied — simulated by rolling it back
+        // first, since the harness installs every migration up front.
+        $execution = $this->app->make(ExecutionRepository::class)->create(
+            workflow: 'App\\Workflows\\SyncCustomer',
+            input: ['customer_id' => 42],
+            steps: ['App\\Steps\\LoadCustomer'],
+        );
+
+        $this->command('migrate:rollback', ['--step' => 1, '--force' => true])->assertSuccessful();
+
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'One step back is one migration, not the batch.');
+        $this->assertSame(1, WorkflowExecutionModel::query()->count(), 'Rolling the upgrade back keeps the install.');
+
+        // Migrate back up before the test ends: MySQL and MariaDB commit
+        // on DDL, so the rest of the suite would otherwise run without
+        // the column regardless of engine.
+        $this->command('migrate', ['--force' => true])->assertSuccessful();
+
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+
+        // A row that predates the column has made no fruitless claims,
+        // and the package reads it that way without a coalesce.
+        $this->assertSame(0, WorkflowExecutionModel::query()->findOrFail($execution->id)->fruitless_claims);
+        $this->assertSame(0, $this->app->make(ExecutionRepository::class)->find($execution->id)->fruitlessClaims);
+
+        // And the upgraded row takes part in the new behaviour.
+        $claimed = $this->app->make(ExecutionRepository::class)->claim($execution->id, 'worker', 300);
+        $this->assertSame(1, $claimed->fruitlessClaims);
+    }
+
     public function test_running_migrate_again_changes_nothing(): void
     {
         // The frozen migrations are already applied by the test harness;

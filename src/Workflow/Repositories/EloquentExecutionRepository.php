@@ -65,6 +65,10 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
                 'correlation_id' => $options?->correlationId,
                 'tenant_id' => $options?->tenantId,
+                // Written rather than left to the column default, so the
+                // handle built from this model reads the same number a
+                // reload would.
+                'fruitless_claims' => 0,
             ]);
 
             foreach ($steps as $position => $stepClass) {
@@ -154,6 +158,12 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // claim is superseding.
                 'finished_at' => null,
                 'duration_ms' => null,
+                // One more claim that has, so far, reached no step. The
+                // first step write under this claim zeroes it; a worker
+                // that never gets that far leaves it standing, and
+                // recovery abandons the execution once it reaches the
+                // bound instead of re-dispatching it forever.
+                'fruitless_claims' => new Expression('fruitless_claims + 1'),
             ]));
 
         if ($claimed === 0) {
@@ -188,10 +198,12 @@ class EloquentExecutionRepository implements ExecutionRepository
         ?StepAttempt $attempt = null
     ): void {
         // The step row has no claim column of its own; the guard is the
-        // executions row, touched in the same transaction. Its version
-        // bump is the only thing written there, so a step write costs
-        // one guarded UPDATE more than before and the step row can no
-        // longer be scribbled by a worker that has lost the claim.
+        // executions row, touched in the same transaction. A step write
+        // costs one guarded UPDATE more than a bare row write, and the
+        // step row can no longer be scribbled by a worker that has lost
+        // the claim. The same UPDATE records that this claim made
+        // progress: a step row written under it means the execution is
+        // past the claim-to-first-step window recovery bounds separately.
         $this->transaction(function () use ($execution, $step, $attempt) {
             $this->writeStep($step);
 
@@ -199,7 +211,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 $this->appendAttempt($attempt);
             }
 
-            $this->assertClaimHeld($execution, []);
+            $this->assertClaimHeld($execution, ['fruitless_claims' => 0]);
         });
     }
 
@@ -217,6 +229,7 @@ class EloquentExecutionRepository implements ExecutionRepository
 
             $this->assertClaimHeld($execution, [
                 'context' => $this->asJson($execution->context),
+                'fruitless_claims' => 0,
             ]);
         });
     }
@@ -505,6 +518,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             availableAt: $model->available_at?->toImmutable(),
             finishedAt: $model->finished_at?->toImmutable(),
             payloadsScrubbedAt: $model->payloads_scrubbed_at?->toImmutable(),
+            fruitlessClaims: $model->fruitless_claims,
             persistedDurationMs: $model->duration_ms,
         );
     }

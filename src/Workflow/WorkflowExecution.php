@@ -52,6 +52,7 @@ class WorkflowExecution
         public ?DateTimeImmutable $availableAt = null,
         public ?DateTimeImmutable $finishedAt = null,
         public ?DateTimeImmutable $payloadsScrubbedAt = null,
+        public readonly int $fruitlessClaims = 0,
         protected ?int $persistedDurationMs = null,
     ) {}
 

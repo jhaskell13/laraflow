@@ -221,7 +221,7 @@ class QueueRecoveryTest extends TestCase
             ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover');
 
             $this->assertSame(CommandStatus::FAILURE, $status, 'Abandoned work must surface to the scheduler.');
-            $this->assertStringContainsString('abandoned (max attempts reached)', $output);
+            $this->assertStringContainsString('abandoned (reached 3 step attempts)', $output);
             $this->assertStringContainsString('laraflow:execute', $output);
             $this->assertSame(0, DB::table('jobs')->count(), 'An abandoned execution must never be re-queued.');
         }

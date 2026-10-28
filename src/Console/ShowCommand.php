@@ -45,6 +45,18 @@ class ShowCommand extends Command
             $this->newLine();
         }
 
+        if ($execution->fruitlessClaims > 1) {
+            // One is the claim any run opens with. More than one, and
+            // the execution has been claimed and dropped before a step
+            // was written — the signature of a fault recovery's step
+            // attempt bound cannot see.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Claims without progress</>',
+                "<fg=yellow>{$execution->fruitlessClaims}</> (claimed repeatedly without reaching a step)"
+            );
+            $this->newLine();
+        }
+
         if ((bool) $this->option('attempts')) {
             $this->displayAttemptHistory($repository, $execution, $steps);
         }

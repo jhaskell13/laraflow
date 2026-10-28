@@ -77,6 +77,8 @@ Because claiming is one guarded `UPDATE`, exactly one of any number of concurren
 
 **Worker death.** A dead worker leaves `status = running` with an aging `claimed_at`. After `stale_after` seconds the execution becomes claimable again and `execute()` recovers it. Set `stale_after` comfortably above your longest step; a too-short value makes two live workers fight, which the claim token turns from corruption into a `ClaimLostException` on the loser. Finding such executions automatically is the job of `laraflow:recover` — see [docs/queue-and-recovery.md](queue-and-recovery.md#recovering-interrupted-work).
 
+**Claims that make no progress.** Every claim increments `fruitless_claims` on the executions row, and the first step-row write under that claim zeroes it — in the same guarded `UPDATE` that verifies the claim, so it costs nothing extra. A worker that faults *between* claiming and its first step write (a listener throwing on `WorkflowExecutionStarted`, a definition that no longer matches the persisted plan) leaves the counter standing, and the step attempt counter — which recovery's abandonment bound otherwise reads — never moves. `laraflow:recover` therefore holds `fruitless_claims` to the same bound as step attempts (`recovery.abandon_after_attempts`), so such an execution is abandoned and reported after that many claims rather than re-dispatched by every run forever. `laraflow:show` surfaces the count when it exceeds one.
+
 ## Checkpoints and context
 
 The context is seeded from the workflow input (`array_merge(input, persisted context)`), handed to each step, and persisted at every checkpoint:
@@ -86,11 +88,9 @@ The context is seeded from the workflow input (`array_merge(input, persisted con
 
 Because the step output and context snapshot commit atomically, there is no reachable state where a step is `completed` but its context contribution is missing.
 
-### Known limits of the claim discipline (recorded at the Milestone 6 audit)
+### Limits closed since the Milestone 6 audit
 
-One window remains where the claim does not protect everything; it is bounded, and a candidate for hardening before 1.0. (A second — step rows were last-writer-wins until a dead worker's first checkpoint failed — was closed in Milestone 7 by claim-guarding `saveStep()`, as described under *Claim verification on writes*.)
-
-- **A deterministic fault between `claim()` and the first step write recurs unbounded.** The abandon bound counts durable step attempts, and a worker that fails after claiming but before `startStep()` (a fatal while building the plan, a listener throwing on `WorkflowExecutionStarted`, a definition mismatch) leaves attempts at zero, so `laraflow:recover` will re-dispatch it every run, each occupying a claim for `stale_after`. Watch for an execution whose `claimed_at` keeps advancing while its attempt count stays at zero.
+The audit recorded two windows where the claim did not protect everything. Both are closed in Milestone 7 and kept here so the record of the contract's evolution stays with the contract: step rows were last-writer-wins until a dead worker's first checkpoint failed (closed by claim-guarding `saveStep()`, under *Claim verification on writes*), and a deterministic fault between `claim()` and the first step write was re-dispatched by recovery without bound (closed by the `fruitless_claims` counter, under *Claims that make no progress*).
 
 ## Persistence boundaries and the at-least-once contract
 

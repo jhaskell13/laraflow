@@ -28,7 +28,8 @@ use Throwable;
  *   Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
  *
  * Every action is bounded: at most --limit executions per run, and an
- * *interrupted* execution whose steps have reached --abandon-after is
+ * *interrupted* execution whose steps have reached --abandon-after — or
+ * which has been claimed that many times without reaching a step — is
  * reported as abandoned instead of retried, so a crash-looping workflow
  * cannot be re-dispatched forever. Due retries are exempt from that
  * bound; theirs is the step's own policy budget, enforced by the runner.
@@ -43,7 +44,7 @@ class RecoverCommand extends Command
         {--stale-after= : Seconds after which a running claim counts as stale (default: laraflow.execution.stale_after)}
         {--pending-after= : Also recover pending executions older than this many seconds (default: laraflow.recovery.pending_after; scan disabled when unset)}
         {--limit= : Maximum executions handled in one run (default: laraflow.recovery.limit)}
-        {--abandon-after= : Report interrupted executions whose steps reached this many attempts as abandoned (default: laraflow.recovery.abandon_after_attempts)}
+        {--abandon-after= : Report interrupted executions whose steps reached this many attempts, or that were claimed this many times without reaching a step, as abandoned (default: laraflow.recovery.abandon_after_attempts)}
         {--skip-retries : Do not deliver scheduled retries that have come due}
         {--workflow= : Only consider executions created from this workflow class}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
@@ -147,7 +148,7 @@ class RecoverCommand extends Command
         if ($candidate->abandoned) {
             $counts['abandoned']++;
 
-            return '<fg=red>abandoned (max attempts reached)</>';
+            return "<fg=red>abandoned ({$candidate->abandonedBecause()})</>";
         }
 
         if ($dryRun) {
@@ -226,8 +227,8 @@ class RecoverCommand extends Command
 
         if ($counts['abandoned'] > 0) {
             $this->components->warn(
-                'Abandoned executions have exceeded the recovery attempt bound. '
-                .'Investigate them, then re-run deliberately with: laraflow:execute <id>'
+                'Abandoned executions have reached the recovery bound, in step attempts or in claims '
+                .'that made no progress. Investigate them, then re-run deliberately with: laraflow:execute <id>'
             );
         }
 

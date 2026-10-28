@@ -36,6 +36,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $duration_ms
  * @property Carbon|null $payloads_scrubbed_at
  * @property int $version
+ * @property int $fruitless_claims
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
@@ -70,6 +71,7 @@ class WorkflowExecutionModel extends Model
         'finished_at',
         'duration_ms',
         'payloads_scrubbed_at',
+        'fruitless_claims',
     ];
 
     /**
@@ -100,6 +102,8 @@ class WorkflowExecutionModel extends Model
             'finished_at' => 'datetime',
             'duration_ms' => 'integer',
             'payloads_scrubbed_at' => 'datetime',
+            // pdo_sqlsrv returns every column as a string.
+            'fruitless_claims' => 'integer',
         ];
     }
 }

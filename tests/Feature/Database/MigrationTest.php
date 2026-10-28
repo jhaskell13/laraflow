@@ -66,6 +66,7 @@ class MigrationTest extends TestCase
                     'finished_at',
                     'duration_ms',
                     'payloads_scrubbed_at',
+                    'fruitless_claims',
                     'created_at',
                     'updated_at',
                 ]

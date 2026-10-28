@@ -33,7 +33,11 @@ use Psr\Clock\ClockInterface;
  *   of work created by start() and deliberately not yet executed.
  *
  * The scan only reads. The abandonment bound applies to *interruption*
- * recovery — crash-loop protection. Due retries are deliberately exempt:
+ * recovery — crash-loop protection — and is measured two ways against
+ * the same number: the highest step attempt count, and the count of
+ * consecutive claims that reached no step at all. The second exists
+ * because a worker that faults between claiming and its first step
+ * write never moves the first. Due retries are deliberately exempt:
  * their bound is the step's own retry budget, already enforced durably
  * by the runner via `attempts`, and applying the interruption bound to
  * them would strand every policy whose budget exceeds it.
@@ -60,7 +64,8 @@ class RecoveryService
      *
      * @param  int|null  $pendingAfterSeconds  Null skips the pending scan entirely.
      * @param  int  $abandonAfterAttempts  Interrupted candidates whose steps already
-     *                                     reached this many attempts are flagged abandoned.
+     *                                     reached this many attempts, or which were claimed this
+     *                                     many times without reaching a step, are flagged abandoned.
      * @param  bool  $includeDueRetries  Scan for scheduled retries that have come due.
      * @return RecoveryCandidate[]
      */
@@ -173,8 +178,8 @@ class RecoveryService
 
         if ($candidate->abandoned) {
             throw new InvalidArgumentException(
-                "Execution [{$candidate->execution->id}] has reached {$candidate->attempts} step "
-                .'attempts and is abandoned by recovery. Re-run it deliberately with laraflow:execute.'
+                "Execution [{$candidate->execution->id}] has {$candidate->abandonedBecause()} "
+                .'and is abandoned by recovery. Re-run it deliberately with laraflow:execute.'
             );
         }
     }
@@ -215,12 +220,15 @@ class RecoveryService
             execution: $execution,
             reason: $reason,
             attempts: $attempts,
-            abandoned: $abandonAfterAttempts !== null && $attempts >= $abandonAfterAttempts,
+            abandoned: $abandonAfterAttempts !== null
+                && ($attempts >= $abandonAfterAttempts
+                    || $execution->fruitlessClaims >= $abandonAfterAttempts),
             // A retry of a missing class fails before any step runs, so
             // attempts never grow and the bound above would never engage —
             // the scheduler would re-queue it forever. Flag it instead.
             workflowMissing: ! class_exists($execution->workflow)
                 || ! is_subclass_of($execution->workflow, Workflow::class),
+            fruitlessClaims: $execution->fruitlessClaims,
         );
     }
 

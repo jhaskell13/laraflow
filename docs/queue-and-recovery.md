@@ -187,7 +187,8 @@ The pending scan is off by default on purpose. `pending` is not only the state o
 Scheduled recovery that blindly re-dispatches would retry a crash-looping workflow until something gives. Three bounds prevent that:
 
 1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across both scans (stale work first, pending work fills the remainder).
-2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable — recovery needs no extra state to be bounded. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
+2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
+   The same bound is also held against `fruitless_claims` — the number of consecutive claims on the execution that ended before any step row was written. A fault *between* claiming and the first step (a listener throwing on `WorkflowExecutionStarted`, a workflow whose steps no longer match the persisted plan) never moves the step attempt counter, so without this second measure it would be re-dispatched by every run forever. The report names which measure tripped: `abandoned (reached 3 step attempts)` or `abandoned (was claimed 3 times without reaching a step)`. See [execution-lifecycle.md](execution-lifecycle.md#claiming-and-concurrency).
 3. **Missing-class bound.** An execution whose recorded workflow class no longer exists is reported as **unrecoverable** and is never dispatched. This bound exists because such a retry fails *before* any step runs — attempts never increment, so the attempt bound alone could never stop the scheduler from re-queueing it (and filling `failed_jobs`) forever. Restore or redeploy the class, or handle the execution manually.
 
 Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned or any recovery action failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried.
@@ -206,7 +207,7 @@ php artisan laraflow:execute 42 --queue  # or hand it to a worker
 | Id | Workflow     | Status  | Reason          | Attempts | Since               | Action                           |
 +----+--------------+---------+-----------------+----------+---------------------+----------------------------------+
 | 17 | DemoWorkflow | running | stale claim     | 1        | 2026-10-22 10:00:00 | dispatched                       |
-| 23 | DemoWorkflow | running | stale claim     | 3        | 2026-10-22 09:14:02 | abandoned (max attempts reached) |
+| 23 | DemoWorkflow | running | stale claim     | 3        | 2026-10-22 09:14:02 | abandoned (reached 3 step attempts) |
 | 24 | DemoWorkflow | pending | never dispatched| 0        | 2026-10-22 09:02:11 | dispatched                       |
 +----+--------------+---------+-----------------+----------+---------------------+----------------------------------+
 
@@ -276,7 +277,6 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 ## Known limits (recorded at the Milestone 6 audit)
 
 - **`WorkflowExecutionDispatched` can fire before anything is durable.** With `laraflow.queue.after_commit` (the default) and `dispatch()` called inside an application transaction, the job push is correctly deferred to the commit — but the event is emitted when `dispatch()` returns, which is before that commit. A listener that reads the database on this event may find nothing yet, and if the application rolls back, the event has announced an execution that never existed. Treat it as "a dispatch was requested", not "a dispatch is durable"; every other lifecycle event fires after its durable write.
-- **The abandon bound does not cover the claim-to-first-step window.** See *Known limits of the claim discipline* in [execution-lifecycle.md](execution-lifecycle.md): a deterministic fault in that window is re-dispatched on every recovery run rather than abandoned.
 
 ## Operational checklist
 

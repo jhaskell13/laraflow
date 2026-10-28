@@ -210,7 +210,7 @@ With retry policy in place there are two attempt-related bounds. They are differ
 | Bound | Governs | Enforced by |
 |---|---|---|
 | `StepPolicy::maxAttempts` | **Failures** — thrown exceptions and timeouts | The runner, durably, via `attempts` |
-| `laraflow.recovery.abandon_after_attempts` (default 3) | **Interruptions** — stale claims, lost dispatches | `laraflow:recover`, which abandons rather than re-dispatching |
+| `laraflow.recovery.abandon_after_attempts` (default 3) | **Interruptions** — stale claims, lost dispatches; measured in step attempts and, for a fault before the first step, in claims that made no progress | `laraflow:recover`, which abandons rather than re-dispatching |
 
 The due-retry scan is **exempt** from the abandonment bound: a scheduled retry's budget is its policy, and applying the interruption bound would strand every policy whose budget exceeds 3. Conversely the abandonment bound ignores retry policies — it is crash-loop protection, and handing stuck work to an operator is the safe default.
 

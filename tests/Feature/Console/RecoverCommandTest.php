@@ -6,8 +6,11 @@ namespace Laraflow\Tests\Feature\Console;
 
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Queue;
+use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Tests\Support\MutableWorkflow;
 use Laraflow\Tests\Support\RunsArtisanCommands;
+use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
@@ -105,9 +108,56 @@ class RecoverCommandTest extends TestCase
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover');
 
         $this->assertSame(CommandStatus::FAILURE, $status);
-        $this->assertStringContainsString('abandoned (max attempts reached)', $output);
+        $this->assertStringContainsString('abandoned (reached 3 step attempts)', $output);
         $this->assertStringContainsString('laraflow:execute', $output);
         Queue::assertNothingPushed();
+    }
+
+    public function test_a_fault_before_the_first_step_is_abandoned_once_it_reaches_the_bound(): void
+    {
+        // The plan was persisted with two steps; a deploy then changed
+        // the workflow to one. Every execution of it now claims, fails
+        // the definition check, and never writes a step row — so the
+        // step attempt counter stays at zero forever.
+        Date::setTestNow('2026-10-22 10:00:00');
+        MutableWorkflow::$steps = [StepOne::class, StepTwo::class];
+        $execution = $this->app->make(WorkflowRunner::class)->start(new MutableWorkflow);
+        MutableWorkflow::$steps = [StepOne::class];
+
+        try {
+            $this->app->make(WorkflowRunner::class)->execute($execution->id, new MutableWorkflow);
+            $this->fail('Expected the definition mismatch.');
+        } catch (WorkflowDefinitionMismatchException) {
+            // The first worker faulted after claiming. Claim 1.
+        }
+
+        // Each recovery run finds the claim stale, runs it inline, and
+        // hits the same fault: claims 2 and 3, still no step attempt.
+        foreach ([2, 3] as $claim) {
+            Date::setTestNow("2026-10-22 1{$claim}:00:00");
+
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--sync' => true]);
+
+            $this->assertSame(CommandStatus::FAILURE, $status, "Run {$claim} must surface the fault.");
+            $this->assertStringContainsString('failed: ', $output);
+            $this->assertStringContainsString('does not match', $output);
+            $this->assertSame($claim, WorkflowExecutionModel::query()->sole()->fruitless_claims);
+        }
+
+        // At the bound, recovery stops re-dispatching and says why.
+        Date::setTestNow('2026-10-22 14:00:00');
+        $before = WorkflowExecutionModel::query()->sole();
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--sync' => true]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('abandoned (was claimed 3 times without reaching a step)', $output);
+        $this->assertStringContainsString('laraflow:execute', $output);
+
+        $after = WorkflowExecutionModel::query()->sole();
+        $this->assertSame(3, $after->fruitless_claims, 'An abandoned execution is not claimed again.');
+        $this->assertSame($before->claim_token, $after->claim_token);
+        $this->assertSame(0, StepExecutionModel::query()->max('attempts'));
     }
 
     public function test_an_execution_with_a_deleted_workflow_class_is_never_requeued(): void

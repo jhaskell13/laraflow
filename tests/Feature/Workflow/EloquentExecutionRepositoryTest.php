@@ -247,6 +247,40 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->assertSame('worker-b', WorkflowExecutionModel::query()->firstOrFail()->claim_token);
     }
 
+    public function test_a_claim_counts_as_fruitless_until_a_step_is_written_under_it(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $this->assertSame(0, $execution->fruitlessClaims);
+
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        $this->assertSame(1, $execution->fruitlessClaims);
+
+        [$step] = $this->repository()->steps($execution);
+        $step->markRunning(new DateTimeImmutable);
+        $this->repository()->saveStep($execution, $step);
+
+        $this->assertSame(0, WorkflowExecutionModel::query()->sole()->fruitless_claims);
+        $this->assertSame(0, $this->repository()->find($execution->id)->fruitlessClaims);
+    }
+
+    public function test_a_checkpoint_also_clears_the_fruitless_claim_count(): void
+    {
+        // A worker that claims an execution whose remaining step was left
+        // `running` by a dead predecessor re-runs it and checkpoints; the
+        // checkpoint is its first step write and must count as progress.
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        [$step] = $this->repository()->steps($execution);
+
+        WorkflowExecutionModel::query()->whereKey($execution->id)->update(['fruitless_claims' => 2]);
+
+        $step->markRunning(new DateTimeImmutable);
+        $step->markCompleted(['ok' => true], new DateTimeImmutable);
+        $this->repository()->checkpoint($execution, $step);
+
+        $this->assertSame(0, WorkflowExecutionModel::query()->sole()->fruitless_claims);
+    }
+
     public function test_save_step_under_the_claim_does_not_disturb_the_execution_row(): void
     {
         $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
@@ -263,6 +297,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         // write, the claim stays exactly as taken.
         $after = WorkflowExecutionModel::query()->firstOrFail();
         $this->assertSame($before->version + 1, $after->version);
+        $this->assertSame(0, $after->fruitless_claims, 'The claim made progress.');
         $this->assertSame($before->context, $after->context);
         $this->assertSame($before->status, $after->status);
         $this->assertSame('worker-a', $after->claim_token);

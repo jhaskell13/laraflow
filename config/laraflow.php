@@ -172,9 +172,10 @@ return [
     | limit: maximum executions handled per run, most urgent first.
     |
     | abandon_after_attempts: an *interrupted* execution where any step
-    | has already been attempted this many times is reported as abandoned
-    | instead of re-dispatched, so a crash-looping workflow cannot be
-    | retried forever by the scheduler. This bound is crash-loop
+    | has already been attempted this many times — or which has been
+    | claimed this many times without reaching a step — is reported as
+    | abandoned instead of re-dispatched, so a crash-looping workflow
+    | cannot be retried forever by the scheduler. This bound is crash-loop
     | protection and deliberately independent of step retry policies,
     | which govern *failures* through the retrying state and carry their
     | own budget; due retries are exempt from it. If your retry budgets

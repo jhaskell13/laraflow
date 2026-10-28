@@ -10,7 +10,7 @@ use Laraflow\Tests\TestCase;
 /**
  * The schema freeze, enforced rather than promised.
  *
- * From Milestone 6 the three shipped migrations are immutable: an
+ * From Milestone 6 the shipped migrations are immutable: an
  * application that has run them must be able to reach any later version
  * by running *new* migrations, never by being told to drop its tables.
  * These assertions are the exact shape of the frozen schema, so editing
@@ -34,7 +34,7 @@ class SchemaFreezeTest extends TestCase
             'available_at', 'cancel_reason', 'cancel_requested_at', 'cancelled_at',
             'claim_token', 'claimed_at', 'completed_at', 'context', 'correlation_id',
             'created_at', 'dispatched_at', 'duration_ms', 'error', 'error_class',
-            'failed_at', 'finished_at', 'id', 'input', 'next_retry_at',
+            'failed_at', 'finished_at', 'fruitless_claims', 'id', 'input', 'next_retry_at',
             'payloads_scrubbed_at', 'started_at', 'status', 'tenant_id',
             'updated_at', 'version', 'workflow',
         ],
