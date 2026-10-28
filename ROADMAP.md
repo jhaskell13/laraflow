@@ -215,11 +215,11 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 - ~~Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.~~ Done (step 4).
 - ~~Case-insensitive header merging across `HttpOptions` and the transport.~~ Done (step 5).
 
-These are intentionally later and should be driven by real user needs:
+Milestone 7's capability scope was decided in October 2026 and its semantics fixed in `docs/advanced-workflows.md` before implementation: conditional steps, delays/wait states with signals, and sub-workflow composition — in that order, each with persistence, recovery, and observability semantics decided first. Fan-out/fan-in, compensation/saga, and multi-tenant throttling are deferred past this milestone, to be driven by real user needs.
 
-- Branching, conditional steps, and fan-out/fan-in.
-- Workflow composition and reusable sub-workflows.
-- Delays, schedules, and human approval/wait states.
+From the original list, still intentionally later:
+
+- Branching and fan-out/fan-in (conditional steps on a linear plan shipped in Milestone 7; graph execution did not).
 - Compensation/saga patterns for workflows that need business-level undo.
 - Multi-tenant isolation and per-tenant throttling.
 - Additional persistence or queue drivers only when the abstractions have real consumers.
