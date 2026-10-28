@@ -212,7 +212,7 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 - ~~Claim-guard the step-row writes (`saveStep`) so a stale worker cannot scribble step status or attempt history before its first checkpoint fails (documented in `docs/execution-lifecycle.md`, *Known limits of the claim discipline*).~~ Done (step 1).
 - ~~Bound the claim-to-first-step recovery loop (same document): a deterministic fault before the first step write is currently re-dispatched unbounded.~~ Done (step 2).
 - ~~Fire `WorkflowExecutionDispatched` after the commit it waits for, instead of documenting that it may precede it.~~ Done (step 3).
-- Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.
+- ~~Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.~~ Done (step 4).
 - Case-insensitive header merging across `HttpOptions` and the transport.
 
 These are intentionally later and should be driven by real user needs:

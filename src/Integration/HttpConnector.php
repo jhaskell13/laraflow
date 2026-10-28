@@ -127,13 +127,21 @@ abstract class HttpConnector implements Connector
             $this->credentials->credentials($this->connection),
         ));
 
+        // The error is mapped inside the pipeline, before the call is
+        // announced, so ConnectorRequestSent reports what the connector
+        // concluded rather than the status alone. The mapper sees the
+        // request as the caller made it, so nothing the authenticator
+        // added can reach an exception message.
         $response = $this->pipeline
-            ->through($this->transport(), $this->options, $this->connection)
+            ->through(
+                $this->transport(),
+                $this->options,
+                $this->connection,
+                fn (ConnectorResponse $response): ConnectorResponse => $response->withError(
+                    $this->errors->map($request, $response, $this->connection),
+                ),
+            )
             ->send($authenticated, $this->options);
-
-        // The mapper sees the request as the caller made it, so nothing
-        // the authenticator added can reach an exception message.
-        $response = $response->withError($this->errors->map($request, $response, $this->connection));
 
         if ($this->throwsOnError()) {
             $response->throw();

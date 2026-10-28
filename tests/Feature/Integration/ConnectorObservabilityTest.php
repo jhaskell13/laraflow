@@ -72,6 +72,25 @@ class ConnectorObservabilityTest extends TestCase
         Event::assertDispatched(ConnectorRequestSent::class, fn (ConnectorRequestSent $event): bool => $event->status === 404 && $event->successful === false);
     }
 
+    public function test_a_200_the_connector_rejects_is_announced_as_unsuccessful(): void
+    {
+        // Slack reports failure inside a 200. The event is emitted by the
+        // outermost transport layer, so the mapping must have happened
+        // inside the pipeline for the flag to know.
+        Event::fake([ConnectorRequestSent::class, ConnectorRequestFailed::class]);
+        Http::fake(['slack.com/*' => Http::response(['ok' => false, 'error' => 'channel_not_found'])]);
+        config(['laraflow.integrations.slack.connections.default.credentials.token' => 'xoxb-test']);
+
+        $response = $this->app->make(LaraflowManager::class)->connector('slack')->request(new ConnectorRequest('GET', '/conversations.info', ['query' => ['channel' => 'C1']]));
+
+        $this->assertTrue($response->failed());
+        Event::assertNotDispatched(ConnectorRequestFailed::class);
+        Event::assertDispatched(
+            ConnectorRequestSent::class,
+            fn (ConnectorRequestSent $event): bool => $event->status === 200 && $event->successful === false,
+        );
+    }
+
     public function test_no_response_at_all_is_a_failed_event(): void
     {
         Event::fake([ConnectorRequestSent::class, ConnectorRequestFailed::class]);
