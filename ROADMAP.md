@@ -27,7 +27,9 @@ Milestone 5 is complete (October 2026). The connector layer is a coherent capabi
 
 Milestone 6 is complete (October 2026). CI proves the declared matrix — PHP 8.2–8.5 against Laravel 12 and 13, a `prefer-lowest` floor cell that must also pass static analysis, the full suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job that walks a fresh `laravel/laravel` application from `composer require` to a persisted, recovered execution. The schema is frozen and the freeze is enforced by test; `docs/upgrading.md` is the upgrade/rollback/recovery contract, with `UpgradePathTest` as its harness. Versioning and deprecation are operational (`docs/compatibility.md`), the API document is enforced in both directions, and a tag-triggered workflow re-runs the matrix and drafts a release a human publishes. Laravel 13 support was added along the way — the engines and versions found ten real defects between them, the worst being compare-and-set guards misread on MySQL (affected-rows vs matched-rows, fixed with a version counter) and a `Retry-After` parsed in local time. The closing audit reviewed the entire project and fixed six more, including a release that could erase a concurrent cancellation request; what it deferred is recorded under Milestone 7.
 
-The next horizon is Milestone 7, driven by real user needs.
+Milestone 7 is complete (October 2026), in two phases. Phase A closed all five hardening items deferred from the Milestone 6 audit: every step-row write is claim-guarded; a fault between claim and first step is bounded by the `fruitless_claims` counter rather than re-dispatched forever; `WorkflowExecutionDispatched` fires after the commit its push waits for; `ConnectorRequestSent.successful` is the connector's verdict rather than the HTTP status's; and header names merge case-insensitively at every layer. Phase B shipped three capabilities whose semantics were fixed in `docs/advanced-workflows.md` *before* implementation: conditional steps (a durable, attempt-free `skipped` state, replayed from the record), delays and wait states (a wait is the step's outcome boundary — resuming completes the step; signals carry payloads into the context; timeouts are ordinary step failures under the step's own policy), and sub-workflow composition (a wait on a reserved signal plus two linkage columns, with a parent-step retry resuming the same child and a `stale_after` heartbeat that makes the pairing self-healing). Three additive migrations rode the post-freeze upgrade harness. The phase closed with a three-way hostile audit — concurrency, code quality, contract alignment — that produced 48 findings and fixed 17 real defects, the worst being healthy heartbeats counted toward abandonment, a stale child-failure payload charged twice, and durable skips recorded against a non-final context under `FailurePolicy::Continue`. Fan-out/fan-in, compensation, and tenant throttling were deliberately deferred.
+
+The roadmap's remaining horizon is post-1.0 work, driven by real user needs.
 
 ## Product principles
 
@@ -205,7 +207,7 @@ The second connector is Slack, chosen for behaving nothing like GitHub: failure 
 - Schema changes have upgrade coverage and documented operational impact.
 - A release can be installed, upgraded, and rolled back or recovered from using documented procedures.
 
-## Milestone 7 — Advanced workflow capabilities (evaluate after core stability)
+## Milestone 7 — Advanced workflow capabilities ✅
 
 Hardening deferred from the Milestone 6 closing audit, to take before or alongside new capability work:
 
@@ -238,7 +240,8 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 7. ~~Add bounded retry policy for failed work — attempts, backoff, timeouts, cancellation.~~ Done.
 8. ~~Stabilize inspection/observability APIs, including retention for the attempt history.~~ Done.
 9. ~~Harden the connector contracts.~~ Done.
-10. ~~Release automation and the schema freeze.~~ Done. Milestone 6 is complete; the roadmap's remaining horizon is Milestone 7.
+10. ~~Release automation and the schema freeze.~~ Done.
+11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete; what remains above is post-1.0 work.
 
 ## Out of scope until the core is proven
 

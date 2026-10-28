@@ -6,7 +6,7 @@ The guarantees here start at the schema freeze (Milestone 6). Before it, migrati
 
 ## What the freeze guarantees
 
-**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again, and neither will any migration shipped after them — the first, adding `fruitless_claims` to the executions table, landed in Milestone 7. Any later schema change arrives as a *new* dated migration.
+**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again, and neither will any migration shipped after them — Milestone 7 added three, all additive: `fruitless_claims` on executions, `wait_signal` on steps, and the sub-workflow parent-linkage columns. Any later schema change arrives as a *new* dated migration.
 
 Concretely, for an installed application:
 

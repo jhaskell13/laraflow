@@ -16,6 +16,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Configuration](#configuration)
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
+- [Conditions, waits, and sub-workflows](#conditions-waits-and-sub-workflows)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
@@ -643,6 +644,77 @@ php artisan laraflow:cancel 42 --reason="customer withdrew the order"
 Cancellation is immediate for work that is waiting and **cooperative** for work that is running — the worker stops at its next step boundary, and the step in flight finishes and checkpoints first.
 
 Timeouts are deadlines, not preemption: Laraflow does not interrupt running PHP. A step reads its own deadline from the context (`$context->remainingSeconds()`) and bounds its own work; an attempt whose worker died *past* its deadline is charged to the retry budget as a timeout, while one that died before it re-runs for free. The full contract — schedules, the three-way timeout distinction, the two attempt bounds, cancellation semantics, and error redaction — is in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md).
+
+## Conditions, waits, and sub-workflows
+
+The plan stays a linear list of steps, but a step can decide not to run, park the execution until something happens, or run a whole other workflow. The semantics — what persists, what happens on recovery, what the events say — are one document: [docs/advanced-workflows.md](docs/advanced-workflows.md).
+
+### Conditional steps
+
+A step that implements `ConditionalStep` is asked, from the context, whether it has anything to do:
+
+```php
+use Laraflow\Workflow\ConditionalStep;
+
+class NotifyAccountManager implements Step, ConditionalStep
+{
+    public function shouldRun(WorkflowContext $context): bool
+    {
+        return $context->get('deal_size', 0) >= 50_000;
+    }
+
+    public function handle(WorkflowContext $context): mixed { /* ... */ }
+}
+```
+
+A false answer durably marks the step `skipped` — no attempt counted, nothing written to the context — and recovery replays the recorded decision rather than asking again. Conditions must be pure functions of the context: same context, same answer.
+
+### Delays, signals, and human approval
+
+A step pauses the execution by returning a `Wait` instead of an output. Everything it did first is checkpointed, the claim is released, and **resuming completes the step** — the method body never resumes mid-function, so work after the wait belongs in the next step.
+
+```php
+use Laraflow\Workflow\Wait;
+
+public function handle(WorkflowContext $context): mixed
+{
+    $this->postApprovalRequest($context);              // runs once
+
+    return Wait::forSignal('manager-approval')         // park until the signal
+        ->timeoutAfterSeconds(7 * 86_400);             // or fail after a week
+}
+```
+
+`Wait::untilSeconds(600)` is the timed form — resume in ten minutes, no signal involved. The application delivers a signal through the runner, from a controller, a webhook, wherever the approval arrives:
+
+```php
+app(WorkflowRunner::class)->signal($executionId, 'manager-approval', ['approved_by' => $user->email]);
+```
+
+The payload becomes the waiting step's output and lands in the context under the signal's name, so later steps read it like any other step's contribution. Recording is not delivery: the queue fast path handles waits with a known instant, and `laraflow:recover` is the contractual pickup for everything — schedule it, exactly as you already do for retries. A signal wait past its deadline fails the step with `WaitTimedOutException` under the step's own retry policy, and retrying an approval step re-posts the request.
+
+### Sub-workflows
+
+A step extending `SubWorkflowStep` runs another workflow as a linked child execution and parks until it finishes:
+
+```php
+use Laraflow\Workflow\SubWorkflowStep;
+
+class SyncSubsidiary extends SubWorkflowStep
+{
+    public function workflow(WorkflowContext $context): Workflow
+    {
+        return new SyncCustomerWorkflow;
+    }
+
+    public function input(WorkflowContext $context): array
+    {
+        return ['customer_id' => $context->get('subsidiary_id')];
+    }
+}
+```
+
+The child inherits the parent's correlation and tenant identifiers, runs like any other execution, and its outcome — identity and status, never its context — becomes the parent step's output. A failed child fails the parent step under the step's retry policy, and a retry resumes the *same* child from its own checkpoints rather than starting over. Cancelling a parent cascades to its unfinished children; nesting is bounded by `laraflow.workflows.max_depth`; and the parent checks on its child every `stale_after` seconds, so a lost signal or a lost dispatch heals instead of hanging.
 
 ## Running on a queue
 

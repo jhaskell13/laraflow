@@ -43,7 +43,9 @@ Reviewed in full for Milestone 6 before the schema freeze; every decision below 
 - A `json` column type. On MySQL/PostgreSQL this maps to native JSON, on MariaDB to `LONGTEXT` with a check constraint, on SQLite to `TEXT`, on SQL Server to `nvarchar(max)`. The repository JSON-encodes these values itself when writing through the query builder, because not every grammar does.
 - String columns are 255 characters (`claim_token` is 64), and the indexed ones — `workflow`, `status`, `correlation_id`, `tenant_id` — are what the key-size arithmetic has to cover. That fits every engine's index key limit with room to spare — the widest composite, `(workflow, status)`, is 2040 bytes on utf8mb4 against InnoDB's 3072-byte ceiling and 1020 bytes against SQL Server's 1700 — and matches `ExecutionOptions::MAX_LENGTH`, which validates application-supplied identifiers at the boundary.
 - `laraflow_workflow_executions.version` is an unsigned counter bumped by every repository write. It is not optimistic locking — nothing reads it. It exists so a compare-and-set `UPDATE` that rewrites identical values is still counted on engines that report rows *changed* rather than rows *matched* (MySQL, MariaDB).
-- `laraflow_workflow_executions.fruitless_claims` (added by the first post-freeze migration, Milestone 7) counts consecutive claims that ended before any step-row write; `claim()` increments it and the first step write under the claim zeroes it. Recovery's abandonment bound reads it alongside step attempts. Unindexed: it is read per candidate, never scanned.
+- `laraflow_workflow_executions.fruitless_claims` (added by the first post-freeze migration, Milestone 7) counts consecutive claims that ended before any step-row write or orderly release; `claim()` increments it, the first step write and every `release()` zero it. Recovery's abandonment bound reads it alongside step attempts. Unindexed: it is read per candidate, never scanned.
+- `laraflow_step_executions.wait_signal` (second post-freeze migration, Milestone 7) names the signal a waiting step is parked on; null for timed waits and every non-waiting step. Unindexed: signal delivery matches it inside a query already bounded by the execution id.
+- `laraflow_workflow_executions.parent_execution_id` / `parent_step_execution_id` (third post-freeze migration, Milestone 7) link a sub-workflow to the parent step that spawned it. Plain columns, **not** foreign keys, so retention may prune a long-finished parent while the child's audit record lives on — the documented trade-off in [retention.md](retention.md#sub-workflows). Only `parent_execution_id` is indexed.
 
 ### Indexes, and the ones deliberately absent
 
@@ -52,10 +54,11 @@ Every query the package issues is served by an index:
 | Index | Serves |
 |-------|--------|
 | `(status, claimed_at)` | The stale-claim recovery scan; bare `status` filters via its prefix. |
-| `(status, next_retry_at)` | The due-retry scan. |
+| `(status, next_retry_at)` | The due-retry and due-wait scans — a wait's resume instant, deadline, signal due-time, and sub-workflow heartbeat all live in `next_retry_at`. |
 | `(status, finished_at)` | Retention candidate scans. |
 | `(workflow, status)` | Listing a workflow's executions, with or without a status. |
 | `correlation_id`, `tenant_id`, `created_at` | Listing filters; keyset pagination orders by the primary key. |
+| `parent_execution_id` | A sub-workflow's children: the parent filter, the cancellation cascade, the same-child lookup on a parent-step retry. |
 | `laraflow_step_executions (workflow_execution_id, position)` unique | "Steps of this execution" reads, `stepProgress()`'s grouping, the plan's one-row-per-position invariant — and the foreign key itself, via the leftmost prefix. |
 | `laraflow_step_attempts (step_execution_id, attempt)` unique | One row per logical attempt; a duplicate delivery cannot double-count. |
 | `laraflow_step_attempts (workflow_execution_id)` | The prune scan and `attemptHistory()`. Not redundant: PostgreSQL, SQLite, and SQL Server create no index for a foreign key on their own; MySQL and MariaDB reuse this one. |
