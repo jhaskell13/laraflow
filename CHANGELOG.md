@@ -8,6 +8,12 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-10-28
+
+Milestone 7. **Laraflow now runs workflows that decide, wait, and compose**: a step may skip itself from the context, park the execution on a delay or a named signal (human approval, webhooks) and resume with the signal's payload, or run another workflow as a linked child — each with persistence, recovery, and observability semantics fixed in `docs/advanced-workflows.md` before implementation. The five hardening items the Milestone 6 audit deferred are closed, four additive migrations ride the post-freeze upgrade harness, and the release closes with a full-project audit of the foundations. **Breaking** changes are marked below; the schema freeze and `docs/upgrading.md` cover the upgrade.
+
 ### Closing audit (full-project review, Milestone 0 foundations through Milestone 7)
 
 Seven parallel hostile reviews — workflow-core concurrency, the connector and secrets layer, project-wide documentation alignment, code standards and design, test-suite quality, schema and query performance, and a branch security review — produced 190 findings. The defects among them are fixed below, each with a regression test; the documentation corrections are folded into the contracts; the design findings judged not worth the churn before 1.0 are recorded under *Deferred* in `ROADMAP.md`.
@@ -405,5 +411,6 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jhaskell13/laraflow/releases/tag/v0.1.0

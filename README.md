@@ -49,7 +49,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.1.0
+composer require laraflow/laraflow:^0.2.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.

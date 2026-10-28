@@ -1,6 +1,6 @@
 # Contributing to Laraflow
 
-Thanks for your interest. Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the work recorded in [ROADMAP.md](ROADMAP.md).
+Thanks for your interest. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the work recorded in [ROADMAP.md](ROADMAP.md).
 
 ## Before you start
 

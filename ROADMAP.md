@@ -27,9 +27,9 @@ Milestone 5 is complete (October 2026). The connector layer is a coherent capabi
 
 Milestone 6 is complete (October 2026). CI proves the declared matrix — PHP 8.2–8.5 against Laravel 12 and 13, a `prefer-lowest` floor cell that must also pass static analysis, the full suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job that walks a fresh `laravel/laravel` application from `composer require` to a persisted, recovered execution. The schema is frozen and the freeze is enforced by test; `docs/upgrading.md` is the upgrade/rollback/recovery contract, with `UpgradePathTest` as its harness. Versioning and deprecation are operational (`docs/compatibility.md`), the API document is enforced in both directions, and a tag-triggered workflow re-runs the matrix and drafts a release a human publishes. Laravel 13 support was added along the way — the engines and versions found ten real defects between them, the worst being compare-and-set guards misread on MySQL (affected-rows vs matched-rows, fixed with a version counter) and a `Retry-After` parsed in local time. The closing audit reviewed the entire project and fixed six more, including a release that could erase a concurrent cancellation request; what it deferred is recorded under Milestone 7.
 
-Milestone 7 is complete (October 2026), in two phases. Phase A closed all five hardening items deferred from the Milestone 6 audit: every step-row write is claim-guarded; a fault between claim and first step is bounded by the `fruitless_claims` counter rather than re-dispatched forever; `WorkflowExecutionDispatched` fires after the commit its push waits for; `ConnectorRequestSent.successful` is the connector's verdict rather than the HTTP status's; and header names merge case-insensitively at every layer. Phase B shipped three capabilities whose semantics were fixed in `docs/advanced-workflows.md` *before* implementation: conditional steps (a durable, attempt-free `skipped` state, replayed from the record), delays and wait states (a wait is the step's outcome boundary — resuming completes the step; signals carry payloads into the context; timeouts are ordinary step failures under the step's own policy), and sub-workflow composition (a wait on a reserved signal plus two linkage columns, with a parent-step retry resuming the same child and a `stale_after` heartbeat that makes the pairing self-healing). Three additive migrations rode the post-freeze upgrade harness. The phase closed with a three-way hostile audit — concurrency, code quality, contract alignment — that produced 48 findings and fixed 17 real defects, the worst being healthy heartbeats counted toward abandonment, a stale child-failure payload charged twice, and durable skips recorded against a non-final context under `FailurePolicy::Continue`. Fan-out/fan-in, compensation, and tenant throttling were deliberately deferred.
+Milestone 7 is complete (October 2026), in two phases. Phase A closed all five hardening items deferred from the Milestone 6 audit: every step-row write is claim-guarded; a fault between claim and first step is bounded by the `fruitless_claims` counter rather than re-dispatched forever; `WorkflowExecutionDispatched` fires after the commit its push waits for; `ConnectorRequestSent.successful` is the connector's verdict rather than the HTTP status's; and header names merge case-insensitively at every layer. Phase B shipped three capabilities whose semantics were fixed in `docs/advanced-workflows.md` *before* implementation: conditional steps (a durable, attempt-free `skipped` state, replayed from the record), delays and wait states (a wait is the step's outcome boundary — resuming completes the step; signals carry payloads into the context; timeouts are ordinary step failures under the step's own policy), and sub-workflow composition (a wait on a reserved signal plus two linkage columns, with a parent-step retry resuming the same child and a `stale_after` heartbeat that makes the pairing self-healing). Three additive migrations rode the post-freeze upgrade harness. The phase closed with a three-way hostile audit — concurrency, code quality, contract alignment — that produced 48 findings and fixed 17 real defects, the worst being healthy heartbeats counted toward abandonment, a stale child-failure payload charged twice, and durable skips recorded against a non-final context under `FailurePolicy::Continue`. Fan-out/fan-in, compensation, and tenant throttling were deliberately deferred. The milestone — and the MVP — closed with a full-project audit back to the Milestone 0 foundations: seven parallel hostile reviews (concurrency, connectors and secrets, documentation alignment, code standards, test quality, schema and performance, and a security review) produced 190 findings; 41 code defects were fixed with regression tests, the worst a scalar step output that had crashed the checkpoint since Milestone 1, a reserved-signal guard that failed on case-insensitive engines, and two retention scans whose cost grew with history. The suite stands at 949 tests. Released as **0.2.0**.
 
-The roadmap's remaining horizon is post-1.0 work, driven by real user needs.
+The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
 
 ## Product principles
 
@@ -231,6 +231,87 @@ From the original list, still intentionally later:
 
 Each feature needs explicit persistence, versioning, recovery, and observability semantics before implementation.
 
+## The road to 1.0
+
+**What 1.0 means.** A developer installs Laraflow with one Composer command and has a durable workflow running against their own database in minutes. The capabilities are ones real products need and real competitors ship — durable waits and approvals, composition, parallelism, compensation, schedules — built on recovery semantics that are documented, tested on every supported engine, and have survived production. The package solves orchestration, not API wrapping: connectors are an extension point, not the product. Documentation is complete and versioned, the project follows open-source practice end to end (conduct, contribution, security, support, release cadence), and the public API carries a stability promise backed by deprecation tooling. Every milestone below ends with the same discipline the first seven used: semantics written before code, contracts enforced by tests, a hostile audit before the record is written.
+
+### Milestone 8 — Foundations for a stability promise
+
+The debt that must be gone before any API is frozen: the design findings the Milestone 7 closing audit deferred, and the two foundational gaps the MVP named but did not close.
+
+#### Work
+
+- Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code.
+- An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.
+- The deferred audit items: one naming shape and tenant scoping for the four recovery scans; a backed `RecoveryReason` enum; commit to integer execution ids on the contract; extract the wait and child-wait state machine from `WorkflowRunner`; required collaborators instead of nullable defaults; a `(status, created_at)` index for the pending scan; per-tenant rate-limit buckets.
+- The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.
+- `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed.
+
+#### Exit criteria
+
+- No *known limit* or *deferred* section remains in any contract document.
+- An in-flight execution survives a workflow definition change through the documented migration path, on every engine.
+- The install job proves zero-to-persisted-execution with the generators alone.
+
+### Milestone 9 — Parallelism and compensation
+
+The two capabilities deferred from Milestone 7, each specified in `docs/advanced-workflows.md` before a line of code.
+
+#### Work
+
+- Fan-out/fan-in: a step group whose members run in parallel as child executions and whose join has defined semantics for partial failure, cancellation, and retry — the plan stays persisted and validated, the join is a wait, and the recovery contract gains no new windows.
+- Compensation: a step may declare `compensate()`; a failing workflow runs compensations in reverse over the steps that completed, with each compensation a durable, retryable step attempt and the saga's state inspectable like any other.
+- Both ride the heartbeat and signal machinery that composition proved, not new mechanisms.
+
+#### Exit criteria
+
+- A fan-out of a thousand children completes, fails partially, and is cancelled mid-flight under test, on every engine, with every outcome visible from `laraflow:show`.
+- A compensated workflow is replayable from its record: an operator can see what ran, what was undone, and what could not be.
+
+### Milestone 10 — Schedules, triggers, and the operator's edge
+
+#### Work
+
+- Scheduled workflows: a workflow declares a cron expression and Laraflow starts it durably — exactly one execution per tick across any number of schedulers, with missed ticks a stated policy.
+- Triggers: an opt-in signal endpoint with signed payloads, so approvals and webhooks reach `signal()` through routes and middleware the package ships rather than every application re-deriving them.
+- Per-tenant isolation and throttling: concurrency and rate ceilings per tenant, enforced at claim time, with the fairness rule documented.
+- Operator ergonomics: `laraflow:signal`, `laraflow:children`, bulk cancel and re-run by filter, and structured JSON output on every command for automation.
+
+#### Exit criteria
+
+- A scheduled workflow runs once per tick with three schedulers racing.
+- A signal arrives from an unauthenticated HTTP client and is refused; from a signed one, it resumes the execution.
+- Two tenants share a worker pool and neither can starve the other under load, by test.
+
+### Milestone 11 — Ecosystem, observability, and documentation
+
+#### Work
+
+- Optional packages, not dependencies: `laraflow/dashboard` (an inspection UI over the public repository contract), and metrics bridges for Prometheus, StatsD, and Laravel Pulse built on the lifecycle events.
+- A versioned documentation site generated from `docs/`, with the contracts as its spine, a guided tutorial, and an upgrade guide per minor.
+- Connector ecosystem: a `laraflow/connector-skeleton` template, the published contract test as its gate, and a curated list of community connectors — the bundled two stay examples, not a catalog.
+- Open-source practice complete: code of conduct, issue and pull-request templates, discussions, a maintainers file and decision record, a published release cadence and support window, and signed releases.
+
+#### Exit criteria
+
+- A new contributor opens a connector pull request following only the published docs, and the contract test is what reviews it.
+- Every public class and command has a documentation page that the contract tests cross-check.
+
+### Milestone 12 — Production validation and 1.0
+
+#### Work
+
+- A soak and benchmark suite: sustained load on every engine with worker loss, queue loss, and database failover injected, run on a schedule and published.
+- An external security review of the claim discipline, the signal boundary, and the connector credential paths, with findings closed or recorded.
+- The 1.0 API freeze: every Public class reviewed line by line, deprecation attributes and a `laraflow:upgrade` checker shipped, the compatibility policy switched to its post-1.0 rules, and a long-term-support window declared.
+- 1.0.0 released by the same machinery as every release before it, drafted by CI and published by a person.
+
+#### Exit criteria
+
+- The soak suite has run clean for a full support window with no recovery defect found.
+- A 0.x application upgrades to 1.0 by `composer require` and `php artisan migrate`, with the upgrade checker naming every change it must make first.
+- The README's status line says what a user can rely on, and the contract tests make it true.
+
 ## Suggested immediate order
 
 1. ~~Replace the README placeholder and write down the public API and compatibility policy.~~ Done.
@@ -243,12 +324,17 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 8. ~~Stabilize inspection/observability APIs, including retention for the attempt history.~~ Done.
 9. ~~Harden the connector contracts.~~ Done.
 10. ~~Release automation and the schema freeze.~~ Done.
-11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete; what remains above is post-1.0 work.
+11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete and the MVP is released as 0.2.0.
+12. Workflow versioning and the idempotency store, then the deferred audit items and the generators (Milestone 8).
+13. Fan-out/fan-in, then compensation — semantics first (Milestone 9).
+14. Schedules, signed triggers, tenant throttling (Milestone 10).
+15. Dashboard and metrics packages, the documentation site, the connector ecosystem (Milestone 11).
+16. Soak, external review, the API freeze, 1.0 (Milestone 12).
 
-## Out of scope until the core is proven
+## Out of scope through 1.0
 
-- Claiming exactly-once execution for arbitrary side effects.
-- A built-in visual workflow designer or hosted control plane.
+- Claiming exactly-once execution for arbitrary side effects; the idempotency store makes at-least-once safe, it does not make it exactly-once.
+- A built-in visual workflow designer or hosted control plane; the dashboard inspects, it does not author.
 - Supporting every Laravel version/database/queue backend without CI evidence.
-- A large catalog of connectors before connector extension points are stable.
-- Complex branching or distributed orchestration before linear recovery is reliable.
+- A large first-party catalog of connectors; the ecosystem and the contract test are the catalog.
+- Arbitrary graph execution beyond fan-out/fan-in; the plan stays a persisted, validated structure.
