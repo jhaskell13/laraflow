@@ -191,6 +191,7 @@ class LaraflowServiceProvider extends ServiceProvider
             repository: $app->make(ExecutionRepository::class),
             bus: $app->make(Bus::class),
             config: $app->make(Config::class),
+            db: $app->make('db'),
             events: $app->make(EventEmitter::class),
             clock: $app->make(ClockInterface::class),
         ));

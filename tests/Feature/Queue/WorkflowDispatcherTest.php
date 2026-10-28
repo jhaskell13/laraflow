@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Queue;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Laraflow\Events\WorkflowExecutionDispatched;
@@ -23,6 +24,7 @@ use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowRunner;
+use RuntimeException;
 use stdClass;
 
 class WorkflowDispatcherTest extends TestCase
@@ -173,6 +175,57 @@ class WorkflowDispatcherTest extends TestCase
                     && $event->queue === 'workflows';
             }
         );
+    }
+
+    public function test_the_dispatched_event_waits_for_the_commit_the_push_waits_for(): void
+    {
+        Event::fake([WorkflowExecutionDispatched::class]);
+
+        DB::transaction(function (): void {
+            $this->dispatcher()->dispatch(new TwoStepWorkflow);
+
+            // Inside the transaction nothing is durable yet, and the
+            // contract is that this event only ever describes durable
+            // state — so it has not fired.
+            Event::assertNotDispatched(WorkflowExecutionDispatched::class);
+        });
+
+        Event::assertDispatched(WorkflowExecutionDispatched::class);
+    }
+
+    public function test_a_rolled_back_transaction_discards_the_dispatched_event(): void
+    {
+        Event::fake([WorkflowExecutionDispatched::class]);
+
+        try {
+            DB::transaction(function (): void {
+                $this->dispatcher()->dispatch(new TwoStepWorkflow);
+
+                throw new RuntimeException('the application rolls back');
+            });
+        } catch (RuntimeException) {
+            // The execution this dispatch created no longer exists.
+        }
+
+        $this->assertSame(0, WorkflowExecutionModel::query()->count());
+        // The event must not announce an execution the rollback erased.
+        Event::assertNotDispatched(WorkflowExecutionDispatched::class);
+    }
+
+    public function test_without_after_commit_the_dispatched_event_fires_with_the_push(): void
+    {
+        config(['laraflow.queue.after_commit' => false]);
+
+        Event::fake([WorkflowExecutionDispatched::class]);
+
+        // The application opted out of commit deferral: the push happens
+        // inside the transaction, and the event keeps describing the
+        // push rather than silently adopting different timing.
+        DB::transaction(function (): void {
+            $this->dispatcher()->dispatch(new TwoStepWorkflow);
+
+            Event::assertDispatched(WorkflowExecutionDispatched::class);
+        });
     }
 
     // ------------------------------------------------------------------

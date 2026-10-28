@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Config\Repository as Config;
+use Illuminate\Database\DatabaseManager;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionDispatched;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -42,6 +43,10 @@ class WorkflowDispatcher
         protected ExecutionRepository $repository,
         protected Bus $bus,
         protected Config $config,
+        // The concrete manager rather than ConnectionResolverInterface:
+        // afterCommit() lives on the concrete Connection, and the
+        // interface's connection() does not promise it.
+        protected DatabaseManager $db,
         protected ?EventEmitter $events = null,
         ?ClockInterface $clock = null,
     ) {
@@ -129,7 +134,9 @@ class WorkflowDispatcher
             $job->delay($availableAt);
         }
 
-        if ((bool) $this->config->get('laraflow.queue.after_commit', true)) {
+        $afterCommit = (bool) $this->config->get('laraflow.queue.after_commit', true);
+
+        if ($afterCommit) {
             // Without this, a worker can receive an execution id before
             // the surrounding application transaction has committed.
             $job->afterCommit();
@@ -148,7 +155,7 @@ class WorkflowDispatcher
 
         $this->bus->dispatch($job);
 
-        $this->events?->emit(new WorkflowExecutionDispatched(
+        $emit = fn () => $this->events?->emit(new WorkflowExecutionDispatched(
             executionId: $execution->id,
             workflow: $execution->workflow,
             correlationId: $execution->correlationId,
@@ -156,6 +163,22 @@ class WorkflowDispatcher
             connection: $connection,
             queue: $queue,
         ));
+
+        if ($afterCommit) {
+            // The event mirrors the push. With after_commit on and a
+            // transaction open, the job above is held until the commit —
+            // so the announcement waits for the same commit, runs after
+            // the push it describes (callbacks fire in order), and is
+            // discarded with the transaction on rollback: no listener
+            // ever hears about an execution that never became durable.
+            // Outside a transaction the callback runs immediately.
+            $this->db->connection()->afterCommit($emit);
+        } else {
+            // With after_commit off the job was pushed immediately, and
+            // an event deferred past a push it should have preceded
+            // would be the lie in the other direction.
+            $emit();
+        }
     }
 
     protected function stringConfig(string $key): ?string
