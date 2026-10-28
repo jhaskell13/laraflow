@@ -125,7 +125,7 @@ interface ExecutionRepository
      * as zero, so a caller can tell "no plan" from "nothing done".
      *
      * @param  list<int|string>  $ids
-     * @return array<string, array{total: int, completed: int}> keyed by execution id.
+     * @return array<string, array{total: int, completed: int, skipped: int}> keyed by execution id.
      */
     public function stepProgress(
         array $ids

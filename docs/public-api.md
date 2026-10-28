@@ -20,6 +20,7 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 |-------|-------|-------|
 | `Laraflow\Workflow\Workflow` | Public | Abstract base. `steps(): array` returns an ordered list of step class names. Optional overrides: `defaultStepPolicy(): ?StepPolicy` and `failurePolicy(): FailurePolicy`. |
 | `Laraflow\Workflow\Step` | Public | Interface. `handle(WorkflowContext $context): mixed`. The return value is persisted as the step output and must be JSON-serialisable. |
+| `Laraflow\Workflow\ConditionalStep` | Public | Optional interface for a step: `shouldRun(WorkflowContext): bool`, consulted at the step's turn. False durably skips the step — attempt-free, context-neutral, replayed from the record on recovery. Conditions must be pure functions of the context; see [docs/advanced-workflows.md](advanced-workflows.md). |
 | `Laraflow\Workflow\WorkflowContext` | Public | Key/value data shared between steps in one execution: `get`, `set`, `has`, `forget`, `all`. A stored `null` is a value (`has()` is true, `get()` returns null, not the default). Exposes execution metadata for idempotency — `executionId`, `stepPosition`, `attempt`, `idempotencyKey` — the current attempt's deadline (`deadline()`, `remainingSeconds()`), and the execution's identifiers (`correlationId()`, `tenantId()`), read from durable state so a recovered step sees the originals. |
 | `Laraflow\Workflow\Policy\StepPolicy` | Public | Retry and timeout policy for one step: attempts, capped exponential backoff, deterministic jitter, `retryOn`/`dontRetryOn`, `timeoutSeconds`. Specified in [retry-and-failure-policy.md](retry-and-failure-policy.md). |
 | `Laraflow\Workflow\Policy\HasStepPolicy` | Public (contract) | Optional interface for steps declaring their own `StepPolicy`. |
@@ -35,7 +36,7 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 | `Laraflow\Workflow\WorkflowExecution` | Public | Read-only handle describing one execution: id, workflow class, input, context, status, error, timestamps, `correlationId`, `tenantId`, and `finishedAt` (set by every terminal transition, cleared when the execution runs again). State changes go through `mark*()` transition methods that enforce the state machine. |
 | `Laraflow\Workflow\StepExecution` | Public | Read-only handle describing one step within an execution, with the same transition-method rule. |
 | `Laraflow\Workflow\ExecutionStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`, plus `isFinished()` — true for `completed`, `failed`, and `cancelled`, the states that record `finished_at`. Deliberately not named `isTerminal()`: "terminal" means *never claimable* (`completed`, `cancelled`) and `failed` is re-executable, so the two questions have different answers. More cases may be added; applications should handle unknown cases defensively. |
-| `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`. Same caveat. |
+| `Laraflow\Workflow\StepStatus` | Public | Enum: `pending`, `running`, `completed`, `failed`, `retrying`, `skipped`. Same caveat. |
 | `Laraflow\Workflow\StepAttempt` | Public | Read-only record of one finished attempt: number, outcome, error, timestamps, `durationMs()`, and any retry it scheduled. |
 | `Laraflow\Workflow\StepAttemptStatus` | Public | Enum: `completed`, `failed`, `timed_out`, `interrupted`. |
 | `Laraflow\Support\ErrorRedactor` | Public (contract) | Rewrites exception messages before Laraflow persists, logs, or emits them; configured via `laraflow.errors.redactor`. |
@@ -65,7 +66,7 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 
 ## Events
 
-All events live in `Laraflow\Events`, are `readonly`, and are **public**: `WorkflowExecutionDispatched`, `WorkflowExecutionStarted`, `WorkflowStepStarted`, `WorkflowStepCompleted`, `WorkflowStepFailed`, `WorkflowStepRetryScheduled`, `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, `WorkflowExecutionCancelled`, `WorkflowExecutionRetryScheduled`, plus the two connector events below.
+All events live in `Laraflow\Events`, are `readonly`, and are **public**: `WorkflowExecutionDispatched`, `WorkflowExecutionStarted`, `WorkflowStepStarted`, `WorkflowStepCompleted`, `WorkflowStepSkipped`, `WorkflowStepFailed`, `WorkflowStepRetryScheduled`, `WorkflowExecutionCompleted`, `WorkflowExecutionFailed`, `WorkflowExecutionCancelled`, `WorkflowExecutionRetryScheduled`, plus the two connector events below.
 
 ### Connector events
 

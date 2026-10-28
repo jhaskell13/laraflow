@@ -30,6 +30,9 @@ class FixtureState
         StepThree::$runs = 0;
         StepThree::$seenContextValueFromStepTwo = null;
         MutableWorkflow::$steps = [];
+        ConditionalGate::$open = true;
+        ConditionalGate::$runs = 0;
+        ConditionalGate::$throw = null;
         ConnectorStep::$connector = 'crm';
         ConnectorStep::$connection = null;
         ConnectorStep::$runs = 0;

@@ -12,6 +12,7 @@ use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepCompleted;
+use Laraflow\Events\WorkflowStepSkipped;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -264,7 +265,9 @@ class WorkflowRunner
         $firstFailure = null;
 
         foreach ($steps as $stepExecution) {
-            if ($stepExecution->isCompleted()) {
+            // A skipped step is a recorded decision, replayed exactly
+            // like a completed checkpoint — never re-evaluated.
+            if ($stepExecution->isCompleted() || $stepExecution->isSkipped()) {
                 continue;
             }
 
@@ -292,6 +295,35 @@ class WorkflowRunner
                 $this->outcomes->failure($execution, $stepExecution, $exception);
 
                 throw $exception;
+            }
+
+            // The condition is consulted only for a step that has never
+            // run — a step past `pending` already answered true, and a
+            // pure condition over an unchanged context cannot change its
+            // mind. A throwing condition is a definition-class fault,
+            // handled exactly like a step class that cannot be built.
+            if ($stepExecution->isPending() && $step instanceof ConditionalStep) {
+                try {
+                    $shouldRun = $step->shouldRun($context);
+                } catch (Throwable $exception) {
+                    $this->startStep($execution, $stepExecution, $context, $startedAt, null);
+                    $this->outcomes->failure($execution, $stepExecution, $exception);
+
+                    throw $exception;
+                }
+
+                if (! $shouldRun) {
+                    $stepExecution->markSkipped($this->now());
+                    $this->repository->saveStep($execution, $stepExecution);
+
+                    $this->event(new WorkflowStepSkipped(
+                        ...$this->outcomes->identity($execution),
+                        step: $stepExecution->step,
+                        position: $stepExecution->position,
+                    ));
+
+                    continue;
+                }
             }
 
             // A step found `running` was interrupted: its worker died

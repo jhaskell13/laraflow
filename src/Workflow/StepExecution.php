@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  * enforce the step state machine:
  *
  *   pending → running → completed
+ *   pending → skipped (conditional step, condition false)
  *   pending → running → failed → running (retry on re-execute)
  *   running → retrying → running (scheduled retry, once due)
  *   running → running (interrupted step re-run after worker loss)
@@ -78,6 +79,21 @@ class StepExecution
         $this->failedAt = null;
     }
 
+    /**
+     * A conditional step's condition answered false. Terminal for the
+     * execution's lifetime: attempts stay untouched, and recovery
+     * treats the step like a completed one.
+     */
+    public function markSkipped(DateTimeImmutable $at): void
+    {
+        $this->assertTransition(StepStatus::Skipped, [
+            StepStatus::Pending,
+        ]);
+
+        $this->status = StepStatus::Skipped;
+        $this->completedAt = $at;
+    }
+
     public function markFailed(string $error, string $errorClass, DateTimeImmutable $at): void
     {
         $this->assertTransition(StepStatus::Failed, [
@@ -123,6 +139,11 @@ class StepExecution
     public function isCompleted(): bool
     {
         return $this->status === StepStatus::Completed;
+    }
+
+    public function isSkipped(): bool
+    {
+        return $this->status === StepStatus::Skipped;
     }
 
     public function isFailed(): bool

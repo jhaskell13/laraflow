@@ -16,4 +16,11 @@ enum StepStatus: string
      * `next_retry_at`.
      */
     case Retrying = 'retrying';
+
+    /**
+     * A conditional step whose condition answered false: durably
+     * recorded, attempt-free, and treated like `completed` by recovery
+     * — the decision replays from the record, never re-evaluates.
+     */
+    case Skipped = 'skipped';
 }

@@ -87,11 +87,13 @@ trait QueriesExecutions
         }
 
         $completed = StepStatus::Completed->value;
+        $skipped = StepStatus::Skipped->value;
 
-        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int}> $rows */
+        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int, skipped: int}> $rows */
         $rows = StepExecutionModel::query()
             ->selectRaw('workflow_execution_id, count(*) as total')
             ->selectRaw('sum(case when status = ? then 1 else 0 end) as completed', [$completed])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as skipped', [$skipped])
             ->whereIn('workflow_execution_id', $ids)
             ->groupBy('workflow_execution_id')
             ->get();
@@ -102,6 +104,7 @@ trait QueriesExecutions
             $progress[(string) $row->workflow_execution_id] = [
                 'total' => (int) $row->total,
                 'completed' => (int) $row->completed,
+                'skipped' => (int) $row->skipped,
             ];
         }
 
