@@ -12,7 +12,9 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
@@ -132,6 +134,19 @@ class EloquentExecutionRepository implements ExecutionRepository
                             });
                         }
                     })
+                    ->orWhere(function ($query) use ($now, $ignoreRetrySchedule) {
+                        $query->where('status', ExecutionStatus::Waiting->value);
+
+                        if (! $ignoreRetrySchedule) {
+                            // Unlike retrying, a null instant here means
+                            // an indefinite signal wait: claimable only
+                            // once a signal sets next_retry_at, never by
+                            // the clock.
+                            $query
+                                ->whereNotNull('next_retry_at')
+                                ->where('next_retry_at', '<=', $now);
+                        }
+                    })
                     ->orWhere(function ($query) use ($staleBefore) {
                         $query
                             ->where('status', ExecutionStatus::Running->value)
@@ -234,6 +249,36 @@ class EloquentExecutionRepository implements ExecutionRepository
         });
     }
 
+    public function recordSignal(
+        int|string $id,
+        string $signal,
+        array $payload,
+        DateTimeImmutable $at
+    ): WorkflowExecution {
+        $this->transaction(function () use ($id, $signal, $payload, $at) {
+            // The payload lands on the waiting step row first; zero rows
+            // means nothing is parked on that name. Both writes sit in
+            // one transaction, so a worker claiming on a concurrent
+            // timeout rolls the payload back with the refusal.
+            $step = StepExecutionModel::query()
+                ->where('workflow_execution_id', $id)
+                ->where('status', StepStatus::Waiting->value)
+                ->where('wait_signal', $signal)
+                ->update(['output' => $this->asJson($payload)]);
+
+            $due = WorkflowExecutionModel::query()
+                ->whereKey($id)
+                ->where('status', ExecutionStatus::Waiting->value)
+                ->update($this->counted(['next_retry_at' => $at]));
+
+            if ($step !== 1 || $due !== 1) {
+                throw SignalRefusedException::forSignal($id, $signal);
+            }
+        });
+
+        return $this->find($id);
+    }
+
     public function recordDispatch(
         int|string $id,
         DateTimeImmutable $dispatchedAt,
@@ -269,6 +314,10 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ExecutionStatus::Pending->value,
                 ExecutionStatus::Failed->value,
                 ExecutionStatus::Retrying->value,
+                // A waiting execution is unclaimed, so cancellation takes
+                // the immediate path; whoever signals it afterwards is
+                // refused by the status check, as the contract says.
+                ExecutionStatus::Waiting->value,
             ])
             ->update($this->counted([
                 'status' => ExecutionStatus::Cancelled->value,
@@ -391,6 +440,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'failed_at' => $step->failedAt,
                 'timeout_at' => $step->timeoutAt,
                 'next_retry_at' => $step->nextRetryAt,
+                'wait_signal' => $step->waitSignal,
             ]);
     }
 
@@ -427,6 +477,10 @@ class EloquentExecutionRepository implements ExecutionRepository
         if ($status === ExecutionStatus::Retrying) {
             // The only way a retrying claim misses: it is not due yet.
             throw RetryNotDueException::forId($id, $current->next_retry_at?->toImmutable());
+        }
+
+        if ($status === ExecutionStatus::Waiting) {
+            throw ExecutionStillWaitingException::forId($id, $current->next_retry_at?->toImmutable());
         }
 
         throw ExecutionNotRunnableException::forStatus($id, $status);
@@ -542,6 +596,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             failedAt: $model->failed_at?->toImmutable(),
             timeoutAt: $model->timeout_at?->toImmutable(),
             nextRetryAt: $model->next_retry_at?->toImmutable(),
+            waitSignal: $model->wait_signal,
         );
     }
 }

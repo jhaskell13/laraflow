@@ -176,7 +176,7 @@ trait DisplaysExecutions
             ExecutionStatus::Completed->value, StepStatus::Completed->value => "<fg=green>{$status}</>",
             ExecutionStatus::Failed->value, StepStatus::Failed->value => "<fg=red>{$status}</>",
             ExecutionStatus::Running->value, StepStatus::Running->value => "<fg=yellow>{$status}</>",
-            ExecutionStatus::Retrying->value => "<fg=cyan>{$status}</>",
+            ExecutionStatus::Retrying->value, ExecutionStatus::Waiting->value => "<fg=cyan>{$status}</>",
             ExecutionStatus::Cancelled->value => "<fg=magenta>{$status}</>",
             StepStatus::Skipped->value => "<fg=blue>{$status}</>",
             default => "<fg=gray>{$status}</>",

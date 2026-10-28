@@ -15,6 +15,7 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  *
  *   pending → running → completed
  *   pending → skipped (conditional step, condition false)
+ *   running → waiting → completed (wait resolved) | failed (wait timed out)
  *   pending → running → failed → running (retry on re-execute)
  *   running → retrying → running (scheduled retry, once due)
  *   running → running (interrupted step re-run after worker loss)
@@ -41,6 +42,7 @@ class StepExecution
         public ?DateTimeImmutable $failedAt = null,
         public ?DateTimeImmutable $timeoutAt = null,
         public ?DateTimeImmutable $nextRetryAt = null,
+        public ?string $waitSignal = null,
     ) {}
 
     /**
@@ -69,6 +71,8 @@ class StepExecution
     {
         $this->assertTransition(StepStatus::Completed, [
             StepStatus::Running,
+            // A resolved wait completes the step; handle() never reruns.
+            StepStatus::Waiting,
         ]);
 
         $this->status = StepStatus::Completed;
@@ -77,6 +81,31 @@ class StepExecution
         $this->error = null;
         $this->errorClass = null;
         $this->failedAt = null;
+        // The signal name is live wait state and clears; timeout_at and
+        // next_retry_at stay — the last attempt's deadline and due time
+        // are part of its record, as the timeout tests pin.
+        $this->waitSignal = null;
+    }
+
+    /**
+     * handle() returned a Wait: park the step with everything a resume
+     * needs durable — the signal name, a timed wait's resume instant in
+     * next_retry_at, a signal wait's deadline in timeout_at. The open
+     * attempt stays open; it closes when the wait resolves.
+     */
+    public function markWaiting(
+        ?string $signal,
+        ?DateTimeImmutable $resumeAt,
+        ?DateTimeImmutable $timeoutAt
+    ): void {
+        $this->assertTransition(StepStatus::Waiting, [
+            StepStatus::Running,
+        ]);
+
+        $this->status = StepStatus::Waiting;
+        $this->waitSignal = $signal;
+        $this->nextRetryAt = $resumeAt;
+        $this->timeoutAt = $timeoutAt;
     }
 
     /**
@@ -98,6 +127,8 @@ class StepExecution
     {
         $this->assertTransition(StepStatus::Failed, [
             StepStatus::Running,
+            // A wait that timed out, when its policy refuses a retry.
+            StepStatus::Waiting,
         ]);
 
         $this->status = StepStatus::Failed;
@@ -117,6 +148,8 @@ class StepExecution
     ): void {
         $this->assertTransition(StepStatus::Retrying, [
             StepStatus::Running,
+            // A wait that timed out, when its policy allows another go.
+            StepStatus::Waiting,
         ]);
 
         $this->status = StepStatus::Retrying;
@@ -144,6 +177,11 @@ class StepExecution
     public function isSkipped(): bool
     {
         return $this->status === StepStatus::Skipped;
+    }
+
+    public function isWaiting(): bool
+    {
+        return $this->status === StepStatus::Waiting;
     }
 
     public function isFailed(): bool

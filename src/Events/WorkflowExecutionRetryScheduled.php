@@ -30,6 +30,12 @@ readonly class WorkflowExecutionRetryScheduled
     public const REASON_STEP_TIMEOUT = 'step_timeout';
 
     /**
+     * A waiting execution whose next event — a timed resume or a
+     * signal deadline — has arrived.
+     */
+    public const REASON_WAIT_DUE = 'wait_due';
+
+    /**
      * @param  string  $workflow  Workflow class name.
      * @param  string  $reason  One of the REASON_* constants.
      * @param  int  $attempts  Highest step attempt count so far, 0 if nothing ran.

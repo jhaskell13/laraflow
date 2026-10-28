@@ -12,6 +12,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
 
 /**
  * Durable storage for workflow executions.
@@ -190,6 +191,44 @@ interface ExecutionRepository
         int $limit = 100,
         ?string $workflow = null,
         ?string $tenantId = null
+    ): array;
+
+    /**
+     * Durably record a signal for an execution waiting on exactly that
+     * name: the payload becomes the waiting step's output and the
+     * execution becomes due immediately, in one transaction. Refused
+     * with SignalRefusedException when the execution is not waiting on
+     * that signal — resumed, timed out, finished, or a different name.
+     * The caller bounds and serializes the payload (see
+     * docs/advanced-workflows.md); recording does not deliver — the
+     * queue fast path and laraflow:recover do.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws SignalRefusedException
+     * @throws ExecutionNotFoundException
+     */
+    public function recordSignal(
+        int|string $id,
+        string $signal,
+        array $payload,
+        DateTimeImmutable $at
+    ): WorkflowExecution;
+
+    /**
+     * Waiting executions whose next event — a timed resume or a signal
+     * deadline — is at or before the cutoff. Indefinite signal waits
+     * (null next_retry_at) never appear; only a signal makes those
+     * claimable. Dispatching these is race-safe: the claim still
+     * decides which worker proceeds.
+     *
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @return WorkflowExecution[] ordered by next_retry_at ascending, at most $limit.
+     */
+    public function waitingDue(
+        DateTimeImmutable $dueBefore,
+        int $limit = 100,
+        ?string $workflow = null
     ): array;
 
     /**

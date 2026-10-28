@@ -42,7 +42,7 @@ class SchemaFreezeTest extends TestCase
             'attempts', 'completed_at', 'created_at', 'error', 'error_class',
             'failed_at', 'id', 'input', 'next_retry_at', 'output', 'position',
             'started_at', 'status', 'step', 'timeout_at', 'updated_at',
-            'workflow_execution_id',
+            'wait_signal', 'workflow_execution_id',
         ],
         'laraflow_step_attempts' => [
             'attempt', 'created_at', 'duration_ms', 'ended_at', 'error',

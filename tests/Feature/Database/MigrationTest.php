@@ -95,6 +95,7 @@ class MigrationTest extends TestCase
                     'failed_at',
                     'timeout_at',
                     'next_retry_at',
+                    'wait_signal',
                     'created_at',
                     'updated_at',
                 ]

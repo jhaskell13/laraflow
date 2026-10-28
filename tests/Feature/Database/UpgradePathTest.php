@@ -105,30 +105,33 @@ class UpgradePathTest extends TestCase
         $this->assertSame(['customer_id' => 42], $stored->input);
     }
 
-    public function test_the_first_real_post_freeze_migration_upgrades_an_installed_database(): void
+    public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7 migration, exercised the way an installed
-        // application meets it: rows written under the frozen schema,
-        // then the new migration applied — simulated by rolling it back
-        // first, since the harness installs every migration up front.
+        // The Milestone 7 migrations, exercised the way an installed
+        // application meets them: rows written under the frozen schema,
+        // then the new migrations applied — simulated by rolling them
+        // back first, since the harness installs every migration up
+        // front. One rollback step per post-freeze migration.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 1, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 2, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
-        $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'One step back is one migration, not the batch.');
+        $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
+        $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'Steps back are migrations, not the batch.');
         $this->assertSame(1, WorkflowExecutionModel::query()->count(), 'Rolling the upgrade back keeps the install.');
 
         // Migrate back up before the test ends: MySQL and MariaDB commit
         // on DDL, so the rest of the suite would otherwise run without
-        // the column regardless of engine.
+        // the columns regardless of engine.
         $this->command('migrate', ['--force' => true])->assertSuccessful();
 
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
 
         // A row that predates the column has made no fruitless claims,
         // and the package reads it that way without a coalesce.

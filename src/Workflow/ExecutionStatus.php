@@ -19,6 +19,14 @@ enum ExecutionStatus: string
      */
     case Retrying = 'retrying';
 
+    /**
+     * Parked on a step's Wait, claim released. `next_retry_at` holds
+     * the next instant anything can happen — the resume time for a
+     * timed wait, the deadline for a bounded signal wait, null for an
+     * indefinite one, which only a signal makes claimable again.
+     */
+    case Waiting = 'waiting';
+
     /** Terminal: cancelled by the application or an operator. */
     case Cancelled = 'cancelled';
 
@@ -39,7 +47,7 @@ enum ExecutionStatus: string
     {
         return match ($this) {
             self::Completed, self::Failed, self::Cancelled => true,
-            self::Pending, self::Running, self::Retrying => false,
+            self::Pending, self::Running, self::Retrying, self::Waiting => false,
         };
     }
 }

@@ -23,4 +23,11 @@ enum StepStatus: string
      * — the decision replays from the record, never re-evaluates.
      */
     case Skipped = 'skipped';
+
+    /**
+     * Parked on a Wait returned by handle(): a timed resume instant in
+     * `next_retry_at`, or a signal named in `wait_signal` with an
+     * optional deadline in `timeout_at`. Resuming completes the step.
+     */
+    case Waiting = 'waiting';
 }

@@ -245,7 +245,8 @@ class RecoverCommand extends Command
         return match ($candidate->reason) {
             WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
             WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT => $candidate->execution->claimedAt,
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE => $candidate->execution->nextRetryAt,
+            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+            WorkflowExecutionRetryScheduled::REASON_WAIT_DUE => $candidate->execution->nextRetryAt,
             default => $candidate->execution->createdAt,
         };
     }

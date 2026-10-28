@@ -7,19 +7,24 @@ namespace Laraflow\Workflow;
 use DateInterval;
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
+use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
+use Laraflow\Events\WorkflowExecutionSignalled;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepCompleted;
 use Laraflow\Events\WorkflowStepSkipped;
 use Laraflow\Events\WorkflowStepStarted;
+use Laraflow\Events\WorkflowStepWaiting;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Exceptions\Workflow\WaitTimedOutException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
@@ -160,10 +165,43 @@ class WorkflowRunner
         $this->logging?->enter($execution);
 
         try {
-            return $this->runClaimed($execution, $workflow);
+            return $this->runClaimed($execution, $workflow, $ignoreRetrySchedule);
         } finally {
             $this->logging?->leave();
         }
+    }
+
+    /**
+     * Durably record a signal for an execution waiting on it. The
+     * payload becomes the waiting step's output, bounded by the same
+     * payload limit as any other durable value, and the execution
+     * becomes due immediately. Recording is not delivery: hand the id
+     * to the dispatcher for the fast path, or let laraflow:recover
+     * pick it up.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws SignalRefusedException when the execution is not waiting on this signal.
+     * @throws UnserializableValueException if the payload is not JSON-serializable.
+     */
+    public function signal(int|string $executionId, string $signal, array $payload = []): WorkflowExecution
+    {
+        if (trim($signal) === '' || str_starts_with($signal, Wait::RESERVED_PREFIX)) {
+            throw new InvalidArgumentException(
+                'A signal name must be non-empty and must not start with the reserved ['.Wait::RESERVED_PREFIX.'] prefix.'
+            );
+        }
+
+        DurableValue::check($payload, 'signal', $this->options->maxPayloadBytes);
+
+        $execution = $this->repository->recordSignal($executionId, $signal, $payload, $this->now());
+
+        $this->event(new WorkflowExecutionSignalled(
+            ...$this->outcomes->identity($execution),
+            signal: $signal,
+        ));
+
+        return $execution;
     }
 
     /**
@@ -230,7 +268,8 @@ class WorkflowRunner
      */
     protected function runClaimed(
         WorkflowExecution $execution,
-        Workflow $workflow
+        Workflow $workflow,
+        bool $waitsForcedDue = false
     ): WorkflowExecution {
         $startedAt = $this->now();
         $execution->markRunning($startedAt);
@@ -326,6 +365,29 @@ class WorkflowRunner
                 }
             }
 
+            // A parked step: the wait resolved, timed out, or — on a
+            // claim that healed a crash or forced an early resume — is
+            // not due at all, in which case the execution parks again.
+            if ($stepExecution->isWaiting()) {
+                $resolution = $this->resolveWait($execution, $stepExecution, $context, $policy, $failurePolicy, $waitsForcedDue, $startedAt);
+
+                if ($resolution === 'resumed') {
+                    continue;
+                }
+
+                if ($resolution === 'continue') {
+                    // Timed-out wait under FailurePolicy::Continue.
+                    $firstFailure ??= $this->waitTimeout($stepExecution);
+
+                    continue;
+                }
+
+                // Parked again, retry scheduled, or failed terminally —
+                // in every case this claim is finished with the
+                // execution and the handle describes the resting state.
+                return $execution;
+            }
+
             // A step found `running` was interrupted: its worker died
             // between marking it running and checkpointing it. If its
             // deadline had also passed, the attempt is classified as
@@ -378,6 +440,12 @@ class WorkflowRunner
 
             try {
                 $output = $step->handle($context);
+
+                if ($output instanceof Wait) {
+                    $this->park($execution, $stepExecution, $context, $output);
+
+                    return $execution;
+                }
 
                 // Checked before the checkpoint, so an oversized
                 // payload fails the step by name instead of surfacing
@@ -490,6 +558,147 @@ class WorkflowRunner
         ));
 
         return true;
+    }
+
+    /**
+     * Park the execution on the Wait a step returned: the step row
+     * (waiting, with signal name, resume instant, or deadline) and the
+     * context the step built before waiting commit in one claim-guarded
+     * checkpoint; then the execution parks and the claim is released.
+     * The step's open attempt stays open — it closes when the wait
+     * resolves, so one handle() run is one attempt row.
+     */
+    protected function park(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        Wait $wait,
+    ): void {
+        DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
+
+        $now = $this->now();
+        $resumeAt = $wait->resumeInstant($now);
+        $timeoutAt = $wait->timeoutInstant($now);
+
+        $stepExecution->markWaiting($wait->signal, $resumeAt, $timeoutAt);
+        $execution->context = $context->all();
+        $this->repository->checkpoint($execution, $stepExecution);
+
+        $execution->markWaiting($resumeAt ?? $timeoutAt);
+        $this->repository->release($execution);
+
+        $this->event(new WorkflowStepWaiting(
+            ...$this->outcomes->identity($execution),
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            signal: $wait->signal,
+            resumeAt: $resumeAt,
+            timeoutAt: $timeoutAt,
+        ));
+    }
+
+    /**
+     * Decide a claimed, parked step's fate. Returns 'resumed' when the
+     * step completed and the loop continues; 'continue' when a timed-out
+     * wait should count as a continue-policy failure; 'done' when this
+     * claim is finished with the execution (parked again, retry
+     * scheduled, or failed terminally).
+     */
+    protected function resolveWait(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        Policy\StepPolicy $policy,
+        FailurePolicy $failurePolicy,
+        bool $forcedDue,
+        DateTimeImmutable $now,
+    ): string {
+        $signalled = $stepExecution->waitSignal !== null && $stepExecution->output !== null;
+        $timedDue = $stepExecution->waitSignal === null
+            && ($forcedDue || ($stepExecution->nextRetryAt !== null && $stepExecution->nextRetryAt <= $now));
+
+        if ($signalled || $timedDue) {
+            $payload = $stepExecution->output;
+            $completedAt = $this->now();
+
+            if ($signalled) {
+                $context->set((string) $stepExecution->waitSignal, $payload);
+            }
+
+            $stepExecution->markCompleted($payload, $completedAt);
+            $execution->context = $context->all();
+
+            // One handle() run is one attempt row, closed now that the
+            // wait resolved; its duration spans run and park alike.
+            $attempt = new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $stepExecution->id,
+                attempt: $stepExecution->attempts,
+                status: StepAttemptStatus::Completed,
+                startedAt: $stepExecution->startedAt,
+                endedAt: $completedAt,
+            );
+
+            $this->repository->checkpoint($execution, $stepExecution, $attempt);
+
+            $this->event(new WorkflowStepCompleted(
+                ...$this->outcomes->identity($execution),
+                step: $stepExecution->step,
+                position: $stepExecution->position,
+                attempt: $stepExecution->attempts,
+                completedAt: $completedAt,
+                durationMs: $attempt->durationMs(),
+            ));
+
+            return 'resumed';
+        }
+
+        $deadlinePassed = $stepExecution->waitSignal !== null
+            && $stepExecution->timeoutAt !== null
+            && $stepExecution->timeoutAt <= $now;
+
+        if ($deadlinePassed) {
+            $timeout = $this->waitTimeout($stepExecution);
+
+            if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
+                return 'done';
+            }
+
+            if ($failurePolicy === FailurePolicy::Continue) {
+                $this->outcomes->stepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+
+                return 'continue';
+            }
+
+            $this->outcomes->failure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
+
+            throw $timeout;
+        }
+
+        // Not due: a crash between checkpoint and release left the
+        // execution claimed, or an operator claimed a signal wait early
+        // — there is nothing to resume it with, so it parks again. A
+        // forced claim resumes a *timed* wait early; a signal wait
+        // without its signal has no output to complete with.
+        $execution->markWaiting(
+            $stepExecution->waitSignal === null
+                ? $stepExecution->nextRetryAt
+                : $stepExecution->timeoutAt,
+        );
+        $this->repository->release($execution);
+
+        return 'done';
+    }
+
+    protected function waitTimeout(StepExecution $stepExecution): WaitTimedOutException
+    {
+        return WaitTimedOutException::forSignal(
+            $stepExecution->step,
+            $stepExecution->position,
+            (string) $stepExecution->waitSignal,
+            $stepExecution->timeoutAt ?? $this->now(),
+            $stepExecution->attempts,
+        );
     }
 
     /**

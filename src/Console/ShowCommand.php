@@ -37,6 +37,10 @@ class ShowCommand extends Command
 
         $this->displayExecution($execution, $steps);
 
+        if ($execution->isWaiting()) {
+            $this->displayWait($steps);
+        }
+
         if ($execution->claimToken !== null) {
             $this->components->twoColumnDetail(
                 '<fg=gray>Claimed at</>',
@@ -62,6 +66,34 @@ class ShowCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * What a waiting execution is parked on: the signal and its
+     * deadline, or the resume instant — "indefinitely" said out loud
+     * when nothing but a signal can wake it.
+     *
+     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     */
+    protected function displayWait(array $steps): void
+    {
+        foreach ($steps as $step) {
+            if (! $step->isWaiting()) {
+                continue;
+            }
+
+            $detail = $step->waitSignal === null
+                ? 'until '.$this->formatDate($step->nextRetryAt)
+                : "for signal [{$step->waitSignal}]".($step->timeoutAt !== null
+                    ? ', until '.$this->formatDate($step->timeoutAt)
+                    : ', indefinitely');
+
+            $this->components->twoColumnDetail(
+                '<fg=gray>Waiting</>',
+                class_basename($step->step).' '.$detail,
+            );
+            $this->newLine();
+        }
     }
 
     /**

@@ -85,9 +85,12 @@ class ExecuteWorkflowJob implements ShouldQueue
         try {
             $result = $runner->execute($execution->id, $workflow);
 
-            if ($result->isRetrying() && $result->nextRetryAt !== null) {
-                // A retry was durably scheduled; nothing failed. Hand the
-                // due time to the queue where that is enabled and safe.
+            if (($result->isRetrying() || $result->isWaiting()) && $result->nextRetryAt !== null) {
+                // A retry was durably scheduled, or a wait parked with a
+                // known next instant (a timed resume, a signal deadline);
+                // nothing failed. Hand the due time to the queue where
+                // that is enabled and safe. An indefinite signal wait has
+                // no instant to deliver — the signaller re-dispatches.
                 $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
             }
         } catch (RetryNotDueException) {

@@ -28,6 +28,10 @@ use Psr\Clock\ClockInterface;
  * - retry due: a `retrying` execution whose next_retry_at has arrived.
  *   This is the contractual delivery path for scheduled retries; the
  *   delayed queue job (retry.dispatch_delayed) is only the fast path.
+ * - wait due: a `waiting` execution whose next event — a timed resume
+ *   or a signal deadline — has arrived. Like due retries, this is the
+ *   contractual delivery path; the delayed queue job is the fast path,
+ *   and a recorded signal's dispatch is the signaller's.
  * - never dispatched: a `pending` execution older than a threshold — its
  *   queue dispatch was lost. Opt-in, because `pending` is also the state
  *   of work created by start() and deliberately not yet executed.
@@ -101,6 +105,19 @@ class RecoveryService
                 $candidates[] = $this->candidate(
                     $execution,
                     WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+                    abandonAfterAttempts: null,
+                );
+            }
+        }
+
+        if ($includeDueRetries && ($remaining = $limit - count($candidates)) > 0) {
+            foreach ($this->repository->waitingDue($now, $remaining, $workflow) as $execution) {
+                // Exempt like due retries: a wait is scheduled work, not
+                // an interruption, and a timed-out signal answers to the
+                // step's own policy once a worker classifies it.
+                $candidates[] = $this->candidate(
+                    $execution,
+                    WorkflowExecutionRetryScheduled::REASON_WAIT_DUE,
                     abandonAfterAttempts: null,
                 );
             }

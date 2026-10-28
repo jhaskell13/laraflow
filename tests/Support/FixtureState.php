@@ -33,6 +33,11 @@ class FixtureState
         ConditionalGate::$open = true;
         ConditionalGate::$runs = 0;
         ConditionalGate::$throw = null;
+        ApprovalStep::$runs = 0;
+        ApprovalStep::$timeoutSeconds = null;
+        ApprovalWorkflow::$policy = null;
+        PauseStep::$runs = 0;
+        PauseStep::$seconds = 600;
         ConnectorStep::$connector = 'crm';
         ConnectorStep::$connection = null;
         ConnectorStep::$runs = 0;

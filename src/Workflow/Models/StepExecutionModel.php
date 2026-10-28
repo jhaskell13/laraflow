@@ -28,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $failed_at
  * @property Carbon|null $timeout_at
  * @property Carbon|null $next_retry_at
+ * @property string|null $wait_signal
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read WorkflowExecutionModel $workflowExecution
