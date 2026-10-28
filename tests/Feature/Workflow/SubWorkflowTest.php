@@ -93,7 +93,10 @@ class SubWorkflowTest extends TestCase
         $resumed = $this->runner()->execute($parent->id, new ParentWorkflow);
 
         $this->assertTrue($resumed->isCompleted());
-        $this->assertSame(
+        // assertEquals, not assertSame: MySQL's binary JSON format
+        // reorders object keys, so the payload's key order does not
+        // survive the column round-trip on every engine.
+        $this->assertEquals(
             ['execution_id' => $child->id, 'status' => 'completed'],
             StepExecutionModel::query()
                 ->where('workflow_execution_id', $parent->id)

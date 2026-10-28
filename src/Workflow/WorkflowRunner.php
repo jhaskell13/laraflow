@@ -637,7 +637,7 @@ class WorkflowRunner
         // child's record directly, which heals a signal lost to the
         // park race and a child whose dispatch never survived.
         $nextEventAt = $wait->signal !== null && str_starts_with($wait->signal, Wait::RESERVED_PREFIX.'child.')
-            ? $now->modify("+{$this->options->staleAfterSeconds} seconds")
+            ? $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S"))
             : ($resumeAt ?? $timeoutAt);
 
         $execution->markWaiting($nextEventAt);
@@ -752,7 +752,7 @@ class WorkflowRunner
                     }
                 }
 
-                return $this->parkAgain($execution, $now->modify("+{$this->options->staleAfterSeconds} seconds"));
+                return $this->parkAgain($execution, $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S")));
             }
 
             $outcome = ['execution_id' => $child->id, 'status' => $child->status->value];
