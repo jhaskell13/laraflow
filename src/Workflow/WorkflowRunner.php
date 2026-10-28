@@ -474,7 +474,7 @@ class WorkflowRunner
         ?StepAttempt $interrupted = null
     ): void {
         $stepExecution->markRunning($startedAt, $timeoutAt);
-        $this->repository->saveStep($stepExecution, $interrupted);
+        $this->repository->saveStep($execution, $stepExecution, $interrupted);
 
         // Narrowed to this step *before* the start is announced. A
         // listener's own logging, and the optional lifecycle log,

@@ -653,7 +653,7 @@ class RetentionServiceTest extends TestCase
             $succeeded = $last && $outcome !== 'failed';
 
             $step->markRunning($finishedAt);
-            $repository->saveStep($step, new StepAttempt(
+            $repository->saveStep($execution, $step, new StepAttempt(
                 executionId: $execution->id,
                 stepExecutionId: $step->id,
                 attempt: $attempt,
@@ -671,7 +671,7 @@ class RetentionServiceTest extends TestCase
                 $step->markFailed('boom', 'RuntimeException', $finishedAt);
             }
 
-            $repository->saveStep($step);
+            $repository->saveStep($execution, $step);
         }
 
         $execution->context = ['loaded' => true];

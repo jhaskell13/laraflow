@@ -14,8 +14,11 @@ use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\StepAttempt;
+use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -129,12 +132,13 @@ class EloquentExecutionRepositoryTest extends TestCase
     public function test_it_persists_step_changes(): void
     {
         $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
         [$step] = $this->repository()->steps($execution);
 
         $step->markRunning(new DateTimeImmutable);
         $step->markCompleted(['customer_id' => 456], new DateTimeImmutable);
 
-        $this->repository()->saveStep($step);
+        $this->repository()->saveStep($execution, $step);
 
         [$retrieved] = $this->repository()->steps($execution);
 
@@ -151,7 +155,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         [$step] = $this->repository()->steps($execution);
 
         $step->markRunning(new DateTimeImmutable);
-        $this->repository()->saveStep($step);
+        $this->repository()->saveStep($execution, $step);
 
         $step->markCompleted(['customer_id' => 456], new DateTimeImmutable);
         $execution->context = ['customer_id' => 456];
@@ -175,7 +179,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         [$step] = $this->repository()->steps($execution);
 
         $step->markRunning(new DateTimeImmutable);
-        $this->repository()->saveStep($step);
+        $this->repository()->saveStep($execution, $step);
 
         // Another worker reclaims the execution while worker-a is mid-step.
         WorkflowExecutionModel::query()
@@ -198,6 +202,71 @@ class EloquentExecutionRepositoryTest extends TestCase
             StepExecutionModel::query()->firstOrFail()->status
         );
         $this->assertSame([], WorkflowExecutionModel::query()->firstOrFail()->context);
+    }
+
+    public function test_save_step_without_the_claim_persists_nothing(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        [$step] = $this->repository()->steps($execution);
+
+        $step->markRunning(new DateTimeImmutable('2026-10-28 09:00:00'));
+        $this->repository()->saveStep($execution, $step);
+
+        // worker-a stalls past stale_after; worker-b reclaims the execution.
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['claim_token' => 'worker-b']);
+
+        // worker-a wakes and tries to record its step's failure — a step
+        // row write with an attempt row, the shape every terminal
+        // outcome takes.
+        $step->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-28 09:00:05'));
+
+        try {
+            $this->repository()->saveStep($execution, $step, new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $step->id,
+                attempt: 1,
+                status: StepAttemptStatus::Failed,
+                error: 'boom',
+                errorClass: 'RuntimeException',
+            ));
+            $this->fail('Expected ClaimLostException.');
+        } catch (ClaimLostException) {
+            // Expected.
+        }
+
+        // Rolled back as one: the step row still reads as worker-b
+        // found it, and no attempt row from the dead worker exists.
+        $row = StepExecutionModel::query()->firstOrFail();
+        $this->assertSame(StepStatus::Running->value, $row->status);
+        $this->assertNull($row->failed_at);
+        $this->assertNull($row->error);
+        $this->assertSame(0, StepAttemptModel::query()->count());
+        $this->assertSame('worker-b', WorkflowExecutionModel::query()->firstOrFail()->claim_token);
+    }
+
+    public function test_save_step_under_the_claim_does_not_disturb_the_execution_row(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow', steps: ['CreateCustomer']);
+        $execution = $this->repository()->claim($execution->id, 'worker-a', 300);
+        [$step] = $this->repository()->steps($execution);
+
+        $before = WorkflowExecutionModel::query()->firstOrFail();
+
+        $step->markRunning(new DateTimeImmutable);
+        $this->repository()->saveStep($execution, $step);
+
+        // The guard touches the executions row to verify the claim, and
+        // must touch nothing else there: the context is checkpoint's to
+        // write, the claim stays exactly as taken.
+        $after = WorkflowExecutionModel::query()->firstOrFail();
+        $this->assertSame($before->version + 1, $after->version);
+        $this->assertSame($before->context, $after->context);
+        $this->assertSame($before->status, $after->status);
+        $this->assertSame('worker-a', $after->claim_token);
+        $this->assertSame($before->claimed_at?->getTimestamp(), $after->claimed_at?->getTimestamp());
     }
 
     public function test_release_persists_the_terminal_state_and_clears_the_claim(): void
@@ -501,7 +570,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         $step = $repository->steps($execution)[0];
         $step->markRunning($failedAt, new DateTimeImmutable('2026-10-23 10:00:10'));
         $step->markRetrying('boom', 'RuntimeException', $failedAt, $nextRetryAt);
-        $repository->saveStep($step);
+        $repository->saveStep($execution, $step);
 
         $execution->markRetrying('boom', 'RuntimeException', $nextRetryAt);
         $repository->release($execution);
@@ -548,7 +617,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         $step = $repository->steps($execution)[0];
         $step->markRunning(new DateTimeImmutable('2026-10-23 12:00:00'));
         $step->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-23 12:00:05'));
-        $repository->saveStep($step);
+        $repository->saveStep($execution, $step);
 
         $this->assertSame(
             '2026-10-23 12:00:05',

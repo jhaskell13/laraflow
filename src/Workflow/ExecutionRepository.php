@@ -194,11 +194,17 @@ interface ExecutionRepository
 
     /**
      * Persist the step row and, when provided, append $attempt to the
-     * history in the same transaction. Pairing the writes is the point:
+     * history in the same transaction, verifying this worker still
+     * holds the claim on $execution. Pairing the writes is the point:
      * history that could commit without its step state (or vice versa)
-     * would be history that can lie.
+     * would be history that can lie. On claim loss nothing is written —
+     * a worker that has been reclaimed must not mark a step the new
+     * owner is running, nor append an attempt it no longer owns.
+     *
+     * @throws ClaimLostException
      */
     public function saveStep(
+        WorkflowExecution $execution,
         StepExecution $step,
         ?StepAttempt $attempt = null
     ): void;

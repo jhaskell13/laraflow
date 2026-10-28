@@ -183,19 +183,24 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function saveStep(
+        WorkflowExecution $execution,
         StepExecution $step,
         ?StepAttempt $attempt = null
     ): void {
-        if ($attempt !== null) {
-            $this->transaction(function () use ($step, $attempt) {
-                $this->writeStep($step);
+        // The step row has no claim column of its own; the guard is the
+        // executions row, touched in the same transaction. Its version
+        // bump is the only thing written there, so a step write costs
+        // one guarded UPDATE more than before and the step row can no
+        // longer be scribbled by a worker that has lost the claim.
+        $this->transaction(function () use ($execution, $step, $attempt) {
+            $this->writeStep($step);
+
+            if ($attempt !== null) {
                 $this->appendAttempt($attempt);
-            });
+            }
 
-            return;
-        }
-
-        $this->writeStep($step);
+            $this->assertClaimHeld($execution, []);
+        });
     }
 
     public function checkpoint(
@@ -210,18 +215,9 @@ class EloquentExecutionRepository implements ExecutionRepository
                 $this->appendAttempt($attempt);
             }
 
-            $updated = WorkflowExecutionModel::query()
-                ->whereKey($execution->id)
-                ->where('claim_token', $execution->claimToken)
-                ->update($this->counted([
-                    'context' => $this->asJson($execution->context),
-                ]));
-
-            if ($updated === 0) {
-                // Rolls back the step write and the attempt row with it:
-                // a worker without the claim must not persist anything.
-                throw ClaimLostException::forId($execution->id);
-            }
+            $this->assertClaimHeld($execution, [
+                'context' => $this->asJson($execution->context),
+            ]);
         });
     }
 
@@ -334,6 +330,29 @@ class EloquentExecutionRepository implements ExecutionRepository
             $values['cancel_requested_at'] = $execution->cancelRequestedAt;
         }
 
+        $updated = WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->where('claim_token', $execution->claimToken)
+            ->update($this->counted($values));
+
+        if ($updated === 0) {
+            throw ClaimLostException::forId($execution->id);
+        }
+    }
+
+    /**
+     * Write $values to the executions row only if this worker still
+     * holds the claim, and throw otherwise. Called inside the step
+     * transactions so a lost claim rolls back the step write and the
+     * attempt row with it: a worker without the claim must not persist
+     * anything.
+     *
+     * @param  array<string, mixed>  $values
+     *
+     * @throws ClaimLostException
+     */
+    protected function assertClaimHeld(WorkflowExecution $execution, array $values): void
+    {
         $updated = WorkflowExecutionModel::query()
             ->whereKey($execution->id)
             ->where('claim_token', $execution->claimToken)

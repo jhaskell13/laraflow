@@ -10,6 +10,7 @@ use Laraflow\Events\WorkflowExecutionFailed;
 use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Exceptions\SuggestsRetryDelay;
+use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\PassthroughRedactor;
@@ -36,6 +37,12 @@ use Throwable;
  * In every case the claim is kept and the storage error is logged, so
  * stale-claim recovery owns the execution rather than it being left in
  * a state nothing will revisit.
+ *
+ * A ClaimLostException is not a storage failure and is never treated
+ * as one: another worker owns the execution now, so there is no claim
+ * to keep and nothing of this worker's to log as unpersisted. It
+ * propagates unchanged, and the step's own exception is dropped with
+ * it — the new owner will run the step again and record its own outcome.
  */
 class OutcomeRecorder
 {
@@ -101,10 +108,12 @@ class OutcomeRecorder
 
         try {
             $stepExecution->markRetrying($error, $exception::class, $failedAt, $nextRetryAt);
-            $this->repository->saveStep($stepExecution, $record);
+            $this->repository->saveStep($execution, $stepExecution, $record);
 
             $execution->markRetrying($error, $exception::class, $nextRetryAt);
             $this->repository->release($execution);
+        } catch (ClaimLostException $lost) {
+            throw $lost;
         } catch (Throwable $storageFailure) {
             $this->logStorageFailure('a scheduled retry', $execution, $stepExecution, $exception, $storageFailure);
 
@@ -144,7 +153,9 @@ class OutcomeRecorder
 
         try {
             $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, $record);
+            $this->repository->saveStep($execution, $stepExecution, $record);
+        } catch (ClaimLostException $lost) {
+            throw $lost;
         } catch (Throwable $storageFailure) {
             $this->logStorageFailure('a workflow failure', $execution, $stepExecution, $exception, $storageFailure);
 
@@ -171,10 +182,12 @@ class OutcomeRecorder
 
         try {
             $stepExecution->markFailed($error, $exception::class, $failedAt);
-            $this->repository->saveStep($stepExecution, $record);
+            $this->repository->saveStep($execution, $stepExecution, $record);
 
             $execution->markFailed($error, $exception::class, $failedAt);
             $this->repository->release($execution);
+        } catch (ClaimLostException $lost) {
+            throw $lost;
         } catch (Throwable $storageFailure) {
             $this->logStorageFailure('a workflow failure', $execution, $stepExecution, $exception, $storageFailure);
 
@@ -199,6 +212,8 @@ class OutcomeRecorder
         try {
             $execution->markFailed($error, $exception::class, $failedAt);
             $this->repository->release($execution);
+        } catch (ClaimLostException $lost) {
+            throw $lost;
         } catch (Throwable $storageFailure) {
             $this->logStorageFailure('a workflow failure', $execution, null, $exception, $storageFailure);
 

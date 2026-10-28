@@ -89,10 +89,10 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId));
     }
 
-    public function saveStep(StepExecution $step, ?StepAttempt $attempt = null): void
+    public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void
     {
-        $this->call(__FUNCTION__, function () use ($step, $attempt) {
-            $this->inner->saveStep($step, $attempt);
+        $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {
+            $this->inner->saveStep($execution, $step, $attempt);
         });
     }
 

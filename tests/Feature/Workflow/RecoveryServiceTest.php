@@ -438,11 +438,11 @@ class RecoveryServiceTest extends TestCase
         $repository = $this->app->make(ExecutionRepository::class);
         $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
 
-        $repository->claim($execution->id, bin2hex(random_bytes(16)), 300);
+        $claimed = $repository->claim($execution->id, bin2hex(random_bytes(16)), 300);
 
         $steps = $repository->steps($execution);
         $steps[0]->markRunning(Date::now()->toImmutable());
-        $repository->saveStep($steps[0]);
+        $repository->saveStep($claimed, $steps[0]);
 
         if ($freezeTime) {
             Date::setTestNow('2026-10-22 10:30:00');

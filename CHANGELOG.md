@@ -8,7 +8,10 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Breaking:** `ExecutionRepository::saveStep()` now takes the claimed `WorkflowExecution` as its first argument and verifies the claim in the same transaction as the step and attempt-history writes, throwing `ClaimLostException` on loss exactly as `checkpoint()` and `release()` do. Custom implementations must adopt the new signature and the guarantee; callers other than the runner should not exist. Closes the first of the two claim-discipline limits recorded at the Milestone 6 audit: a worker stalled past `stale_after` whose execution was reclaimed could previously mark a step the new owner was running as `running` or `failed`, or append a stale attempt row, before its first checkpoint or release stopped it. Every step-row write by a dead worker now rolls back untouched.
+- A `ClaimLostException` raised while recording a step's outcome is no longer logged as a storage failure with the step's exception rethrown over it; it propagates as itself, so a reclaimed worker exits through the same quiet path it already took when a checkpoint found the claim gone.
 
 ## [0.1.0] - 2026-10-27
 

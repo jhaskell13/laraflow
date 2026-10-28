@@ -127,7 +127,7 @@ class RetryConsoleTest extends TestCase
 
         $step = $repository->steps($execution)[0];
         $step->markRunning(Date::now()->toImmutable(), Date::now()->addSeconds(30)->toImmutable());
-        $repository->saveStep($step);
+        $repository->saveStep($execution, $step);
 
         Date::setTestNow('2026-10-23 16:05:00');
 
