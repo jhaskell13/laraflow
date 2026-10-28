@@ -54,6 +54,7 @@ readonly class ExecutionFilter
         ExecutionStatus|array|null $status = null,
         ?string $correlationId = null,
         ?string $tenantId = null,
+        public int|string|null $parentId = null,
         public ?DateTimeImmutable $createdAfter = null,
         public ?DateTimeImmutable $createdBefore = null,
         public ?DateTimeImmutable $finishedAfter = null,

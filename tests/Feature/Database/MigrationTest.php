@@ -61,6 +61,8 @@ class MigrationTest extends TestCase
                     'cancel_reason',
                     'correlation_id',
                     'tenant_id',
+                    'parent_execution_id',
+                    'parent_step_execution_id',
                     'dispatched_at',
                     'available_at',
                     'finished_at',

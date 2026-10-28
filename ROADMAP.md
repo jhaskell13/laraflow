@@ -215,7 +215,7 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 - ~~Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.~~ Done (step 4).
 - ~~Case-insensitive header merging across `HttpOptions` and the transport.~~ Done (step 5).
 
-Milestone 7's capability scope was decided in October 2026 and its semantics fixed in `docs/advanced-workflows.md` before implementation: conditional steps, delays/wait states with signals, and sub-workflow composition — in that order, each with persistence, recovery, and observability semantics decided first. Fan-out/fan-in, compensation/saga, and multi-tenant throttling are deferred past this milestone, to be driven by real user needs.
+Milestone 7's capability scope was decided in October 2026 and its semantics fixed in `docs/advanced-workflows.md` before implementation; all three capabilities shipped the same month: conditional steps (step 7), delays/wait states with signals (step 8), and sub-workflow composition (step 9), each with persistence, recovery, and observability semantics decided first and enforced by `tests/Feature/Workflow/{ConditionalStepTest,WaitStateTest,SubWorkflowTest}.php`. Fan-out/fan-in, compensation/saga, and multi-tenant throttling are deferred past this milestone, to be driven by real user needs.
 
 From the original list, still intentionally later:
 

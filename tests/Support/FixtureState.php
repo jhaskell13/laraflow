@@ -38,6 +38,7 @@ class FixtureState
         ApprovalWorkflow::$policy = null;
         PauseStep::$runs = 0;
         PauseStep::$seconds = 600;
+        ParentWorkflow::$policy = null;
         ConnectorStep::$connector = 'crm';
         ConnectorStep::$connection = null;
         ConnectorStep::$runs = 0;

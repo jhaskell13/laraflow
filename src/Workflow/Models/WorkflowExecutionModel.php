@@ -30,6 +30,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $cancel_reason
  * @property string|null $correlation_id
  * @property string|null $tenant_id
+ * @property int|null $parent_execution_id
+ * @property int|null $parent_step_execution_id
  * @property Carbon|null $dispatched_at
  * @property Carbon|null $available_at
  * @property Carbon|null $finished_at
@@ -66,6 +68,8 @@ class WorkflowExecutionModel extends Model
         'cancel_reason',
         'correlation_id',
         'tenant_id',
+        'parent_execution_id',
+        'parent_step_execution_id',
         'dispatched_at',
         'available_at',
         'finished_at',
@@ -104,6 +108,8 @@ class WorkflowExecutionModel extends Model
             'payloads_scrubbed_at' => 'datetime',
             // pdo_sqlsrv returns every column as a string.
             'version' => 'integer',
+            'parent_execution_id' => 'integer',
+            'parent_step_execution_id' => 'integer',
             'fruitless_claims' => 'integer',
         ];
     }

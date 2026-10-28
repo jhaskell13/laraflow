@@ -37,6 +37,14 @@ class ShowCommand extends Command
 
         $this->displayExecution($execution, $steps);
 
+        if ($execution->parentExecutionId !== null) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Parent</>',
+                "execution {$execution->parentExecutionId} (this is a sub-workflow)",
+            );
+            $this->newLine();
+        }
+
         if ($execution->isWaiting()) {
             $this->displayWait($steps);
         }

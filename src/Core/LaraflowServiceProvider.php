@@ -31,6 +31,7 @@ use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\LaravelHttpTransport;
 use Laraflow\Integration\Http\TransportPipeline;
+use Laraflow\Queue\QueueChildDelivery;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
@@ -38,6 +39,8 @@ use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
 use Laraflow\Support\SystemSleeper;
+use Laraflow\Workflow\ChildDelivery;
+use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -184,6 +187,16 @@ class LaraflowServiceProvider extends ServiceProvider
             policies: $app->make(PolicyResolver::class),
             redactor: $app->make(ErrorRedactor::class),
             logging: $app->make(LoggingContext::class),
+            childDelivery: $app->make(ChildDelivery::class),
+        ));
+
+        $this->app->singleton(ChildDelivery::class, fn (Container $app): ChildDelivery => new QueueChildDelivery($app));
+
+        $this->app->singleton(ChildWorkflows::class, fn (Container $app): ChildWorkflows => new ChildWorkflows(
+            repository: $app->make(ExecutionRepository::class),
+            container: $app,
+            delivery: $app->make(ChildDelivery::class),
+            config: $app->make(Config::class),
         ));
 
         $this->app->singleton(WorkflowDispatcher::class, fn (Container $app): WorkflowDispatcher => new WorkflowDispatcher(

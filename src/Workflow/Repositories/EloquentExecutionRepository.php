@@ -67,6 +67,8 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
                 'correlation_id' => $options?->correlationId,
                 'tenant_id' => $options?->tenantId,
+                'parent_execution_id' => $options?->parentExecutionId,
+                'parent_step_execution_id' => $options?->parentStepExecutionId,
                 // Written rather than left to the column default, so the
                 // handle built from this model reads the same number a
                 // reload would.
@@ -568,6 +570,8 @@ class EloquentExecutionRepository implements ExecutionRepository
             cancelReason: $model->cancel_reason,
             correlationId: $model->correlation_id,
             tenantId: $model->tenant_id,
+            parentExecutionId: $model->parent_execution_id,
+            parentStepExecutionId: $model->parent_step_execution_id,
             dispatchedAt: $model->dispatched_at?->toImmutable(),
             availableAt: $model->available_at?->toImmutable(),
             finishedAt: $model->finished_at?->toImmutable(),

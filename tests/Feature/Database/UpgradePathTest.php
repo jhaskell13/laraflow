@@ -118,10 +118,11 @@ class UpgradePathTest extends TestCase
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 2, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 3, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
         $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'Steps back are migrations, not the batch.');
         $this->assertSame(1, WorkflowExecutionModel::query()->count(), 'Rolling the upgrade back keeps the install.');
 
@@ -132,6 +133,7 @@ class UpgradePathTest extends TestCase
 
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
 
         // A row that predates the column has made no fruitless claims,
         // and the package reads it that way without a coalesce.

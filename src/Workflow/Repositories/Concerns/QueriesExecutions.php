@@ -161,6 +161,7 @@ trait QueriesExecutions
             ))
             ->when($filter->correlationId !== null, fn (Builder $q) => $q->where('correlation_id', $filter->correlationId))
             ->when($filter->tenantId !== null, fn (Builder $q) => $q->where('tenant_id', $filter->tenantId))
+            ->when($filter->parentId !== null, fn (Builder $q) => $q->where('parent_execution_id', $filter->parentId))
             // Half-open windows: inclusive start, exclusive end.
             ->when($filter->createdAfter !== null, fn (Builder $q) => $q->where('created_at', '>=', $filter->createdAfter))
             ->when($filter->createdBefore !== null, fn (Builder $q) => $q->where('created_at', '<', $filter->createdBefore))

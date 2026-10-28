@@ -59,6 +59,7 @@ class OutcomeRecorder
         ?ClockInterface $clock = null,
         ?ErrorRedactor $redactor = null,
         protected int $maxSuggestedRetryDelaySeconds = 3600,
+        protected ?ParentNotifier $parents = null,
     ) {
         $this->clock = $clock ?? new Clock;
         $this->redactor = $redactor ?? new PassthroughRedactor;
@@ -197,6 +198,7 @@ class OutcomeRecorder
 
         $this->announceStepFailure($execution, $stepExecution, $stepExecution->attempts, $exception, $error, $record);
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
+        $this->parents?->childFinished($execution);
     }
 
     /**
@@ -221,6 +223,7 @@ class OutcomeRecorder
         }
 
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
+        $this->parents?->childFinished($execution);
     }
 
     /**

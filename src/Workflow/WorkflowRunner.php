@@ -17,6 +17,7 @@ use Laraflow\Events\WorkflowStepCompleted;
 use Laraflow\Events\WorkflowStepSkipped;
 use Laraflow\Events\WorkflowStepStarted;
 use Laraflow\Events\WorkflowStepWaiting;
+use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -57,6 +58,8 @@ class WorkflowRunner
 
     protected OutcomeRecorder $outcomes;
 
+    protected ParentNotifier $parents;
+
     /**
      * Collaborators are injected; the configured numbers and flags
      * arrive together in RunnerOptions. Construction is internal
@@ -72,9 +75,11 @@ class WorkflowRunner
         ?PolicyResolver $policies = null,
         ?ErrorRedactor $redactor = null,
         protected ?LoggingContext $logging = null,
+        protected ?ChildDelivery $childDelivery = null,
     ) {
         $this->clock = $clock ?? new Clock;
         $this->options = $options ?? new RunnerOptions;
+        $this->parents = new ParentNotifier($repository, $logger, $childDelivery, $this->clock);
 
         // The bare resolver's default policy disables retries, so a
         // runner constructed without one behaves exactly as it did
@@ -91,6 +96,7 @@ class WorkflowRunner
             clock: $this->clock,
             redactor: $redactor ?? new PassthroughRedactor,
             maxSuggestedRetryDelaySeconds: $this->options->maxSuggestedRetryDelaySeconds,
+            parents: $this->parents,
         );
     }
 
@@ -254,9 +260,40 @@ class WorkflowRunner
                 reason: $execution->cancelReason,
                 durationMs: $execution->durationMs(),
             ));
+
+            $this->parents->childFinished($execution);
         }
 
+        // Cancellation cascades down, visibly: a parent's unfinished
+        // children have no reason to keep working for it, and each
+        // child's own cancellation fires its own event. Requested on a
+        // still-running parent too — the children stop now, the parent
+        // at its next step boundary. Bounded by page size per level and
+        // by the depth bound overall.
+        $this->cancelChildren($executionId, $reason);
+
         return $execution;
+    }
+
+    /**
+     * Request cancellation of every unfinished child, recursively.
+     */
+    protected function cancelChildren(int|string $parentId, ?string $reason): void
+    {
+        $cursor = null;
+
+        do {
+            $page = $this->repository->list(new ExecutionFilter(
+                status: [ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting],
+                parentId: $parentId,
+            ), ExecutionRepository::MAX_PAGE_SIZE, $cursor);
+
+            foreach ($page->executions as $child) {
+                $this->cancel($child->id, $reason);
+            }
+
+            $cursor = $page->nextCursor;
+        } while ($cursor !== null);
     }
 
     /**
@@ -378,6 +415,15 @@ class WorkflowRunner
                 if ($resolution === 'continue') {
                     // Timed-out wait under FailurePolicy::Continue.
                     $firstFailure ??= $this->waitTimeout($stepExecution);
+
+                    continue;
+                }
+
+                if ($resolution === 'continue-child') {
+                    // A failed child under FailurePolicy::Continue: the
+                    // step row already carries the exception; re-raise
+                    // its recorded form for the execution's outcome.
+                    $firstFailure ??= new ChildWorkflowFailedException((string) $stepExecution->error);
 
                     continue;
                 }
@@ -525,6 +571,8 @@ class WorkflowRunner
             durationMs: $execution->durationMs(),
         ));
 
+        $this->parents->childFinished($execution);
+
         return $execution;
     }
 
@@ -557,6 +605,8 @@ class WorkflowRunner
             durationMs: $execution->durationMs(),
         ));
 
+        $this->parents->childFinished($execution);
+
         return true;
     }
 
@@ -584,7 +634,15 @@ class WorkflowRunner
         $execution->context = $context->all();
         $this->repository->checkpoint($execution, $stepExecution);
 
-        $execution->markWaiting($resumeAt ?? $timeoutAt);
+        // A child wait heartbeats on stale_after rather than parking
+        // indefinitely: when the claim comes due the parent consults the
+        // child's record directly, which heals a signal lost to the
+        // park race and a child whose dispatch never survived.
+        $nextEventAt = $wait->signal !== null && str_starts_with($wait->signal, Wait::RESERVED_PREFIX.'child.')
+            ? $now->modify("+{$this->options->staleAfterSeconds} seconds")
+            : ($resumeAt ?? $timeoutAt);
+
+        $execution->markWaiting($nextEventAt);
         $this->repository->release($execution);
 
         $this->event(new WorkflowStepWaiting(
@@ -613,6 +671,10 @@ class WorkflowRunner
         bool $forcedDue,
         DateTimeImmutable $now,
     ): string {
+        if ($stepExecution->waitSignal !== null && str_starts_with($stepExecution->waitSignal, Wait::RESERVED_PREFIX.'child.')) {
+            return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy);
+        }
+
         $signalled = $stepExecution->waitSignal !== null && $stepExecution->output !== null;
         $timedDue = $stepExecution->waitSignal === null
             && ($forcedDue || ($stepExecution->nextRetryAt !== null && $stepExecution->nextRetryAt <= $now));
@@ -688,6 +750,121 @@ class WorkflowRunner
         $this->repository->release($execution);
 
         return 'done';
+    }
+
+    /**
+     * A parent parked on its child. The signal payload is the child's
+     * resting outcome; without one — the heartbeat came due, or the
+     * child's signal was refused in the park race — the child's record
+     * is consulted directly, an unfinished child is re-delivered (the
+     * claim makes duplicates safe), and the parent parks for another
+     * heartbeat. A missing child was pruned; nothing can finish it.
+     */
+    protected function resolveChildWait(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        Policy\StepPolicy $policy,
+        FailurePolicy $failurePolicy,
+    ): string {
+        // The payload round-trips through JSON, so its shape is checked
+        // rather than assumed: a malformed one reads as a failed child.
+        /** @var array<array-key, mixed>|null $outcome */
+        $outcome = is_array($stepExecution->output) ? $stepExecution->output : null;
+
+        if ($outcome === null) {
+            $childId = substr((string) $stepExecution->waitSignal, strlen(Wait::RESERVED_PREFIX.'child.'));
+
+            try {
+                $child = $this->repository->find($childId);
+            } catch (ExecutionNotFoundException) {
+                $missing = ChildWorkflowFailedException::missing($stepExecution->step, $stepExecution->position, $childId);
+
+                return $this->childOutcomeFailure($execution, $stepExecution, $policy, $failurePolicy, $missing);
+            }
+
+            if (! $child->status->isFinished()) {
+                try {
+                    $this->childDelivery?->deliver($child->id);
+                } catch (Throwable $deliveryFailure) {
+                    // The next heartbeat tries again; the child may also
+                    // already be running on a worker.
+                }
+
+                $execution->markWaiting($this->now()->modify("+{$this->options->staleAfterSeconds} seconds"));
+                $this->repository->release($execution);
+
+                return 'done';
+            }
+
+            $outcome = ['execution_id' => $child->id, 'status' => $child->status->value];
+        }
+
+        if (($outcome['status'] ?? null) === ExecutionStatus::Completed->value) {
+            $completedAt = $this->now();
+            $stepExecution->markCompleted($outcome, $completedAt);
+            $execution->context = $context->all();
+
+            $attempt = new StepAttempt(
+                executionId: $execution->id,
+                stepExecutionId: $stepExecution->id,
+                attempt: $stepExecution->attempts,
+                status: StepAttemptStatus::Completed,
+                startedAt: $stepExecution->startedAt,
+                endedAt: $completedAt,
+            );
+
+            $this->repository->checkpoint($execution, $stepExecution, $attempt);
+
+            $this->event(new WorkflowStepCompleted(
+                ...$this->outcomes->identity($execution),
+                step: $stepExecution->step,
+                position: $stepExecution->position,
+                attempt: $stepExecution->attempts,
+                completedAt: $completedAt,
+                durationMs: $attempt->durationMs(),
+            ));
+
+            return 'resumed';
+        }
+
+        $childId = $outcome['execution_id'] ?? null;
+        $status = $outcome['status'] ?? null;
+
+        $failed = ChildWorkflowFailedException::forOutcome(
+            $stepExecution->step,
+            $stepExecution->position,
+            is_int($childId) || is_string($childId) ? $childId : 'unknown',
+            is_string($status) ? $status : 'unknown',
+        );
+
+        return $this->childOutcomeFailure($execution, $stepExecution, $policy, $failurePolicy, $failed);
+    }
+
+    /**
+     * A child's non-completion fails the parent step under its policy,
+     * exactly as a wait timeout does.
+     */
+    protected function childOutcomeFailure(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        Policy\StepPolicy $policy,
+        FailurePolicy $failurePolicy,
+        ChildWorkflowFailedException $exception,
+    ): string {
+        if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
+            return 'done';
+        }
+
+        if ($failurePolicy === FailurePolicy::Continue) {
+            $this->outcomes->stepFailure($execution, $stepExecution, $exception);
+
+            return 'continue-child';
+        }
+
+        $this->outcomes->failure($execution, $stepExecution, $exception);
+
+        throw $exception;
     }
 
     protected function waitTimeout(StepExecution $stepExecution): WaitTimedOutException

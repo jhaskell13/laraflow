@@ -39,12 +39,18 @@ readonly class ExecutionOptions
      *                                      job, or external operation that caused it.
      * @param  string|null  $tenantId  Ties it to a tenant, for listing and retention
      *                                 in multi-tenant applications.
+     * @param  int|string|null  $parentExecutionId  The execution whose step spawned
+     *                                              this one; written by the sub-workflow machinery.
+     * @param  int|string|null  $parentStepExecutionId  The exact parent step row waiting
+     *                                                  on this execution.
      *
      * @throws InvalidExecutionOptionsException
      */
     public function __construct(
         ?string $correlationId = null,
         ?string $tenantId = null,
+        public int|string|null $parentExecutionId = null,
+        public int|string|null $parentStepExecutionId = null,
     ) {
         $this->correlationId = self::normalize($correlationId, 'correlationId');
         $this->tenantId = self::normalize($tenantId, 'tenantId');
@@ -56,7 +62,9 @@ readonly class ExecutionOptions
      */
     public function isEmpty(): bool
     {
-        return $this->correlationId === null && $this->tenantId === null;
+        return $this->correlationId === null
+            && $this->tenantId === null
+            && $this->parentExecutionId === null;
     }
 
     /**

@@ -257,6 +257,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Workflows
+    |--------------------------------------------------------------------------
+    |
+    | max_depth: how deep sub-workflows may nest, counted from the root
+    | execution. A child that would nest past this is refused at creation
+    | with WorkflowDepthExceededException, so mutual recursion between
+    | workflow classes is one exception rather than an unbounded tree.
+    |
+    */
+
+    'workflows' => [
+        'max_depth' => env('LARAFLOW_WORKFLOWS_MAX_DEPTH', 8),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Errors
     |--------------------------------------------------------------------------
     |
