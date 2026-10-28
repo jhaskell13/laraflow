@@ -16,9 +16,10 @@ use SensitiveParameter;
  * Default transport: Laravel's HTTP client.
  *
  * Headers are merged here — connection defaults under the request's own,
- * the request winning — and handed over in one options array, rather
- * than split between the pending request and send(). The client's own
- * merge is recursive and turns two values for one header into a list.
+ * the request winning, names matched case-insensitively — and handed
+ * over in one options array, rather than split between the pending
+ * request and send(). The client's own merge is recursive, case
+ * sensitive, and turns two values for one header into a list.
  *
  * @internal Default binding. Swap via the container if needed.
  */
@@ -29,7 +30,7 @@ class LaravelHttpTransport implements HttpTransport
     public function send(#[SensitiveParameter] ConnectorRequest $request, HttpOptions $options): ConnectorResponse
     {
         $requestOptions = $request->options;
-        $requestOptions['headers'] = array_merge($options->headers, $requestOptions['headers'] ?? []);
+        $requestOptions['headers'] = Headers::merge($options->headers, $requestOptions['headers'] ?? []);
 
         $pending = $this->http
             ->timeout($options->timeoutSeconds)

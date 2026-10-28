@@ -213,7 +213,7 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 - ~~Bound the claim-to-first-step recovery loop (same document): a deterministic fault before the first step write is currently re-dispatched unbounded.~~ Done (step 2).
 - ~~Fire `WorkflowExecutionDispatched` after the commit it waits for, instead of documenting that it may precede it.~~ Done (step 3).
 - ~~Map connector errors before the observing transport announces the call, so `ConnectorRequestSent.successful` can reflect a rejected `200`.~~ Done (step 4).
-- Case-insensitive header merging across `HttpOptions` and the transport.
+- ~~Case-insensitive header merging across `HttpOptions` and the transport.~~ Done (step 5).
 
 These are intentionally later and should be driven by real user needs:
 

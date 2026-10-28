@@ -116,6 +116,29 @@ class HttpOptionsTest extends TestCase
         }
     }
 
+    public function test_a_connection_header_overrides_the_class_header_whatever_its_casing(): void
+    {
+        $options = (new HttpOptions(headers: ['Accept' => 'application/json', 'X-Client' => 'laraflow']))
+            ->forConnection(new Connection('crm', 'eu', ['headers' => ['accept' => 'application/vnd.example+json']]));
+
+        // One Accept on the wire — the connection's value, the
+        // connection's spelling, in the class header's position.
+        // X-Client is untouched.
+        $this->assertSame(
+            ['accept' => 'application/vnd.example+json', 'X-Client' => 'laraflow'],
+            $options->headers,
+        );
+    }
+
+    public function test_with_headers_matches_the_existing_names_case_insensitively(): void
+    {
+        $options = (new HttpOptions(headers: ['x-github-api-version' => 'pinned-by-connection']))
+            ->withHeaders(['X-GitHub-Api-Version' => '2022-11-28']);
+
+        // The implicit version header must not join an explicit one.
+        $this->assertSame(['x-github-api-version' => 'pinned-by-connection'], $options->headers);
+    }
+
     public function test_connection_headers_must_be_an_array(): void
     {
         $this->expectException(ConnectorConfigurationException::class);

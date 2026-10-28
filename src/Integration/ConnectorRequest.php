@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Integration;
 
+use Laraflow\Integration\Http\Headers;
+
 /**
  * An outbound request to an external service, independent of transport.
  */
@@ -67,12 +69,13 @@ readonly class ConnectorRequest
     }
 
     /**
-     * @param  array<string, string>  $headers  Merged over the current headers.
+     * @param  array<string, string>  $headers  Merged over the current headers,
+     *                                          names matched case-insensitively.
      */
     public function withHeaders(array $headers): self
     {
         $options = $this->options;
-        $options['headers'] = array_merge($options['headers'] ?? [], $headers);
+        $options['headers'] = Headers::merge($options['headers'] ?? [], $headers);
 
         return new self($this->method, $this->uri, $options, $this->idempotent);
     }

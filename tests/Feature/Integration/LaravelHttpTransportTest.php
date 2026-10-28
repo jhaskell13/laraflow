@@ -55,6 +55,21 @@ class LaravelHttpTransportTest extends TestCase
             && $request->header('X-Client') === ['laraflow']);
     }
 
+    public function test_request_headers_win_whatever_their_casing(): void
+    {
+        Http::fake();
+
+        $this->transport()->send(
+            new ConnectorRequest('GET', '/x', ['headers' => ['accept' => 'text/plain']]),
+            new HttpOptions('https://api.example', headers: ['Accept' => 'application/json']),
+        );
+
+        // One header on the wire, the request's value — not a pair of
+        // differently spelled Accepts for the provider to pick from.
+        Http::assertSent(fn (Request $request): bool => $request->header('accept') === ['text/plain']
+            && count($request->headers()) === count(array_unique(array_map('strtolower', array_keys($request->headers())))));
+    }
+
     public function test_without_a_base_url_the_uri_is_sent_as_given(): void
     {
         Http::fake();

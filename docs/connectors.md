@@ -59,7 +59,7 @@ Instances are cached per connection until `forget()`. Because credentials are no
 | `credentials` | — | The connection's secrets, read per request by the `CredentialProvider` and **stripped** from the `Connection` the connector holds. |
 | `base_url` | the class | Point the same class at another host. |
 | `timeout`, `connect_timeout` | the class, then `laraflow.http.*` | Seconds. |
-| `headers` | merged over the class's | Sent with every request; a request's own headers win over both. |
+| `headers` | merged over the class's | Sent with every request; a request's own headers win over both. Names match case-insensitively at every layer: `accept` overrides `Accept`. |
 | `retries` | merged over `laraflow.http.retries` | In-attempt transport retries; see below. |
 | `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to; `false` lifts an inherited one. See below. |
 | `max_pages` | `laraflow.http.pagination.max_pages` | The page budget. |
@@ -186,7 +186,7 @@ Connector [github:default] received 404 for GET /repos/acme/missing: Not Found
 
 The provider's own explanation is taken from the usual JSON fields and truncated. Like every message Laraflow retains, it passes the configured `ErrorRedactor` before it reaches the execution record, a log, or an event.
 
-Two sharp edges, recorded at the Milestone 6 audit: `throw()` raises a generic `RequestFailedException` for **any** non-2xx the mapper declined to classify — including a `304 Not Modified`, which the mapper deliberately does not consider an error, so conditional-GET connectors should inspect rather than `throw()`. And header names merge **case-sensitively** at every layer: a connection configuring `accept:` under a class declaring `Accept:` sends both headers rather than overriding. Spell header names the way the layer below you spelled them.
+One sharp edge, recorded at the Milestone 6 audit: `throw()` raises a generic `RequestFailedException` for **any** non-2xx the mapper declined to classify — including a `304 Not Modified`, which the mapper deliberately does not consider an error, so conditional-GET connectors should inspect rather than `throw()`. (The audit's other edge — header names merging case-sensitively, so `accept:` under `Accept:` sent both — was closed in Milestone 7: every merge layer matches names case-insensitively, and the overriding layer wins the value and the spelling.)
 
 ## Retries and rate limits
 
