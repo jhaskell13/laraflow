@@ -13,7 +13,7 @@ use Laraflow\Exceptions\Workflow\InvalidExecutionOptionsException;
  * Laraflow never interprets these values. It persists them, indexes
  * them so executions can be listed by them, exposes them to steps so a
  * step can forward them to an external provider, carries them on every
- * lifecycle event, and (from step 8) adds them to the logging context.
+ * lifecycle event, and adds them to the logging context.
  * Correlating an execution with the rest of an application's telemetry
  * is the whole purpose.
  *

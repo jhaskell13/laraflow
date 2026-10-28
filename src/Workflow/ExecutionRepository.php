@@ -11,6 +11,7 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 
@@ -63,15 +64,18 @@ interface ExecutionRepository
      * Atomically claim an execution for this worker (compare-and-set).
      *
      * Succeeds when the execution is `pending`, `failed`, `retrying`
-     * with `next_retry_at` due (or $ignoreRetrySchedule set — the
+     * with `next_retry_at` due, `waiting` with a non-null, due
+     * `next_retry_at` (or, for both, $ignoreRetrySchedule set — the
      * deliberate operator override), or `running` with a claim older
      * than $staleAfterSeconds. Exactly one concurrent claimant can
-     * succeed.
+     * succeed. The returned handle's `resumedFrom` records the status
+     * the claim took the execution from.
      *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotRunnableException when the execution is completed or cancelled.
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
      * @throws RetryNotDueException when the execution is retrying before its due time.
+     * @throws ExecutionStillWaitingException when the execution is parked on a wait that is not due.
      */
     public function claim(
         int|string $id,
@@ -385,13 +389,19 @@ interface ExecutionRepository
      *
      * Cancelling an already-cancelled execution is an idempotent no-op.
      *
+     * @param  DateTimeImmutable|null  $staleBefore  When given, a `running` execution
+     *                                               whose claim is older than this is treated as unclaimed
+     *                                               and cancelled outright — the claim() test, applied so an
+     *                                               abandoned execution can be cancelled.
+     *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotCancellableException when the execution has completed.
      */
     public function requestCancellation(
         int|string $id,
         ?string $reason,
-        DateTimeImmutable $at
+        DateTimeImmutable $at,
+        ?DateTimeImmutable $staleBefore = null
     ): WorkflowExecution;
 
     /**
@@ -404,7 +414,8 @@ interface ExecutionRepository
     ): array;
 
     /**
-     * Persist a claim-ending transition — completed, failed, or retrying
+     * Persist a claim-ending transition — completed, failed, cancelled,
+     * waiting, or retrying
      * (which waits unclaimed until its due time) — and release the claim,
      * verifying this worker still holds it.
      *

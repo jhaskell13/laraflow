@@ -63,10 +63,19 @@ class ListCommand extends Command
             return self::FAILURE;
         }
 
+        $limit = $this->option('limit');
+
+        if (! is_numeric($limit) || (int) $limit < 1) {
+            $display = is_scalar($limit) ? (string) $limit : get_debug_type($limit);
+            $this->components->error("The --limit option must be a positive integer, got [{$display}].");
+
+            return self::FAILURE;
+        }
+
         try {
             $page = $repository->list(
                 $filter,
-                (int) $this->option('limit'),
+                (int) $limit,
                 $this->stringOption('cursor'),
             );
         } catch (InvalidArgumentException $exception) {

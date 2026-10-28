@@ -12,6 +12,7 @@ use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\PassthroughRedactor;
+use SensitiveParameter;
 use Throwable;
 
 /**
@@ -37,7 +38,7 @@ class ConnectorObserver
         $this->redactor = $redactor ?? new PassthroughRedactor;
     }
 
-    public function sent(Connection $connection, ConnectorRequest $request, ConnectorResponse $response, int $durationMs): void
+    public function sent(Connection $connection, #[SensitiveParameter] ConnectorRequest $request, ConnectorResponse $response, int $durationMs): void
     {
         $this->events?->emit(new ConnectorRequestSent(
             connector: $connection->connector,
@@ -51,7 +52,7 @@ class ConnectorObserver
         ));
     }
 
-    public function failed(Connection $connection, ConnectorRequest $request, Throwable $exception, int $durationMs, int $attempts = 1): void
+    public function failed(Connection $connection, #[SensitiveParameter] ConnectorRequest $request, Throwable $exception, int $durationMs, int $attempts = 1): void
     {
         $this->events?->emit(new ConnectorRequestFailed(
             connector: $connection->connector,

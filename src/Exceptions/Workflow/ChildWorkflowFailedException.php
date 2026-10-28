@@ -25,6 +25,17 @@ class ChildWorkflowFailedException extends WorkflowException
         ));
     }
 
+    public static function workflowMissing(string $step, int $position, int|string $childId, string $workflow): self
+    {
+        return new self(sprintf(
+            'Step [%s] at position %d waited on child execution [%s], whose workflow class [%s] no longer exists or is not a workflow; nothing can run it.',
+            $step,
+            $position,
+            $childId,
+            $workflow,
+        ));
+    }
+
     public static function missing(string $step, int $position, int|string $childId): self
     {
         return new self(sprintf(

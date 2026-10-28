@@ -47,6 +47,12 @@ class DemoCommand extends Command
             try {
                 $dispatcher->dispatchExecution($execution->id);
             } catch (Throwable $exception) {
+                if (! $this->queueDriverIsSync()) {
+                    $this->components->error('The execution could not be queued: '.$exception->getMessage());
+
+                    return self::FAILURE;
+                }
+
                 $failed = $repository->find($execution->id);
 
                 $this->displayExecution($failed, $repository->steps($failed));

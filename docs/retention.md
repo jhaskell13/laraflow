@@ -146,14 +146,14 @@ do {
 } while ($page->hasMore());
 ```
 
-Run that from a scheduled job that completes before the prune runs. Because both read `finished_at` and both windows are half-open, an execution that finishes between the two is picked up by neither tonight and by both tomorrow.
+Run that from a scheduled job that completes before the prune runs. One edge: the filter's `finishedBefore` is exclusive while retention's cutoff is inclusive (`finished_at <= cutoff`), so an execution finishing in the cutoff's exact second would be pruned without being archived. Pass the archive `finishedBefore: $cutoff->modify('+1 second')` — or, as above, compute the archive window a day ahead of the prune.
 
 ## Capacity planning
 
 - **The attempt table is the one that grows.** Every finished attempt is one row, so growth is `executions × steps × attempts`. With retries enabled it is the first table to prune.
 - **Scrubbing reclaims payload space without losing the audit trail.** If your inputs or contexts are large, scrub well before you delete.
 - **Each run is bounded by `limit × tiers`.** On a backlog, the first runs will hit the limit; the oldest work goes first, so each run makes progress at the end of history that matters. Raise `--limit` for a one-off catch-up, then leave the schedule to keep pace.
-- **Every retention scan is indexed** — `(status, finished_at)` for the window, the attempts table's foreign-key index for the "still has history" check — so a run's cost scales with what it removes, not with the size of the table.
+- **Every retention scan is indexed** — `(payloads_scrubbed_at, status, finished_at)` for the scrub tier (leading with the scrubbed marker so already-scrubbed rows are skipped by the index), `(status, finished_at)` for the window, and the attempts table's own index for the prune tier, which is driven from the attempts side so the set it walks is the history still left — so a run's cost scales with the backlog it removes, not with the size of history.
 
 ## Operational checklist
 

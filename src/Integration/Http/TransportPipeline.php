@@ -16,7 +16,9 @@ use Psr\Clock\ClockInterface;
  * for. Nothing is wrapped that is not enabled, so with the shipped
  * defaults a request goes straight to the wire.
  *
- * @internal Resolved by HttpConnector from the container.
+ * Public only because an HttpConnector subclass declaring its own
+ * constructor must type-hint and forward it; nothing beyond construction
+ * is a contract.
  */
 class TransportPipeline
 {

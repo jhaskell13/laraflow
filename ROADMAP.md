@@ -219,6 +219,8 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 
 Milestone 7's capability scope was decided in October 2026 and its semantics fixed in `docs/advanced-workflows.md` before implementation; all three capabilities shipped the same month: conditional steps (step 7), delays/wait states with signals (step 8), and sub-workflow composition (step 9), each with persistence, recovery, and observability semantics decided first and enforced by `tests/Feature/Workflow/{ConditionalStepTest,WaitStateTest,SubWorkflowTest}.php`. Fan-out/fan-in, compensation/saga, and multi-tenant throttling are deferred past this milestone, to be driven by real user needs.
 
+**Deferred from the closing audit** (design findings judged real but not worth the churn before 1.0; each is a candidate for the first post-1.0 minor): rename the four recovery scans to one shape (`stale`, `pendingBefore`, `dueForRetry`, `waitingDue`) and give all four tenant scoping; a backed `RecoveryReason` enum in place of the string constants on `WorkflowExecutionRetryScheduled`; `int|string` execution ids on the public contract against an int-only implementation — commit to one; extract the wait/child-wait state machine out of `WorkflowRunner` into a `WaitResolver`; make every service collaborator required rather than nullable-with-defaults; a `(status, created_at)` index for the opt-in pending scan; the per-connection (not per-tenant) rate-limit bucket; and the engine matrix meeting Laravel 12 and `prefer-lowest`, which today run on SQLite only.
+
 From the original list, still intentionally later:
 
 - Branching and fan-out/fan-in (conditional steps on a linear plan shipped in Milestone 7; graph execution did not).

@@ -46,6 +46,9 @@ use Throwable;
  */
 class OutcomeRecorder
 {
+    /** What a `text` column holds on MySQL and MariaDB. */
+    public const ERROR_COLUMN_BYTES = 65535;
+
     protected ClockInterface $clock;
 
     protected ErrorRedactor $redactor;
@@ -108,10 +111,10 @@ class OutcomeRecorder
         $record = $this->attempt($execution, $stepExecution, $attemptStatus, $error, $exception, $failedAt, $nextRetryAt);
 
         try {
-            $stepExecution->markRetrying($error, $exception::class, $failedAt, $nextRetryAt);
+            $stepExecution->markRetrying($error, $this->errorClass($exception), $failedAt, $nextRetryAt);
             $this->repository->saveStep($execution, $stepExecution, $record);
 
-            $execution->markRetrying($error, $exception::class, $nextRetryAt);
+            $execution->markRetrying($error, $this->errorClass($exception), $nextRetryAt);
             $this->repository->release($execution);
         } catch (ClaimLostException $lost) {
             throw $lost;
@@ -129,7 +132,7 @@ class OutcomeRecorder
             position: $stepExecution->position,
             attempt: $attempt,
             maxAttempts: $policy->maxAttempts,
-            errorClass: $exception::class,
+            errorClass: $this->errorClass($exception),
             error: $this->eventError($error),
             nextRetryAt: $nextRetryAt,
             delaySeconds: $delay,
@@ -153,12 +156,12 @@ class OutcomeRecorder
         $record = $this->attempt($execution, $stepExecution, $attemptStatus, $error, $exception, $failedAt);
 
         try {
-            $stepExecution->markFailed($error, $exception::class, $failedAt);
+            $stepExecution->markFailed($error, $this->errorClass($exception), $failedAt);
             $this->repository->saveStep($execution, $stepExecution, $record);
         } catch (ClaimLostException $lost) {
             throw $lost;
         } catch (Throwable $storageFailure) {
-            $this->logStorageFailure('a workflow failure', $execution, $stepExecution, $exception, $storageFailure);
+            $this->logStorageFailure('a step failure', $execution, $stepExecution, $exception, $storageFailure);
 
             throw $exception;
         }
@@ -182,10 +185,10 @@ class OutcomeRecorder
         $record = $this->attempt($execution, $stepExecution, $attemptStatus, $error, $exception, $failedAt);
 
         try {
-            $stepExecution->markFailed($error, $exception::class, $failedAt);
+            $stepExecution->markFailed($error, $this->errorClass($exception), $failedAt);
             $this->repository->saveStep($execution, $stepExecution, $record);
 
-            $execution->markFailed($error, $exception::class, $failedAt);
+            $execution->markFailed($error, $this->errorClass($exception), $failedAt);
             $this->repository->release($execution);
         } catch (ClaimLostException $lost) {
             throw $lost;
@@ -212,7 +215,7 @@ class OutcomeRecorder
         $failedAt = $this->clock->now();
 
         try {
-            $execution->markFailed($error, $exception::class, $failedAt);
+            $execution->markFailed($error, $this->errorClass($exception), $failedAt);
             $this->repository->release($execution);
         } catch (ClaimLostException $lost) {
             throw $lost;
@@ -235,11 +238,33 @@ class OutcomeRecorder
      */
     public function errorMessage(Throwable $exception): string
     {
-        return mb_substr(
-            $this->redactor->redact($exception, $exception->getMessage()),
+        // Characters first (the configured bound), then bytes: the
+        // `error` columns are `text`, which on MySQL and MariaDB holds
+        // 65,535 bytes, not characters — a long non-ASCII message would
+        // otherwise fail the very write that records the failure.
+        return mb_strcut(
+            mb_substr($this->redactor->redact($exception, $exception->getMessage()), 0, $this->maxErrorLength),
             0,
-            $this->maxErrorLength,
+            self::ERROR_COLUMN_BYTES,
         );
+    }
+
+    /**
+     * The class name every error_class column and event receives. An
+     * anonymous class's name carries a NUL byte and the defining file's
+     * path — PostgreSQL refuses the NUL outright, and the rest can
+     * exceed the column — so it is cut at the marker PHP puts there.
+     */
+    public function errorClass(Throwable $exception): string
+    {
+        $class = $exception::class;
+        $anonymous = strpos($class, '@anonymous');
+
+        if ($anonymous !== false) {
+            $class = substr($class, 0, $anonymous + strlen('@anonymous'));
+        }
+
+        return mb_substr($class, 0, 255);
     }
 
     /**
@@ -280,7 +305,7 @@ class OutcomeRecorder
             attempt: $stepExecution->attempts,
             status: $status,
             error: $error,
-            errorClass: $exception::class,
+            errorClass: $this->errorClass($exception),
             startedAt: $stepExecution->startedAt,
             endedAt: $endedAt,
             nextRetryAt: $nextRetryAt,
@@ -304,7 +329,7 @@ class OutcomeRecorder
             step: $stepExecution->step,
             position: $stepExecution->position,
             attempt: $attempt,
-            errorClass: $exception::class,
+            errorClass: $this->errorClass($exception),
             error: $this->eventError($error),
             durationMs: $record->durationMs(),
         ));
@@ -318,7 +343,7 @@ class OutcomeRecorder
     ): void {
         $this->emit(new WorkflowExecutionFailed(
             ...$this->identity($execution),
-            errorClass: $exception::class,
+            errorClass: $this->errorClass($exception),
             error: $this->eventError($error),
             failedAt: $failedAt,
             durationMs: $execution->durationMs(),

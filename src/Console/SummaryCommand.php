@@ -13,6 +13,7 @@ use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
+use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -98,7 +99,7 @@ class SummaryCommand extends Command
     }
 
     /**
-     * The three conditions worth an operator's attention. Exits non-zero
+     * The four conditions worth an operator's attention. Exits non-zero
      * when any is present, so this command can be used as a health
      * check by a scheduler or a deploy gate.
      */
@@ -113,12 +114,15 @@ class SummaryCommand extends Command
         // Scoped like every other number on this screen. An unscoped
         // scan here would report another tenant's retries under a
         // --tenant filter, and fail the health check because of them.
-        $due = $repository->dueForRetry(
+        // Every scoped workflow, not only the first: a health check that
+        // reported A's retries while B's were overdue would exit 0 on a
+        // real problem.
+        $due = $this->acrossWorkflows($filter, fn (?string $workflow): array => $repository->dueForRetry(
             $now,
             ExecutionRepository::MAX_PAGE_SIZE,
-            $filter->workflows[0] ?? null,
+            $workflow,
             $filter->tenantId,
-        );
+        ));
 
         if ($due !== []) {
             $attention = true;
@@ -133,12 +137,12 @@ class SummaryCommand extends Command
             ));
         }
 
-        $dueWaits = $repository->waitingDue(
+        $dueWaits = $this->acrossWorkflows($filter, fn (?string $workflow): array => $repository->waitingDue(
             $now,
             ExecutionRepository::MAX_PAGE_SIZE,
-            $filter->workflows[0] ?? null,
+            $workflow,
             $filter->tenantId,
-        );
+        ));
 
         if ($dueWaits !== []) {
             $attention = true;
@@ -188,7 +192,7 @@ class SummaryCommand extends Command
         }
 
         if (! $attention) {
-            $this->components->info('Nothing needs attention: no retries due and no step past its deadline.');
+            $this->components->info('Nothing needs attention: no retries or waits due and no step past its deadline.');
         }
 
         $this->newLine();
@@ -235,5 +239,27 @@ class SummaryCommand extends Command
         return $step->isRunning()
             && $step->timeoutAt !== null
             && $step->timeoutAt <= $now;
+    }
+
+    /**
+     * Run a per-workflow scan once per scoped workflow (or once,
+     * unscoped), merged most-overdue first.
+     *
+     * @param  callable(?string): array<WorkflowExecution>  $scan
+     * @return list<WorkflowExecution>
+     */
+    protected function acrossWorkflows(ExecutionFilter $filter, callable $scan): array
+    {
+        $results = [];
+
+        foreach ($filter->workflows ?? [null] as $workflow) {
+            foreach ($scan($workflow) as $execution) {
+                $results[] = $execution;
+            }
+        }
+
+        usort($results, fn (WorkflowExecution $a, WorkflowExecution $b): int => ($a->nextRetryAt?->getTimestamp() ?? 0) <=> ($b->nextRetryAt?->getTimestamp() ?? 0));
+
+        return $results;
     }
 }

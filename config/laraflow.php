@@ -165,7 +165,8 @@ return [
     | Defaults for the laraflow:recover command, which finds interrupted
     | work (running executions with a stale claim, and pending executions
     | whose dispatch was lost), re-dispatches it, and delivers scheduled
-    | retries that have come due — the contractual pickup behind
+    | work that has come due — retries, waits, recorded signals, and
+    | sub-workflow heartbeats — the contractual pickup behind
     | retry.dispatch_delayed, and the only delivery path for in-process
     | and sync-driver runs.
     |
@@ -216,7 +217,7 @@ return [
     |
     | All bounds count from finished_at — when the execution stopped —
     | so a long-running execution is never pruned for having started a
-    | long time ago. Executions that are pending, running, or retrying
+    | long time ago. Executions that are pending, running, retrying, or waiting
     | are invisible to retention: a retry waiting out its backoff is
     | future work, not old work.
     |
@@ -423,6 +424,7 @@ return [
     |                second entry here, not a second class.
     |
     | A connection may also set base_url, timeout, connect_timeout, headers,
+    | rate_limit, max_pages, api_version, throw_on_error,
     | and retries, overriding the connector class and the `http` section
     | above, and throw_on_error to have request() throw a mapped error
     | rather than return the failed response.

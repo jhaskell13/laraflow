@@ -86,7 +86,7 @@ Because claiming is one guarded `UPDATE`, exactly one of any number of concurren
 
 ## Checkpoints and context
 
-The context is seeded from the workflow input (`array_merge(input, persisted context)`), handed to each step, and persisted at every checkpoint:
+The context is seeded from the workflow input (`array_replace(input, persisted context)` — the persisted context wins key by key, and integer keys survive), handed to each step, and persisted at every checkpoint:
 
 1. Step completes → in one database transaction: the step row is updated to `completed` with its output, the attempt is appended to `laraflow_step_attempts`, and the execution row's `context` column is updated to the full context snapshot, guarded by the claim token.
 2. On recovery, the context is rebuilt from `input` + the persisted `context` column — not by re-running steps. Completed steps are skipped and their contribution to the context is exactly what the checkpoint recorded.
@@ -110,6 +110,8 @@ The persistence boundaries in one step iteration, and what a crash at each one m
 | After checkpoint commit | Step `completed`, context and attempt history updated | Step is skipped; later steps see its context. |
 | After last checkpoint, before release | All steps `completed`, execution `running` | No steps re-run; execution is marked `completed`. |
 | After a park's checkpoint, before its release | Step `waiting`, execution `running` with a stale claim | The reclaiming worker finds the wait not due and parks the execution again; nothing re-runs. |
+| After a terminal failure's step write, before its release | Step `failed` at its last attempt, execution `running` with a stale claim | The reclaiming worker re-runs the failed step once more before the policy refuses it — one attempt past the budget, side effects included. |
+| After a scheduled retry's step write, before its release | Step `retrying` with `next_retry_at`, execution `running` with a stale claim | The reclaiming worker (after `stale_after`) re-runs the step without honouring the backoff; the dependency the backoff protects is hit early when `stale_after` is shorter than the delay. |
 
 The bold row is the at-least-once contract: **Laraflow guarantees each step's checkpoint commits at most once, but the step's side effects can occur more than once** when a worker dies between performing them and checkpointing. No framework can remove this window for arbitrary external calls. A retry policy widens it deliberately — re-running a failed step is the point — which is why idempotency matters more, not less, once retries are enabled.
 

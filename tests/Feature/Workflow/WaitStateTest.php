@@ -6,10 +6,10 @@ namespace Laraflow\Tests\Feature\Workflow;
 
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
-use InvalidArgumentException;
 use Laraflow\Events\WorkflowExecutionSignalled;
 use Laraflow\Events\WorkflowStepWaiting;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
+use Laraflow\Exceptions\Workflow\InvalidSignalException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\WaitTimedOutException;
 use Laraflow\Tests\Support\ApprovalStep;
@@ -55,7 +55,8 @@ class WaitStateTest extends TestCase
         $this->assertSame('2026-10-28 10:10:00', $step->next_retry_at?->format('Y-m-d H:i:s'));
 
         // Everything the step did before waiting is durable.
-        $this->assertSame(['one' => 'from-step-one', 'paused' => true], $row->context);
+        // assertEquals: MySQL's JSON format reorders object keys.
+        $this->assertEquals(['one' => 'from-step-one', 'paused' => true], $row->context);
 
         Event::assertDispatched(
             WorkflowStepWaiting::class,
@@ -169,15 +170,15 @@ class WaitStateTest extends TestCase
 
         $refused = [];
 
-        foreach (['', '  ', 'laraflow.child.9'] as $name) {
+        foreach (['', '  ', 'laraflow.child.9', 'Laraflow.child.9', str_repeat('x', 256)] as $name) {
             try {
                 $this->runner()->signal($execution->id, $name);
-            } catch (InvalidArgumentException) {
+            } catch (InvalidSignalException) {
                 $refused[] = $name;
             }
         }
 
-        $this->assertSame(['', '  ', 'laraflow.child.9'], $refused);
+        $this->assertSame(['', '  ', 'laraflow.child.9', 'Laraflow.child.9', str_repeat('x', 256)], $refused);
         $this->assertTrue($this->app->make(\Laraflow\Workflow\ExecutionRepository::class)->find($execution->id)->isWaiting());
     }
 

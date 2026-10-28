@@ -162,6 +162,36 @@ class RecoverCommandTest extends TestCase
         $this->assertSame(0, (int) StepExecutionModel::query()->max('attempts'));
     }
 
+    public function test_skip_retries_withholds_due_waits_as_well(): void
+    {
+        Queue::fake();
+        Date::setTestNow('2026-10-22 10:00:00');
+        $this->app->make(WorkflowRunner::class)->run(new \Laraflow\Tests\Support\PausedWorkflow);
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--skip-retries' => true]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Nothing to recover', $output, 'A due wait is scheduled work, withheld with retries.');
+        Queue::assertNothingPushed();
+
+        ['output' => $output] = $this->callCommand('laraflow:recover');
+        $this->assertStringContainsString('wait due', $output);
+    }
+
+    public function test_dry_run_still_exits_non_zero_when_something_is_abandoned(): void
+    {
+        Queue::fake();
+        $execution = $this->makeStaleExecution();
+        StepExecutionModel::query()->where('workflow_execution_id', $execution->id)->update(['attempts' => 3]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--dry-run' => true]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status, 'A dry run must still surface stuck work to the scheduler.');
+        $this->assertStringContainsString('abandoned', $output);
+        Queue::assertNothingPushed();
+    }
+
     public function test_an_execution_with_a_deleted_workflow_class_is_never_requeued(): void
     {
         Queue::fake();

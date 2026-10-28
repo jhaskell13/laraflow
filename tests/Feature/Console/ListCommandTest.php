@@ -69,6 +69,16 @@ class ListCommandTest extends TestCase
         }
     }
 
+    public function test_an_invalid_limit_is_rejected_rather_than_clamped(): void
+    {
+        foreach (['abc', '0', '-5'] as $limit) {
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:list', ['--limit' => $limit]);
+
+            $this->assertSame(CommandStatus::FAILURE, $status, "--limit={$limit} must be rejected.");
+            $this->assertStringContainsString('must be a positive integer', $output);
+        }
+    }
+
     public function test_the_status_help_text_lists_every_status_that_exists(): void
     {
         ['output' => $output] = $this->callCommand('laraflow:list', ['--help' => true]);

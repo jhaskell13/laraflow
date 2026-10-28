@@ -4,25 +4,31 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
-use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use LogicException;
 
 /**
- * @internal The machinery behind SubWorkflowStep: create or reuse the
- * child execution for a parent step, deliver it, and decide whether the
- * parent waits or already has its answer.
+ * The machinery behind SubWorkflowStep: create or reuse the child
+ * execution for a parent step, deliver it, and decide whether the parent
+ * waits or already has its answer. Public only because a SubWorkflowStep
+ * subclass declaring its own constructor must type-hint and forward it;
+ * nothing beyond construction is a contract.
  */
 class ChildWorkflows
 {
+    /**
+     * @param  int  $maxDepth  How deep sub-workflows may nest, from the root;
+     *                         laraflow.workflows.max_depth, resolved at boot like every other knob.
+     */
     public function __construct(
         protected ExecutionRepository $repository,
         protected Container $container,
         protected ChildDelivery $delivery,
-        protected Config $config,
+        protected int $maxDepth = 8,
     ) {}
 
     /**
@@ -83,7 +89,13 @@ class ChildWorkflows
         // own wait is not delivered: a worker could do nothing with it,
         // and the delivery would only manufacture a refused claim.
         if (! $child->isWaiting()) {
-            $this->delivery->deliver($child->id);
+            try {
+                $this->delivery->deliver($child->id);
+            } catch (ExecutionNotRunnableException) {
+                // It finished between the read above and the delivery —
+                // an operator ran it, say. Its outcome is read below.
+            }
+
             $child = $this->repository->find($child->id);
         }
 
@@ -141,7 +153,7 @@ class ChildWorkflows
      */
     protected function assertDepth(WorkflowExecution $parent, SubWorkflowStep $step): void
     {
-        $max = max(1, (int) ($this->config->get('laraflow.workflows.max_depth') ?: 8));
+        $max = max(1, $this->maxDepth);
         $depth = 1;
         $current = $parent;
 

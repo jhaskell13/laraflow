@@ -18,8 +18,8 @@ use Psr\Clock\ClockInterface;
  *
  * 1. **Only finished work is eligible.** Every scan and every write
  *    requires a non-null `finished_at` at or before the tier's cutoff,
- *    and a status that has actually finished. `pending`, `running`, and
- *    `retrying` executions are invisible to retention — a scheduled
+ *    and a status that has actually finished. `pending`, `running`,
+ *    `retrying`, and `waiting` executions are invisible to retention — a scheduled
  *    retry waiting out its backoff is not old work, it is future work.
  *
  * 2. **The guard is re-applied at the write.** A scan reads, then the

@@ -67,6 +67,20 @@ class WorkflowContext
     }
 
     /**
+     * @internal Put the data back to an earlier snapshot. The runner
+     * uses it so a step that wrote to the context and then failed
+     * contributes nothing to the steps that follow under
+     * FailurePolicy::Continue — the contract the checkpoint already
+     * keeps for durable state, kept for in-memory state too.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function restore(array $data): void
+    {
+        $this->data = $data;
+    }
+
+    /**
      * The id of the execution this context belongs to, or null when the
      * context was constructed outside a runner (for example in a unit test).
      */

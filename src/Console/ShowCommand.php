@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -85,17 +86,15 @@ class ShowCommand extends Command
      */
     protected function displayWait(WorkflowExecution $execution, array $steps): void
     {
-        $childPrefix = \Laraflow\Workflow\Wait::RESERVED_PREFIX.'child.';
-
         foreach ($steps as $step) {
             if (! $step->isWaiting()) {
                 continue;
             }
 
-            if ($step->waitSignal !== null && str_starts_with($step->waitSignal, $childPrefix)) {
+            if (Wait::isChildSignal($step->waitSignal)) {
                 // A child wait is never indefinite: the parent checks on
                 // the child at every heartbeat, recorded on the execution.
-                $detail = 'on child execution '.substr($step->waitSignal, strlen($childPrefix))
+                $detail = 'on child execution '.Wait::childIdFrom((string) $step->waitSignal)
                     .' (next check '.$this->formatDate($execution->nextRetryAt).')';
             } elseif ($step->waitSignal === null) {
                 $detail = 'until '.$this->formatDate($step->nextRetryAt);

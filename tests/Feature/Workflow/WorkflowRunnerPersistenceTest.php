@@ -74,7 +74,8 @@ class WorkflowRunnerPersistenceTest extends TestCase
 
         // ...and so is the accumulated context, both on the row and on the
         // returned handle.
-        $this->assertSame(
+        // assertEquals: MySQL's JSON format reorders object keys.
+        $this->assertEquals(
             ['step_one' => 'one', 'step_two' => 'two'],
             $execution->context
         );

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Laraflow\Events;
 
 /**
- * A step threw and its failure was durably persisted. Followed by a
- * WorkflowExecutionFailed event for the owning execution.
+ * A step's attempt failed and the failure was durably persisted — a
+ * terminal step failure, or one under FailurePolicy::Continue. Followed
+ * by WorkflowExecutionFailed only when the execution itself fails; a
+ * scheduled retry follows it with WorkflowStepRetryScheduled instead.
  *
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, or context. `error` is the exception message

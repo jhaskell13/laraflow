@@ -111,6 +111,13 @@ class EloquentExecutionRepository implements ExecutionRepository
         $now = $this->clock->now();
         $staleBefore = $now->modify("-{$staleAfterSeconds} seconds");
 
+        // Read, not returned by the UPDATE: an engine-portable UPDATE
+        // cannot hand back the previous row. A status that moves between
+        // this read and the claim is decided by the claim's own
+        // predicate; the read only informs the runner's choice between
+        // "re-executing a failure" and "resuming after a retry or wait".
+        $resumedFrom = WorkflowExecutionModel::query()->whereKey($id)->value('status');
+
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
             ->where(function ($query) use ($staleBefore, $now, $ignoreRetrySchedule) {
@@ -195,7 +202,10 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->whereNull('started_at')
             ->update($this->counted(['started_at' => $now]));
 
-        return $this->find($id);
+        $execution = $this->find($id);
+        $execution->resumedFrom = is_string($resumedFrom) ? ExecutionStatus::tryFrom($resumedFrom) : null;
+
+        return $execution;
     }
 
     public function steps(
@@ -265,18 +275,29 @@ class EloquentExecutionRepository implements ExecutionRepository
             // as a refusal. A duplicate before the resume overwrites
             // the payload instead — last delivery wins, mirroring the
             // at-least-once sources signals come from.
-            $stepId = StepExecutionModel::query()
+            //
+            // The row is locked for the transaction (a no-op on SQLite,
+            // whose writers serialise anyway), so a worker completing
+            // this step and parking the next cannot slip between this
+            // read and the write below and have a late duplicate land
+            // on a completed step.
+            $row = StepExecutionModel::query()
                 ->where('workflow_execution_id', $id)
                 ->where('status', StepStatus::Waiting->value)
                 ->where('wait_signal', $signal)
-                ->value('id');
+                ->lockForUpdate()
+                ->first(['id', 'wait_signal']);
 
-            if ($stepId === null) {
+            // The database match is case-insensitive on MySQL, MariaDB,
+            // and SQL Server; the reserved prefix is an authorization
+            // boundary, so the name must match byte for byte.
+            if ($row === null || $row->wait_signal !== $signal) {
                 throw SignalRefusedException::forSignal($id, $signal);
             }
 
             StepExecutionModel::query()
-                ->whereKey($stepId)
+                ->whereKey($row->id)
+                ->where('status', StepStatus::Waiting->value)
                 ->update(['output' => $this->asJson($payload)]);
 
             // Compare-and-set on the executions row, counted, so a
@@ -319,22 +340,41 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function requestCancellation(
         int|string $id,
         ?string $reason,
-        DateTimeImmutable $at
+        DateTimeImmutable $at,
+        ?DateTimeImmutable $staleBefore = null
     ): WorkflowExecution {
         // Unclaimed work is cancelled outright. The status predicate is
         // the same compare-and-set claiming uses, so this cannot race a
-        // worker: whichever UPDATE lands first, the other is refused.
+        // worker: whichever UPDATE lands first, the other is refused. A
+        // running execution whose claim is older than $staleBefore is
+        // unclaimed by contract too — the same test claim() applies —
+        // which is what lets an operator cancel an abandoned execution
+        // no worker will ever return to.
         $cancelled = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->whereIn('status', [
-                ExecutionStatus::Pending->value,
-                ExecutionStatus::Failed->value,
-                ExecutionStatus::Retrying->value,
-                // A waiting execution is unclaimed, so cancellation takes
-                // the immediate path; whoever signals it afterwards is
-                // refused by the status check, as the contract says.
-                ExecutionStatus::Waiting->value,
-            ])
+            ->where(function ($query) use ($staleBefore) {
+                $query->whereIn('status', [
+                    ExecutionStatus::Pending->value,
+                    ExecutionStatus::Failed->value,
+                    ExecutionStatus::Retrying->value,
+                    // A waiting execution is unclaimed, so cancellation
+                    // takes the immediate path; whoever signals it
+                    // afterwards is refused by the status check.
+                    ExecutionStatus::Waiting->value,
+                ]);
+
+                if ($staleBefore !== null) {
+                    $query->orWhere(function ($query) use ($staleBefore) {
+                        $query
+                            ->where('status', ExecutionStatus::Running->value)
+                            ->where(function ($query) use ($staleBefore) {
+                                $query
+                                    ->whereNull('claimed_at')
+                                    ->orWhere('claimed_at', '<=', $staleBefore);
+                            });
+                    });
+                }
+            })
             ->update($this->counted([
                 'status' => ExecutionStatus::Cancelled->value,
                 'cancelled_at' => $at,
@@ -560,9 +600,10 @@ class EloquentExecutionRepository implements ExecutionRepository
      * the write silently misses. Encoding here keeps every engine on
      * the byte-identical write the model cast will read back.
      *
-     * @param  array<array-key, mixed>|null  $value
+     * Any durable value: a step's output may be a scalar as well as an
+     * array (DurableValue allows both), and null stays SQL NULL.
      */
-    protected function asJson(?array $value): ?string
+    protected function asJson(mixed $value): ?string
     {
         return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR);
     }

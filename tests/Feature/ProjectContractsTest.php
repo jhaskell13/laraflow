@@ -209,7 +209,14 @@ class ProjectContractsTest extends TestCase
                 continue;
             }
 
-            if (str_contains($doc, class_basename($class))) {
+            // The fully qualified name in backticks is the documented
+            // form; events are listed by basename under their namespace
+            // heading. A bare basename match would let any class named
+            // like a word in the prose — Wait, Step, Clock — pass.
+            $documented = str_contains($doc, '`'.$class.'`')
+                || (str_starts_with($class, 'Laraflow\\Events\\') && str_contains($doc, '`'.class_basename($class).'`'));
+
+            if ($documented) {
                 continue;
             }
 
@@ -303,9 +310,11 @@ class ProjectContractsTest extends TestCase
         $this->assertNull(config('laraflow.http.rate_limit'), 'Client-side rate limiting must ship disabled.');
         $this->assertSame(100, (int) config('laraflow.http.pagination.max_pages'), 'The page budget is the documented one.');
         $this->assertSame(3600, (int) config('laraflow.retry.max_suggested_delay'), 'The suggested-delay cap is the documented one.');
+        // assertLessThanOrEqual($expected, $actual) asserts actual <= expected:
+        // the cap is the actual, five seconds the bound.
         $this->assertLessThanOrEqual(
-            (int) config('laraflow.http.retries.max_retry_after'),
             5,
+            (int) config('laraflow.http.retries.max_retry_after'),
             'A Retry-After beyond a few seconds must be left to the durable path.',
         );
 
@@ -413,8 +422,12 @@ class ProjectContractsTest extends TestCase
 
             // The Milestone 4 promise: anything the console can show,
             // an application can show, because they read the same API.
-            if (str_contains($source, 'Workflow\\Models\\')) {
-                $offenders[] = $file->getFilename();
+            // Models by import or alias, the query builder by table name
+            // — every way past the contract this suite knows of.
+            foreach (['Workflow\\Models\\', 'Models\\', 'DB::table(', "'laraflow_"] as $reach) {
+                if (str_contains($source, $reach)) {
+                    $offenders[] = $file->getFilename().' ('.$reach.')';
+                }
             }
         }
 

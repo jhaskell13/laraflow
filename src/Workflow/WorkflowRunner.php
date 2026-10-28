@@ -7,7 +7,6 @@ namespace Laraflow\Workflow;
 use DateInterval;
 use DateTimeImmutable;
 use Illuminate\Contracts\Container\Container;
-use InvalidArgumentException;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
@@ -21,8 +20,10 @@ use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Exceptions\Workflow\InvalidSignalException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
+use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WaitTimedOutException;
@@ -68,7 +69,7 @@ class WorkflowRunner
     public function __construct(
         protected ExecutionRepository $repository,
         Container $container,
-        LoggerInterface $logger,
+        protected LoggerInterface $logger,
         ?RunnerOptions $options = null,
         protected ?EventEmitter $events = null,
         ?ClockInterface $clock = null,
@@ -141,9 +142,10 @@ class WorkflowRunner
      * has terminally failed. When the policy refuses, or no policy
      * enables retries (the shipped default), the failure is persisted
      * and the step's exception rethrown unchanged. Synchronous callers
-     * relying on "failure throws" should check isRetrying() on the
-     * returned handle, or keep retries disabled for workflows they run
-     * in-process.
+     * relying on "failure throws" should check isRetrying() and
+     * isWaiting() on the returned handle — a step returning a Wait parks
+     * the execution regardless of retry configuration — or keep retries
+     * off and waits out of workflows they run in-process.
      *
      * @param  bool  $ignoreRetrySchedule  Claim a retrying execution even
      *                                     before its next_retry_at — the deliberate operator override
@@ -187,16 +189,13 @@ class WorkflowRunner
      *
      * @param  array<array-key, mixed>  $payload
      *
+     * @throws InvalidSignalException for an empty, over-long, or reserved name.
      * @throws SignalRefusedException when the execution is not waiting on this signal.
      * @throws UnserializableValueException if the payload is not JSON-serializable.
      */
     public function signal(int|string $executionId, string $signal, array $payload = []): WorkflowExecution
     {
-        if (trim($signal) === '' || str_starts_with($signal, Wait::RESERVED_PREFIX)) {
-            throw new InvalidArgumentException(
-                'A signal name must be non-empty and must not start with the reserved ['.Wait::RESERVED_PREFIX.'] prefix.'
-            );
-        }
+        Wait::assertApplicationSignal($signal);
 
         DurableValue::check($payload, 'signal', $this->options->maxPayloadBytes);
 
@@ -251,7 +250,18 @@ class WorkflowRunner
             return $existing;
         }
 
-        $execution = $this->repository->requestCancellation($executionId, $reason, $this->now());
+        $now = $this->now();
+
+        $execution = $this->repository->requestCancellation(
+            $executionId,
+            $reason,
+            $now,
+            // A running execution whose claim is stale is unclaimed by
+            // contract — recovery may even have abandoned it — and must
+            // be cancellable outright, not left with a request no worker
+            // will ever honour.
+            $now->sub(new DateInterval("PT{$this->options->staleAfterSeconds}S")),
+        );
 
         if ($execution->isCancelled() && $execution->cancelledAt !== null) {
             $this->event(new WorkflowExecutionCancelled(
@@ -331,7 +341,10 @@ class WorkflowRunner
         $this->steps->assertMatches($workflow, $execution, $steps);
 
         $context = new WorkflowContext(
-            data: array_merge($execution->input, $execution->context),
+            // array_replace, not array_merge: merge renumbers integer
+            // keys and appends list-shaped input to the persisted
+            // context on every claim.
+            data: array_replace($execution->input, $execution->context),
             executionId: $execution->id,
             // Read from durable state, not from ambient request context:
             // a step re-run on a recovering worker must see the identifiers
@@ -349,6 +362,24 @@ class WorkflowRunner
             // A skipped step is a recorded decision, replayed exactly
             // like a completed checkpoint — never re-evaluated.
             if ($stepExecution->isCompleted() || $stepExecution->isSkipped()) {
+                continue;
+            }
+
+            // Under Continue, a step that failed terminally in an earlier
+            // claim of this execution spent its budget then. Resuming
+            // after a later step's retry or wait must not run it again;
+            // only an operator re-executing the *failed* execution does.
+            // It still decides the outcome once everything else ran.
+            if ($stepExecution->isFailed()
+                && $failurePolicy === FailurePolicy::Continue
+                && $execution->resumedFrom !== null
+                && $execution->resumedFrom !== ExecutionStatus::Failed) {
+                $firstFailure ??= StepPreviouslyFailedException::forStep(
+                    $stepExecution->step,
+                    $stepExecution->position,
+                    $stepExecution->error,
+                );
+
                 continue;
             }
 
@@ -372,10 +403,7 @@ class WorkflowRunner
                 $step = $this->steps->make($stepExecution->step);
                 $policy = $this->policies->forStep($step, $workflow);
             } catch (Throwable $exception) {
-                $this->startStep($execution, $stepExecution, $context, $startedAt, null);
-                $this->outcomes->failure($execution, $stepExecution, $exception);
-
-                throw $exception;
+                $this->failDefinition($execution, $stepExecution, $context, $startedAt, $exception);
             }
 
             // The condition is consulted at the start of every attempt
@@ -390,10 +418,7 @@ class WorkflowRunner
                 try {
                     $shouldRun = $step->shouldRun($context);
                 } catch (Throwable $exception) {
-                    $this->startStep($execution, $stepExecution, $context, $startedAt, null);
-                    $this->outcomes->failure($execution, $stepExecution, $exception);
-
-                    throw $exception;
+                    $this->failDefinition($execution, $stepExecution, $context, $startedAt, $exception);
                 }
 
                 if (! $shouldRun) {
@@ -461,20 +486,15 @@ class WorkflowRunner
                     $stepExecution->attempts,
                 );
 
-                if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $timeout, StepAttemptStatus::TimedOut)) {
-                    return $execution;
-                }
+                $resolution = $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $timeout, StepAttemptStatus::TimedOut);
 
-                if ($failurePolicy === FailurePolicy::Continue) {
-                    $this->outcomes->stepFailure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
-                    $firstFailure ??= $timeout;
+                if ($resolution->continueFailure !== null) {
+                    $firstFailure ??= $resolution->continueFailure;
 
                     continue;
                 }
 
-                $this->outcomes->failure($execution, $stepExecution, $timeout, StepAttemptStatus::TimedOut);
-
-                throw $timeout;
+                return $execution;
             }
 
             // An interrupted attempt that had not overrun is closed out
@@ -494,6 +514,11 @@ class WorkflowRunner
                 : null;
 
             $this->startStep($execution, $stepExecution, $context, $startedAt, $timeoutAt, $interrupted);
+
+            // A step that writes to the context and then fails must
+            // contribute nothing to what follows — in memory as well as
+            // on disk, or Continue's next checkpoint would persist it.
+            $contextBefore = $context->all();
 
             try {
                 $output = $step->handle($context);
@@ -523,28 +548,22 @@ class WorkflowRunner
                 // persist would be trustworthy, including a failure.
                 throw $exception;
             } catch (Throwable $exception) {
-                if ($this->outcomes->scheduleRetry($execution, $stepExecution, $policy, $exception)) {
-                    // The retry is durably scheduled: step and execution
-                    // are `retrying` with the claim released. Nothing has
-                    // terminally failed, so nothing is thrown — a caller
-                    // alerting on exceptions must not page for an
-                    // execution that will heal itself.
-                    return $execution;
-                }
+                $context->restore($contextBefore);
 
-                if ($failurePolicy === FailurePolicy::Continue) {
-                    // The workflow declared its steps independent: record
-                    // this failure, keep going, and fail the execution —
-                    // with this first exception — once everything ran.
-                    $this->outcomes->stepFailure($execution, $stepExecution, $exception);
-                    $firstFailure ??= $exception;
+                // A scheduled retry returns the `retrying` handle without
+                // throwing — a caller alerting on exceptions must not page
+                // for an execution that will heal itself. Under Continue
+                // the failure is recorded and the loop goes on, failing
+                // the execution with the first one once everything ran.
+                $resolution = $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $exception);
+
+                if ($resolution->continueFailure !== null) {
+                    $firstFailure ??= $resolution->continueFailure;
 
                     continue;
                 }
 
-                $this->outcomes->failure($execution, $stepExecution, $exception);
-
-                throw $exception;
+                return $execution;
             }
         }
 
@@ -567,6 +586,46 @@ class WorkflowRunner
         $this->parents->childFinished($execution);
 
         return $execution;
+    }
+
+    /**
+     * A definition-class fault — a step class that cannot be built, a
+     * policy or condition that throws — is persisted as the step's
+     * terminal failure and rethrown; no policy is consulted. A step
+     * found waiting is failed from where it is: it was never re-marked
+     * running, and the failure transition is legal from Waiting.
+     */
+    protected function failDefinition(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        DateTimeImmutable $startedAt,
+        Throwable $exception,
+    ): never {
+        if (! $stepExecution->isWaiting()) {
+            $this->startStep($execution, $stepExecution, $context, $startedAt, null);
+        }
+
+        $this->outcomes->failure($execution, $stepExecution, $exception);
+
+        throw $exception;
+    }
+
+    /**
+     * After a park: a cancellation that landed between the boundary
+     * check and the release would otherwise sit on a wait nothing may
+     * ever claim. The execution is waiting now, so the immediate path
+     * applies.
+     */
+    protected function cancelIfRequested(WorkflowExecution $execution): void
+    {
+        $fresh = $this->repository->find($execution->id);
+
+        if ($fresh->cancelRequestedAt === null || ! $fresh->isWaiting()) {
+            return;
+        }
+
+        $this->cancel($execution->id, $fresh->cancelReason);
     }
 
     /**
@@ -625,8 +684,11 @@ class WorkflowRunner
         DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
 
         $now = $this->now();
-        $resumeAt = $wait->resumeInstant($now);
-        $timeoutAt = $wait->timeoutInstant($now);
+        // Normalised to the clock's timezone: the columns hold naive
+        // wall-clock values, so an instant a step supplied in another
+        // zone would otherwise be read back shifted by the offset.
+        $resumeAt = $wait->resumeInstant($now)?->setTimezone($now->getTimezone());
+        $timeoutAt = $wait->timeoutInstant($now)?->setTimezone($now->getTimezone());
 
         $stepExecution->markWaiting($wait->signal, $resumeAt, $timeoutAt);
         $execution->context = $context->all();
@@ -636,7 +698,7 @@ class WorkflowRunner
         // indefinitely: when the claim comes due the parent consults the
         // child's record directly, which heals a signal lost to the
         // park race and a child whose dispatch never survived.
-        $nextEventAt = $wait->signal !== null && str_starts_with($wait->signal, Wait::RESERVED_PREFIX.'child.')
+        $nextEventAt = Wait::isChildSignal($wait->signal)
             ? $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S"))
             : ($resumeAt ?? $timeoutAt);
 
@@ -651,6 +713,8 @@ class WorkflowRunner
             resumeAt: $resumeAt,
             timeoutAt: $timeoutAt,
         ));
+
+        $this->cancelIfRequested($execution);
     }
 
     /**
@@ -665,7 +729,7 @@ class WorkflowRunner
         bool $forcedDue,
         DateTimeImmutable $now,
     ): WaitResolution {
-        if ($stepExecution->waitSignal !== null && str_starts_with($stepExecution->waitSignal, Wait::RESERVED_PREFIX.'child.')) {
+        if (Wait::isChildSignal($stepExecution->waitSignal)) {
             return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy, $now);
         }
 
@@ -678,6 +742,18 @@ class WorkflowRunner
 
             if ($signalled) {
                 $context->set((string) $stepExecution->waitSignal, $payload);
+
+                // The payload was bounded on its own at signal time; the
+                // context it joins is bounded here, before the checkpoint,
+                // so an overflow is the step's failure by name rather than
+                // a driver error from inside the transaction.
+                try {
+                    DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
+                } catch (Throwable $exception) {
+                    $context->forget((string) $stepExecution->waitSignal);
+
+                    return $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $exception);
+                }
             }
 
             $this->completeStep($execution, $stepExecution, $context, $payload);
@@ -688,7 +764,7 @@ class WorkflowRunner
         if ($stepExecution->waitSignal !== null
             && $stepExecution->timeoutAt !== null
             && $stepExecution->timeoutAt <= $now) {
-            return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $this->waitTimeout($stepExecution), StepAttemptStatus::TimedOut);
+            return $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $this->waitTimeout($stepExecution), StepAttemptStatus::TimedOut);
         }
 
         // Not due: a crash between checkpoint and release left the
@@ -727,14 +803,24 @@ class WorkflowRunner
         $outcome = is_array($stepExecution->output) ? $stepExecution->output : null;
 
         if ($outcome === null) {
-            $childId = substr((string) $stepExecution->waitSignal, strlen(Wait::RESERVED_PREFIX.'child.'));
+            $childId = Wait::childIdFrom((string) $stepExecution->waitSignal);
 
             try {
                 $child = $this->repository->find($childId);
             } catch (ExecutionNotFoundException) {
                 $missing = ChildWorkflowFailedException::missing($stepExecution->step, $stepExecution->position, $childId);
 
-                return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $missing);
+                return $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $missing);
+            }
+
+            // A child whose workflow class is gone cannot be run by
+            // anyone; re-delivering it every heartbeat would only fill
+            // failed_jobs. The same bound recovery applies, applied here
+            // because the parent — not recovery — schedules this child.
+            if (! class_exists($child->workflow) || ! is_subclass_of($child->workflow, Workflow::class)) {
+                $gone = ChildWorkflowFailedException::workflowMissing($stepExecution->step, $stepExecution->position, $child->id, $child->workflow);
+
+                return $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $gone);
             }
 
             $staleFailure = $child->status === ExecutionStatus::Failed
@@ -748,7 +834,13 @@ class WorkflowRunner
                         $this->childDelivery?->deliver($child->id);
                     } catch (Throwable $deliveryFailure) {
                         // The next heartbeat tries again; the child may
-                        // also already be running on a worker.
+                        // also already be running on a worker. Said out
+                        // loud, or a dead queue becomes an invisible loop.
+                        $this->logger->warning('Laraflow could not re-deliver a child execution from its parent heartbeat.', [
+                            'parent_execution_id' => $execution->id,
+                            'child_execution_id' => $child->id,
+                            'exception' => $deliveryFailure::class.': '.$deliveryFailure->getMessage(),
+                        ]);
                     }
                 }
 
@@ -774,7 +866,7 @@ class WorkflowRunner
             is_string($status) ? $status : 'unknown',
         );
 
-        return $this->failWaitingStep($execution, $stepExecution, $policy, $failurePolicy, $failed);
+        return $this->settleFailure($execution, $stepExecution, $policy, $failurePolicy, $failed);
     }
 
     /**
@@ -792,6 +884,7 @@ class WorkflowRunner
         mixed $output,
     ): void {
         $completedAt = $this->now();
+        $before = $stepExecution->snapshot();
         $stepExecution->markCompleted($output, $completedAt);
         $execution->context = $context->all();
 
@@ -804,7 +897,16 @@ class WorkflowRunner
             endedAt: $completedAt,
         );
 
-        $this->repository->checkpoint($execution, $stepExecution, $attempt);
+        try {
+            $this->repository->checkpoint($execution, $stepExecution, $attempt);
+        } catch (Throwable $checkpointFailure) {
+            // The handle said "completed" a moment early. Put it back,
+            // so the failure paths that follow run from a legal state and
+            // record the real error rather than an illegal transition.
+            $stepExecution->restore($before);
+
+            throw $checkpointFailure;
+        }
 
         $this->event(new WorkflowStepCompleted(
             ...$this->outcomes->identity($execution),
@@ -817,11 +919,13 @@ class WorkflowRunner
     }
 
     /**
-     * A waiting step's failure — a timed-out wait, or a child that
-     * ended badly — charged under the step's policy exactly as a thrown
-     * failure would be.
+     * One step failure, settled the one way every failure is: a retry
+     * if the step's policy grants one (the claim is released and the
+     * handle describes the schedule), a recorded failure the loop walks
+     * past under FailurePolicy::Continue, or the execution's terminal
+     * failure, thrown. Legal from Running and from Waiting alike.
      */
-    protected function failWaitingStep(
+    protected function settleFailure(
         WorkflowExecution $execution,
         StepExecution $stepExecution,
         Policy\StepPolicy $policy,
@@ -852,6 +956,8 @@ class WorkflowRunner
     {
         $execution->markWaiting($nextEventAt);
         $this->repository->release($execution);
+
+        $this->cancelIfRequested($execution);
 
         return WaitResolution::settled();
     }

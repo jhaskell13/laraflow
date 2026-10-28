@@ -40,7 +40,7 @@ class ParentNotifier
             return;
         }
 
-        $signal = Wait::RESERVED_PREFIX.'child.'.$child->id;
+        $signal = Wait::CHILD_PREFIX.$child->id;
 
         try {
             $this->repository->recordSignal(
@@ -56,6 +56,17 @@ class ParentNotifier
                 'child_execution_id' => $child->id,
                 'parent_execution_id' => $child->parentExecutionId,
                 'reason' => $refusal->getMessage(),
+            ]);
+
+            return;
+        } catch (Throwable $failure) {
+            // A dropped connection or a lock conflict here must not turn
+            // a child that has already durably finished into a failed
+            // job; the heartbeat consults the child's record directly.
+            $this->logger->warning('Laraflow could not record a child outcome on its parent; the parent heartbeat will pick it up.', [
+                'child_execution_id' => $child->id,
+                'parent_execution_id' => $child->parentExecutionId,
+                'exception' => $failure::class.': '.$failure->getMessage(),
             ]);
 
             return;

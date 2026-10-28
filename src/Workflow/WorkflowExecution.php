@@ -19,12 +19,20 @@ use Laraflow\Support\Duration;
  *   running → retrying → running (scheduled retry, once due)
  *   running → waiting → running (a step's wait, resolved or due)
  *   running → running (stale reclaim by another worker)
- *   pending | running | failed | retrying → cancelled (terminal)
+ *   pending | running | failed | retrying | waiting → cancelled (terminal)
  *
  * Application code should treat all properties as read-only.
  */
 class WorkflowExecution
 {
+    /**
+     * The status this execution was in when the current claim took it —
+     * set by the repository on claim(), never persisted. The runner reads
+     * it to tell an operator's re-execution of a failed execution from a
+     * resume after a retry or a wait.
+     */
+    public ?ExecutionStatus $resumedFrom = null;
+
     /**
      * @param  array<string, mixed>  $input
      * @param  array<string, mixed>  $context

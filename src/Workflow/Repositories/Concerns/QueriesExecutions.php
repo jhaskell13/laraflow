@@ -162,6 +162,19 @@ trait QueriesExecutions
             ->when($filter->correlationId !== null, fn (Builder $q) => $q->where('correlation_id', $filter->correlationId))
             ->when($filter->tenantId !== null, fn (Builder $q) => $q->where('tenant_id', $filter->tenantId))
             ->when($filter->parentId !== null, fn (Builder $q) => $q->where('parent_execution_id', $filter->parentId))
+            // A finished window with no status filter means "finished
+            // executions in this window": saying so in SQL lets the
+            // (status, finished_at) index serve it — without the status
+            // predicate the window alone is a full table scan on every
+            // engine, the one shape this filter design exists to forbid.
+            ->when(
+                $filter->statuses === null && ($filter->finishedAfter !== null || $filter->finishedBefore !== null),
+                fn (Builder $q) => $q->whereIn('status', [
+                    ExecutionStatus::Completed->value,
+                    ExecutionStatus::Failed->value,
+                    ExecutionStatus::Cancelled->value,
+                ]),
+            )
             // Half-open windows: inclusive start, exclusive end.
             ->when($filter->createdAfter !== null, fn (Builder $q) => $q->where('created_at', '>=', $filter->createdAfter))
             ->when($filter->createdBefore !== null, fn (Builder $q) => $q->where('created_at', '<', $filter->createdBefore))

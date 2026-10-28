@@ -32,7 +32,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 |------------|-----------|
 | PHP        | 8.2, 8.3, 8.4, 8.5 |
 | Laravel    | 12.x, 13.x (Laravel 13 requires PHP 8.3+) |
-| Database   | SQLite (tested), MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ |
+| Database   | SQLite, MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ — all five run the full suite in CI |
 
 See [docs/compatibility.md](docs/compatibility.md) for the full policy, including what "supported" means at this stage.
 
@@ -345,7 +345,7 @@ Publish the configuration file if you need to change defaults:
 php artisan vendor:publish --tag=laraflow-config
 ```
 
-This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector and carries a documenting comment block per section):
+This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector, the `workflows.max_depth` bound on sub-workflow nesting, and carries a documenting comment block per section):
 
 ```php
 return [
@@ -404,7 +404,8 @@ return [
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
-        // Interrupted executions whose steps reach this many attempts are
+        // Interrupted executions whose steps reach this many attempts — or
+        // that were claimed this many times without progress — are
         // abandoned by recovery rather than retried forever.
         'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         // null disables recovery of never-dispatched pending executions.
@@ -761,7 +762,7 @@ The same command also delivers scheduled retries that have come due, making it t
 
 ### Lifecycle events
 
-Laraflow fires events for dispatch, execution start, each step's start/completion/failure, scheduled retries, and execution completion/failure/cancellation. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
+Laraflow fires events for dispatch, execution start, each step's start/completion/skip/wait/failure, scheduled retries, recorded signals, and execution completion/failure/cancellation. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
 
 ```php
 use Laraflow\Events\WorkflowExecutionFailed;
@@ -1020,7 +1021,7 @@ Do not accumulate pages into a step's output. A result set big enough to need pa
 
 A connector declares the **provider API version** it was written against and sends it where the provider wants it — GitHub's `X-GitHub-Api-Version: 2022-11-28` — and a connection may pin another with `api_version`, per account. What that promises, and what it cannot, is in [docs/compatibility.md](docs/compatibility.md#provider-apis).
 
-Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — and nothing else, no headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
+Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — plus the status and the connector's success verdict on `Sent`, the exception class and redacted message on `Failed` — and never headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 

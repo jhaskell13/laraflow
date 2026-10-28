@@ -44,6 +44,11 @@ class UpgradePathTest extends TestCase
             File::deleteDirectory($this->path);
         }
 
+        // DDL commits the test transaction on MySQL and MariaDB, so the
+        // rows these tests insert would otherwise survive into the next
+        // test's "empty" table. Explicit, like the column rollback above.
+        WorkflowExecutionModel::query()->delete();
+
         parent::tearDown();
     }
 
@@ -111,14 +116,14 @@ class UpgradePathTest extends TestCase
         // application meets them: rows written under the frozen schema,
         // then the new migrations applied — simulated by rolling them
         // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration.
+        // front. One rollback step per post-freeze migration — four.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 3, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));

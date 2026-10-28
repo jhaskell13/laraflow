@@ -39,6 +39,9 @@ readonly class RetentionPolicy
      * @param  int  $limit  Maximum executions handled per tier per run.
      * @param  int  $chunk  Executions per bulk write.
      */
+    /** The largest IN-list every supported engine accepts with room for the guard bindings. */
+    public const MAX_CHUNK = 500;
+
     public function __construct(
         public ?int $scrubAfterDays = null,
         public ?int $pruneAttemptsAfterDays = null,
@@ -65,8 +68,11 @@ readonly class RetentionPolicy
             throw new InvalidArgumentException('laraflow.retention.limit must be at least 1.');
         }
 
-        if ($chunk < 1) {
-            throw new InvalidArgumentException('laraflow.retention.chunk must be at least 1.');
+        if ($chunk < 1 || $chunk > self::MAX_CHUNK) {
+            // Each chunk becomes a WHERE id IN (...) list; SQL Server
+            // caps a statement at 2,100 parameters and older SQLite at
+            // 999, so the bound is the engines', not a taste.
+            throw new InvalidArgumentException('laraflow.retention.chunk must be between 1 and '.self::MAX_CHUNK.'.');
         }
     }
 

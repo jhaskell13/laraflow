@@ -55,7 +55,7 @@ Workers are ordinary Laravel workers — there is no Laraflow-specific worker co
 php artisan queue:work redis --queue=workflows
 ```
 
-> **If your queue connection is `sync`, nothing is asynchronous.** Laravel's `sync` driver — the default when `QUEUE_CONNECTION` is unset — runs a job immediately in the dispatching process, so `dispatch()` returns an execution that has *already finished* (or already thrown). This is Laravel's behaviour rather than Laraflow's, but it surprises people: if `dispatch()` seems to block, or a step's exception reaches your controller, check the connection first. It also inverts one event ordering: `WorkflowExecutionDispatched` describes the queue hand-off, which under `sync` *is* the run, so it fires after the execution's own lifecycle events. Everything else in this document other than worker timeouts applies unchanged — the claim, checkpoints, and recovery behave identically; only the process boundary differs.
+> **If your queue connection is `sync`, nothing is asynchronous.** Laravel's `sync` driver — Laravel 12 and 13 default `QUEUE_CONNECTION` to `database`, but `sync` is common in local and test environments — runs a job immediately in the dispatching process, so `dispatch()` returns an execution that has *already finished* (or already thrown). This is Laravel's behaviour rather than Laraflow's, but it surprises people: if `dispatch()` seems to block, or a step's exception reaches your controller, check the connection first. It also inverts one event ordering: `WorkflowExecutionDispatched` describes the queue hand-off, which under `sync` *is* the run, so it fires after the execution's own lifecycle events. Everything else in this document other than worker timeouts applies unchanged — the claim, checkpoints, and recovery behave identically; only the process boundary differs.
 
 ### `after_commit`
 
@@ -163,7 +163,7 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 | `wait due` | `waiting`, with `next_retry_at` at or before now — a timed resume, a signal deadline, a recorded signal, or a sub-workflow heartbeat | Scanned unless `--skip-retries` |
 | `never dispatched` | `pending`, created more than `pending_after` ago | **Off** — opt in |
 
-Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight. Note that `--skip-retries` withholds due *waits* as well as due retries: it reduces recovery to interrupted and lost work only.
+Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight; abandoned and unrecoverable candidates are reported but do not consume the budget of the scans that follow, so a backlog of stuck work cannot starve due retries and waits. Note that `--skip-retries` withholds due *waits* as well as due retries: it reduces recovery to interrupted and lost work only.
 
 The pending scan is off by default on purpose. `pending` is not only the state of a lost dispatch; it is also the state of an execution created with `start()` and deliberately not yet run. Recovery must never start work the application was intentionally holding. Enable it — with `--pending-after=300` or `laraflow.recovery.pending_after` — only if every pending execution in your application is meant to run immediately.
 
@@ -194,7 +194,7 @@ Scheduled recovery that blindly re-dispatches would retry a crash-looping workfl
    The same bound is also held against `fruitless_claims` — the number of consecutive claims on the execution that ended before any step row was written. A fault *between* claiming and the first step (a listener throwing on `WorkflowExecutionStarted`, a workflow whose steps no longer match the persisted plan) never moves the step attempt counter, so without this second measure it would be re-dispatched by every run forever. The report names which measure tripped: `abandoned (reached 3 step attempts)` or `abandoned (was claimed 3 times without reaching a step)`. See [execution-lifecycle.md](execution-lifecycle.md#claiming-and-concurrency).
 3. **Missing-class bound.** An execution whose recorded workflow class no longer exists is reported as **unrecoverable** and is never dispatched. This bound exists because such a retry fails *before* any step runs — attempts never increment, so the attempt bound alone could never stop the scheduler from re-queueing it (and filling `failed_jobs`) forever. Restore or redeploy the class, or handle the execution manually.
 
-Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned or any recovery action failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried.
+Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned, unrecoverable, or failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried. To clear one, re-run it deliberately with `laraflow:execute`, or cancel it: `laraflow:cancel` treats a stale claim as unclaimed, so an abandoned execution is cancelled outright rather than left with a request no worker will honour.
 
 An operator deliberately overriding the bound uses the per-execution command, which has no attempt bound:
 
@@ -220,7 +220,7 @@ php artisan laraflow:execute 42 --queue  # or hand it to a worker
          then re-run deliberately with: laraflow:execute <id>
 ```
 
-`Since` is when the interruption began — the claim time for stale work, the creation time for never-dispatched work. The summary line counts dispatched, ran, abandoned, skipped, and failed executions. *Skipped* means the execution completed or was claimed by a live worker between the scan and the action; those races are expected and harmless.
+`Since` is when the interruption began — the claim time for stale work, the creation time for never-dispatched work. The summary line counts dispatched, ran, abandoned, unrecoverable, skipped, and failed executions. *Skipped* means the execution completed or was claimed by a live worker between the scan and the action; those races are expected and harmless.
 
 ## Lifecycle events
 

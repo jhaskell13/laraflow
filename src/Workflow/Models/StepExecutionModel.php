@@ -56,6 +56,7 @@ class StepExecutionModel extends Model
         'failed_at',
         'timeout_at',
         'next_retry_at',
+        'wait_signal',
     ];
 
     /**

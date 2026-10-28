@@ -194,25 +194,53 @@ class PaginationTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    public function test_a_downgraded_or_reported_next_page_link_is_refused(): void
+    /**
+     * One case per test: Laravel's fake keeps the first stub registered
+     * for a pattern, so a loop of fakes would only ever exercise the
+     * first case.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function foreignLinks(): iterable
     {
-        foreach ([
-            'scheme downgrade' => 'http://api.github.com/repos?page=2',
-            'different port' => 'https://api.github.com:8443/repos?page=2',
-        ] as $case => $link) {
-            Http::fake([
-                'api.github.com/*' => Http::response([['id' => 1]], 200, [
-                    'Link' => "<{$link}>; rel=\"next\"",
-                ]),
-            ]);
+        yield 'scheme downgrade' => ['http://api.github.com/repos?page=2'];
+        yield 'different port' => ['https://api.github.com:8443/repos?page=2'];
+        yield 'unparseable' => ['https://api.github.com:65536/repos?page=2'];
+    }
 
-            try {
-                iterator_to_array($this->github()->pages(new ConnectorRequest('GET', '/repos')));
-                $this->fail("Expected PaginationException for {$case}.");
-            } catch (PaginationException $exception) {
-                $this->assertStringContainsString('carries credentials', $exception->getMessage(), $case);
-            }
-        }
+    #[\PHPUnit\Framework\Attributes\DataProvider('foreignLinks')]
+    public function test_a_downgraded_reported_or_unparseable_next_page_link_is_refused(string $link): void
+    {
+        Http::fake([
+            'api.github.com/*' => Http::response([['id' => 1]], 200, [
+                'Link' => "<{$link}>; rel=\"next\"",
+            ]),
+        ]);
+
+        $this->expectException(PaginationException::class);
+
+        iterator_to_array($this->github()->pages(new ConnectorRequest('GET', '/repos')));
+    }
+
+    public function test_a_root_relative_next_page_link_resolves_against_the_origin(): void
+    {
+        // Against base https://api.github.com, a `/repos?page=2` link
+        // must go to the origin — not be prefixed with the base path.
+        config(['laraflow.integrations.github.connections.default.base_url' => 'https://ghe.example/api/v3']);
+        $this->app->forgetInstance(LaraflowManager::class);
+        $this->app->register(\Laraflow\Core\LaraflowServiceProvider::class, force: true);
+
+        Http::fake([
+            'ghe.example/api/v3/repos?page=2' => Http::response([['id' => 2]]),
+            'ghe.example/api/v3/repos' => Http::response([['id' => 1]], 200, [
+                'Link' => '</api/v3/repos?page=2>; rel="next"',
+            ]),
+        ]);
+
+        $pages = iterator_to_array($this->github()->pages(new ConnectorRequest('GET', '/repos')));
+
+        $this->assertCount(2, $pages);
+        Http::assertSent(fn (\Illuminate\Http\Client\Request $r): bool => $r->url() === 'https://ghe.example/api/v3/repos?page=2');
     }
 
     public function test_a_connector_without_a_base_url_cannot_verify_a_link_and_refuses_it(): void

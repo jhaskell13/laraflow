@@ -29,7 +29,7 @@ class ExecuteCommand extends Command
     protected $signature = 'laraflow:execute
         {execution : The id of the execution to run or recover}
         {--queue : Dispatch the execution to the queue instead of running it in this process}
-        {--now : Run a retrying execution immediately, ignoring its next_retry_at schedule}';
+        {--now : Run a retrying execution, or resume a timed wait, immediately — ignoring its schedule}';
 
     protected $description = 'Execute or recover a persisted workflow execution';
 
@@ -61,7 +61,15 @@ class ExecuteCommand extends Command
                 return self::FAILURE;
             } catch (Throwable $exception) {
                 // A sync queue connection runs the job inside the dispatch
-                // call, so a step failure surfaces here instead of on a worker.
+                // call, so a step failure surfaces here instead of on a
+                // worker. Any other driver throwing here is the push
+                // itself failing — a different subsystem, said plainly.
+                if (! $this->queueDriverIsSync()) {
+                    $this->components->error('The execution could not be queued: '.$exception->getMessage());
+
+                    return self::FAILURE;
+                }
+
                 $failed = $repository->find($id);
 
                 $this->displayExecution($failed, $repository->steps($failed));

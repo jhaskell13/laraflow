@@ -15,7 +15,7 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  *
  *   pending → running → completed
  *   pending → skipped (conditional step, condition false)
- *   running → waiting → completed (wait resolved) | failed (wait timed out)
+ *   running → waiting → completed (wait resolved) | failed | retrying (wait timed out)
  *   pending → running → failed → running (retry on re-execute)
  *   running → retrying → running (scheduled retry, once due)
  *   running → running (interrupted step re-run after worker loss)
@@ -167,6 +167,44 @@ class StepExecution
         $this->errorClass = $errorClass;
         $this->failedAt = $at;
         $this->nextRetryAt = $nextRetryAt;
+    }
+
+    /**
+     * @internal The mutable fields a completion changes, captured so a
+     * checkpoint that fails after markCompleted() can put the handle
+     * back and let the ordinary failure paths run from a legal state.
+     *
+     * @return array{status: StepStatus, output: mixed, completedAt: ?DateTimeImmutable, error: ?string, errorClass: ?string, failedAt: ?DateTimeImmutable, waitSignal: ?string, nextRetryAt: ?DateTimeImmutable}
+     */
+    public function snapshot(): array
+    {
+        return [
+            'status' => $this->status,
+            'output' => $this->output,
+            'completedAt' => $this->completedAt,
+            'error' => $this->error,
+            'errorClass' => $this->errorClass,
+            'failedAt' => $this->failedAt,
+            'waitSignal' => $this->waitSignal,
+            'nextRetryAt' => $this->nextRetryAt,
+        ];
+    }
+
+    /**
+     * @internal Counterpart of snapshot().
+     *
+     * @param  array{status: StepStatus, output: mixed, completedAt: ?DateTimeImmutable, error: ?string, errorClass: ?string, failedAt: ?DateTimeImmutable, waitSignal: ?string, nextRetryAt: ?DateTimeImmutable}  $snapshot
+     */
+    public function restore(array $snapshot): void
+    {
+        $this->status = $snapshot['status'];
+        $this->output = $snapshot['output'];
+        $this->completedAt = $snapshot['completedAt'];
+        $this->error = $snapshot['error'];
+        $this->errorClass = $snapshot['errorClass'];
+        $this->failedAt = $snapshot['failedAt'];
+        $this->waitSignal = $snapshot['waitSignal'];
+        $this->nextRetryAt = $snapshot['nextRetryAt'];
     }
 
     public function isPending(): bool

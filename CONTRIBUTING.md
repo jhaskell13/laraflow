@@ -1,10 +1,10 @@
 # Contributing to Laraflow
 
-Thanks for your interest. Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the current milestone in [ROADMAP.md](ROADMAP.md).
+Thanks for your interest. Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the work recorded in [ROADMAP.md](ROADMAP.md).
 
 ## Before you start
 
-- **Check the roadmap.** Work is ordered by dependency. A feature from a later milestone (branching, sub-workflows, new connectors, a dashboard) is unlikely to be merged before the milestone in progress is complete, however good the code is. Open an issue first to discuss anything beyond the current milestone.
+- **Check the roadmap.** Work is ordered by dependency. A feature the roadmap defers (graph branching, fan-out, compensation, new connectors, a dashboard) is unlikely to be merged ahead of the work it depends on, however good the code is. Open an issue first to discuss anything the roadmap does not already name.
 - **Open an issue for anything non-trivial.** Bug fixes with tests can go straight to a pull request. Design changes, new public API, and schema changes should be discussed first.
 - **Read [docs/public-api.md](docs/public-api.md).** Changes to public classes need a changelog entry; changes to internal classes do not.
 
@@ -17,7 +17,7 @@ composer install
 composer check   # code style + static analysis + tests
 ```
 
-CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.5 against Laravel 12 and 13 (excluding PHP 8.2 + Laravel 13, which Laravel does not support), plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. A database matrix runs the whole suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job builds a fresh `laravel/laravel` application (oldest and newest supported pairing), requires the package from the local path, and walks `composer require` → auto-discovery → publish → migrate → a persisted execution → failure recovery → rollback, asserting each step with the commands a user would run. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
+CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.5 against Laravel 12 and 13 (excluding PHP 8.2 + Laravel 13, which Laravel does not support), plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. A database matrix runs the whole suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job builds a fresh `laravel/laravel` application (the oldest supported pairing, and Laravel 13 on PHP 8.4), requires the package from the local path, and walks `composer require` → auto-discovery → publish → migrate → a persisted execution → failure recovery → rollback, asserting each step with the commands a user would run. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
 
 The individual checks:
 

@@ -41,13 +41,20 @@ trait AppliesRetention
                 $tier === RetentionTier::ScrubPayloads,
                 fn (Builder $query) => $query->whereNull('payloads_scrubbed_at'),
             )
+            // Driven from the attempts side: the set of executions that
+            // still have history is exactly the attempts table's
+            // distinct execution ids, read from its index. The attempts
+            // table shrinks as the tier prunes, so this costs the
+            // backlog — probing every finished execution for history
+            // would have cost the size of history instead.
             ->when(
                 $tier === RetentionTier::PruneAttempts,
-                fn (Builder $query) => $query->whereExists(
+                fn (Builder $query) => $query->whereIn(
+                    "{$executions}.id",
                     fn ($sub) => $sub
-                        ->selectRaw('1')
+                        ->select('workflow_execution_id')
                         ->from($attempts)
-                        ->whereColumn("{$attempts}.workflow_execution_id", "{$executions}.id"),
+                        ->distinct(),
                 ),
             )
             ->when($workflow !== null, fn (Builder $query) => $query->where('workflow', $workflow))

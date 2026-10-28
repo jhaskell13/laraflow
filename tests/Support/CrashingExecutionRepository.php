@@ -140,9 +140,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         });
     }
 
-    public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at): WorkflowExecution
+    public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at, ?DateTimeImmutable $staleBefore = null): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at));
+        return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at, $staleBefore));
     }
 
     public function attempts(StepExecution $step): array

@@ -20,7 +20,7 @@ use Psr\Clock\ClockInterface;
  * not yet covered by the compatibility policy.
  *
  * Finds recoverable executions and retries them within an explicit
- * bound. Three kinds are recognised:
+ * bound. Four kinds are recognised:
  *
  * - stale claim: a `running` execution whose claim has outlived
  *   `stale_after` — the worker died mid-run. Reported as `step_timeout`
@@ -91,14 +91,22 @@ class RecoveryService
         );
 
         foreach ($stale as $execution) {
+            $steps = $this->repository->steps($execution);
+
             $candidates[] = $this->candidate(
                 $execution,
-                $this->staleReason($execution, $now),
+                $this->staleReason($steps, $now),
                 $abandonAfterAttempts,
+                $steps,
             );
         }
 
-        if ($includeDueRetries && ($remaining = $limit - count($candidates)) > 0) {
+        // Abandoned and unrecoverable candidates are reported, not acted
+        // on; they stay in the stale set until an operator cancels or
+        // re-runs them and must not starve the scans below of budget.
+        $spent = fn (): int => count(array_filter($candidates, fn (RecoveryCandidate $c): bool => $c->retryable()));
+
+        if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
             foreach ($this->repository->dueForRetry($now, $remaining, $workflow) as $execution) {
                 // Exempt from the interruption bound: a scheduled retry's
                 // budget is its policy, which the runner enforces.
@@ -110,7 +118,7 @@ class RecoveryService
             }
         }
 
-        if ($includeDueRetries && ($remaining = $limit - count($candidates)) > 0) {
+        if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
             foreach ($this->repository->waitingDue($now, $remaining, $workflow) as $execution) {
                 // Exempt like due retries: a wait is scheduled work, not
                 // an interruption, and a timed-out signal answers to the
@@ -123,7 +131,7 @@ class RecoveryService
             }
         }
 
-        if ($pendingAfterSeconds !== null && ($remaining = $limit - count($candidates)) > 0) {
+        if ($pendingAfterSeconds !== null && ($remaining = $limit - $spent()) > 0) {
             $pending = $this->repository->pendingBefore(
                 $now->modify("-{$pendingAfterSeconds} seconds"),
                 $remaining,
@@ -185,6 +193,10 @@ class RecoveryService
      */
     protected function assertRetryable(RecoveryCandidate $candidate): void
     {
+        if ($candidate->retryable()) {
+            return;
+        }
+
         if ($candidate->workflowMissing) {
             throw new InvalidArgumentException(
                 "Execution [{$candidate->execution->id}] was created from "
@@ -207,9 +219,12 @@ class RecoveryService
      * charge the attempt to the step's retry policy, and the report
      * should say so.
      */
-    protected function staleReason(WorkflowExecution $execution, DateTimeImmutable $now): string
+    /**
+     * @param  StepExecution[]  $steps
+     */
+    protected function staleReason(array $steps, DateTimeImmutable $now): string
     {
-        foreach ($this->repository->steps($execution) as $step) {
+        foreach ($steps as $step) {
             if ($step->isRunning() && $step->timeoutAt !== null && $step->timeoutAt <= $now) {
                 return WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT;
             }
@@ -222,14 +237,18 @@ class RecoveryService
      * @param  int|null  $abandonAfterAttempts  Null exempts the candidate
      *                                          from the interruption bound (due retries).
      */
+    /**
+     * @param  StepExecution[]|null  $steps  Already loaded by the caller, or null to load.
+     */
     protected function candidate(
         WorkflowExecution $execution,
         string $reason,
         ?int $abandonAfterAttempts,
+        ?array $steps = null,
     ): RecoveryCandidate {
         $attempts = 0;
 
-        foreach ($this->repository->steps($execution) as $step) {
+        foreach ($steps ?? $this->repository->steps($execution) as $step) {
             $attempts = max($attempts, $step->attempts);
         }
 

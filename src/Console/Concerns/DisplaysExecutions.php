@@ -183,6 +183,18 @@ trait DisplaysExecutions
         };
     }
 
+    /**
+     * Whether Laraflow's queue connection (or the application default)
+     * is the sync driver, which runs a job inside the dispatch call.
+     */
+    protected function queueDriverIsSync(): bool
+    {
+        $connection = config('laraflow.queue.connection');
+        $connection = is_string($connection) && $connection !== '' ? $connection : (string) config('queue.default');
+
+        return config("queue.connections.{$connection}.driver") === 'sync';
+    }
+
     protected function formatDate(?DateTimeInterface $date): string
     {
         return $date?->format('Y-m-d H:i:s') ?? '—';

@@ -240,7 +240,7 @@ Connector tests run without credentials or network, always: fake HTTP with `Http
 
 It checks that the connector holds no credential, classifies every error status into the shared types, returns errors rather than throwing them, and keeps both the credential and the query string out of every message. It installs one HTTP fake with stray requests prevented, so a connector that reached the network fails rather than passing quietly; run it in a test that does not install its own `Http::fake()`. Provider-specific behaviour — Slack's `ok: false`, GitHub's rate-limit 403 — is yours to test alongside it.
 
-The harness works by stubbing Laravel's HTTP client, so it can only hold a connector that sends through it. A connector that overrides `transport()` with a client of its own is **refused up front** rather than assessed against requests the harness never saw: `assertHeldBy()` sends one probe first and fails if nothing reached the fake. If your connector has its own transport, fake that transport and assert these same behaviours directly.
+The harness works by stubbing Laravel's HTTP client, so it can only hold a connector that sends through it. A connector that overrides `transport()` with a client of its own is **refused first** rather than assessed against requests the harness never saw: `assertHeldBy()` sends one probe and fails if nothing reached the fake — which means that for such a connector the probe itself went to the real network, authenticated; run the contract against a sandbox credential. If your connector has its own transport, fake that transport and assert these same behaviours directly.
 
 The recipe for contributing a connector is in [CONTRIBUTING.md](../CONTRIBUTING.md#contributing-a-connector).
 
@@ -248,7 +248,7 @@ The recipe for contributing a connector is in [CONTRIBUTING.md](../CONTRIBUTING.
 
 - Put credentials under `connections.{name}.credentials`, in `.env`, or behind your own `CredentialProvider`. Never at the connector level; the configuration refuses it.
 - Run `laraflow:connectors --check` in your deploy pipeline. It builds every connector and exits non-zero if one cannot be, without sending a request.
-- Keep `http.timeout × retries.max_attempts` below any step deadline the request runs under, or the step is classified as timed out while a retry is still waiting.
+- Keep one logical call's worst case below any step deadline it runs under, or the step is classified as timed out while a retry is still waiting. That worst case is `max_attempts × (timeout + the larger of max_delay and max_retry_after + rate_limit.max_wait)`: each wire attempt may time out, then back off, and a throttled connection may also wait for a slot before every attempt.
 - Enable a step retry policy before enabling a client-side `rate_limit`. Without one, a throttle turns bursts into failures — honestly, but failures.
 - Treat a `PaginationException` on the page budget as a decision, not a nuisance. If the result set is genuinely that large, raise the budget for that call and handle items as they arrive.
 - Set `zend.exception_ignore_args=On` in production, and do not expose an exception renderer that displays frame arguments. Laraflow's frames are clean; the HTTP client's beneath them are not Laraflow's to clean.
