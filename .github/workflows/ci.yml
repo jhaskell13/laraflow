@@ -280,13 +280,15 @@ jobs:
           php artisan vendor:publish --tag=laraflow-config --no-interaction
           test -f config/laraflow.php
           php artisan vendor:publish --tag=laraflow-migrations --no-interaction
-          test "$(ls database/migrations | grep -c laraflow)" -eq 3
+          # Counted from the package rather than written down: the schema
+          # freeze means this number only ever grows, one migration at a time.
+          test "$(ls database/migrations | grep -c laraflow)" -eq "$(ls ../package/database/migrations | wc -l)"
 
       - name: Migrations run
         working-directory: app
         run: |
           touch database/database.sqlite
-          php artisan migrate --force | grep -c "laraflow.*DONE" | grep -qx 3
+          php artisan migrate --force | grep -c "laraflow.*DONE" | grep -qx "$(ls ../package/database/migrations | wc -l)"
 
       - name: A workflow runs to a persisted execution
         working-directory: app
@@ -305,4 +307,4 @@ jobs:
         working-directory: app
         run: |
           php artisan laraflow:connectors --check
-          php artisan migrate:rollback --force | grep -c "laraflow.*DONE" | grep -qx 3
+          php artisan migrate:rollback --force | grep -c "laraflow.*DONE" | grep -qx "$(ls ../package/database/migrations | wc -l)"

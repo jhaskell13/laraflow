@@ -21,6 +21,18 @@ class BearerTokenAuthenticatorTest extends TestCase
         $this->assertSame('Bearer test-token', $options['headers']['Authorization']);
     }
 
+    public function test_it_replaces_an_authorization_header_whatever_its_casing(): void
+    {
+        $authenticator = new BearerTokenAuthenticator;
+
+        $options = $authenticator->authenticate(
+            ['headers' => ['authorization' => 'Basic stale']],
+            $this->credentials(['token' => 'fresh']),
+        );
+
+        $this->assertSame(['Authorization' => 'Bearer fresh'], $options['headers'], 'One Authorization on the wire, not two.');
+    }
+
     public function test_it_preserves_existing_request_options(): void
     {
         $authenticator = new BearerTokenAuthenticator;

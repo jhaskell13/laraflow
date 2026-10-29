@@ -28,9 +28,11 @@ readonly class ConnectorRequestSent
      * @param  string  $method  HTTP method, uppercased.
      * @param  string  $path  Request path, without query string.
      * @param  int  $status  HTTP status received.
-     * @param  bool  $successful  Whether the connector counted it a success —
-     *                            2xx and no mapped error, so a provider that reports
-     *                            failure in a 200 body is false here.
+     * @param  bool  $successful  Whether the connector counted it a success:
+     *                            2xx and no mapped error. The connector's error
+     *                            mapper runs before this event is emitted, so a
+     *                            provider that reports failure in a 200 body
+     *                            (Slack's `ok: false`) is false here.
      * @param  int  $durationMs  Wall-clock milliseconds for the whole call,
      *                           including any transport retries and throttle waits.
      * @param  int  $attempts  Wire attempts spent; more than one means a

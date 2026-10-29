@@ -12,6 +12,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryService;
@@ -28,7 +29,8 @@ use Throwable;
  *   Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
  *
  * Every action is bounded: at most --limit executions per run, and an
- * *interrupted* execution whose steps have reached --abandon-after is
+ * *interrupted* execution whose steps have reached --abandon-after — or
+ * which has been claimed that many times without reaching a step — is
  * reported as abandoned instead of retried, so a crash-looping workflow
  * cannot be re-dispatched forever. Due retries are exempt from that
  * bound; theirs is the step's own policy budget, enforced by the runner.
@@ -43,8 +45,8 @@ class RecoverCommand extends Command
         {--stale-after= : Seconds after which a running claim counts as stale (default: laraflow.execution.stale_after)}
         {--pending-after= : Also recover pending executions older than this many seconds (default: laraflow.recovery.pending_after; scan disabled when unset)}
         {--limit= : Maximum executions handled in one run (default: laraflow.recovery.limit)}
-        {--abandon-after= : Report interrupted executions whose steps reached this many attempts as abandoned (default: laraflow.recovery.abandon_after_attempts)}
-        {--skip-retries : Do not deliver scheduled retries that have come due}
+        {--abandon-after= : Report interrupted executions whose steps reached this many attempts, or that were claimed this many times without reaching a step, as abandoned (default: laraflow.recovery.abandon_after_attempts)}
+        {--skip-retries : Do not deliver scheduled retries or due waits; only interrupted and lost work is recovered}
         {--workflow= : Only consider executions created from this workflow class}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
         {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
@@ -147,7 +149,7 @@ class RecoverCommand extends Command
         if ($candidate->abandoned) {
             $counts['abandoned']++;
 
-            return '<fg=red>abandoned (max attempts reached)</>';
+            return "<fg=red>abandoned ({$candidate->abandonedBecause()})</>";
         }
 
         if ($dryRun) {
@@ -183,6 +185,12 @@ class RecoverCommand extends Command
             $counts['skipped']++;
 
             return 'claimed by another worker';
+        } catch (ExecutionStillWaitingException) {
+            // Signalled or re-parked between the scan and this action;
+            // whatever it waits for now owns the schedule.
+            $counts['skipped']++;
+
+            return 'parked meanwhile';
         } catch (RetryNotDueException) {
             // Someone ran the retry between scan and action and it
             // rescheduled itself into the future. The new schedule stands.
@@ -226,8 +234,8 @@ class RecoverCommand extends Command
 
         if ($counts['abandoned'] > 0) {
             $this->components->warn(
-                'Abandoned executions have exceeded the recovery attempt bound. '
-                .'Investigate them, then re-run deliberately with: laraflow:execute <id>'
+                'Abandoned executions have reached the recovery bound, in step attempts or in claims '
+                .'that made no progress. Investigate them, then re-run deliberately with: laraflow:execute <id>'
             );
         }
 
@@ -244,7 +252,8 @@ class RecoverCommand extends Command
         return match ($candidate->reason) {
             WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
             WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT => $candidate->execution->claimedAt,
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE => $candidate->execution->nextRetryAt,
+            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+            WorkflowExecutionRetryScheduled::REASON_WAIT_DUE => $candidate->execution->nextRetryAt,
             default => $candidate->execution->createdAt,
         };
     }

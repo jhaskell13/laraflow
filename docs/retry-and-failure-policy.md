@@ -16,7 +16,7 @@ What that buys you:
 
 **Retries are off by default.** `laraflow.retry.max_attempts` ships as `1` (the first attempt *is* attempt 1), consistent with every other retry authority in Laraflow — `queue.tries` is 1, `recovery.pending_after` is null. Nothing re-runs your side effects until you ask.
 
-> **Synchronous callers:** with retries enabled, `run()`/`execute()` can return a *non-terminal* `retrying` execution rather than throwing. Code relying on "failure throws" should check `$execution->isRetrying()`, or keep `max_attempts` at 1 for workflows it runs in-process.
+> **Synchronous callers:** `run()`/`execute()` can return a *non-terminal* execution rather than throwing — `retrying` with retries enabled, and `waiting` whenever a step returns a `Wait`, regardless of retry configuration. Code relying on "failure throws" should check `$execution->isRetrying()` and `$execution->isWaiting()`, or keep retries off and waits out of workflows it runs in-process.
 
 ## Declaring a policy
 
@@ -108,7 +108,7 @@ Duplicates stay safe exactly as in Milestone 2 — the claim decides. An early d
 | `WorkflowStepFailed` | Every failed attempt, retryable or not. `attempt` distinguishes them. |
 | `WorkflowStepRetryScheduled` | A retry was durably scheduled. Carries `attempt`, `maxAttempts`, `errorClass`, `error`, `nextRetryAt`, `delaySeconds`. |
 | `WorkflowExecutionFailed` | **Terminal failure only** — never for a scheduled retry. |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is one of `stale_claim`, `step_timeout`, `retry_due`, `never_dispatched`. |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is one of `stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`. |
 | `WorkflowExecutionCancelled` | The execution was durably cancelled. Fires once. |
 
 ## Timeouts
@@ -129,7 +129,7 @@ public function handle(WorkflowContext $context): mixed
 
 A step that bounds itself never times out from Laraflow's point of view. The deadline is written *before* `handle()` executes because a dying worker writes nothing — it has to already be on the row for a recovering worker to judge the dead attempt against it.
 
-**At the recovery boundary**, an interrupted attempt is classified. This is the three-way distinction:
+**At the recovery boundary**, an interrupted attempt is classified. This is the three-way distinction for *interrupted* attempts (a fourth, the signal-wait deadline, is specified in [advanced-workflows.md](advanced-workflows.md): a `waiting` step past its `timeout_at` fails with `WaitTimedOutException`, charged to the policy the same way):
 
 | Situation | Classification | Consequence |
 |---|---|---|
@@ -169,11 +169,13 @@ History is append-only, so it is the table that grows under retry policies: one 
 
 | State | Behaviour |
 |---|---|
-| `pending`, `failed`, `retrying` | Cancelled immediately by compare-and-set — the same predicate claiming uses, so it cannot race a worker: whichever `UPDATE` lands first, the other is refused. Any scheduled retry is voided (`next_retry_at` cleared), so the scan will not resurrect it. |
-| `running` | **Cooperative.** `cancel_requested_at` is set and the execution keeps running; the owning worker notices at its next step boundary, finishes and checkpoints the step in flight, then cancels and releases the claim. |
+| `pending`, `failed`, `retrying`, `waiting` | Cancelled immediately by compare-and-set — the same predicate claiming uses, so it cannot race a worker: whichever `UPDATE` lands first, the other is refused. Any scheduled retry is voided (`next_retry_at` cleared), so the scan will not resurrect it. |
+| `running` | **Cooperative.** `cancel_requested_at` is set and the execution keeps running; the owning worker notices at its next step boundary — a park counts as one — finishes and checkpoints the step in flight, then cancels and releases the claim. |
 | `completed` | `ExecutionNotCancellableException`. |
 | `cancelled` | Idempotent no-op — the original cancellation and its event stand. |
 | unknown id | `ExecutionNotFoundException`. |
+
+Cancelling an execution also requests cancellation of its unfinished sub-workflow children, recursively — at `cancel()` time and again at the boundary where a cooperative cancellation is honoured, so a child created mid-race is still caught. See [advanced-workflows.md](advanced-workflows.md#sub-workflows).
 
 Laraflow never rewrites durable state underneath a live worker, and **cannot interrupt a step mid-flight** — bounding that belongs to the step's own deadline and the queue worker's timeout. Three honest consequences:
 
@@ -210,9 +212,9 @@ With retry policy in place there are two attempt-related bounds. They are differ
 | Bound | Governs | Enforced by |
 |---|---|---|
 | `StepPolicy::maxAttempts` | **Failures** — thrown exceptions and timeouts | The runner, durably, via `attempts` |
-| `laraflow.recovery.abandon_after_attempts` (default 3) | **Interruptions** — stale claims, lost dispatches | `laraflow:recover`, which abandons rather than re-dispatching |
+| `laraflow.recovery.abandon_after_attempts` (default 3) | **Interruptions** — stale claims, lost dispatches; measured in step attempts and, for a fault before the first step, in claims that made no progress | `laraflow:recover`, which abandons rather than re-dispatching; an abandoned execution is cleared by `laraflow:execute` or `laraflow:cancel` |
 
-The due-retry scan is **exempt** from the abandonment bound: a scheduled retry's budget is its policy, and applying the interruption bound would strand every policy whose budget exceeds 3. Conversely the abandonment bound ignores retry policies — it is crash-loop protection, and handing stuck work to an operator is the safe default.
+The due-retry and due-wait scans are **exempt** from the abandonment bound: a scheduled retry's budget is its policy, and applying the interruption bound would strand every policy whose budget exceeds 3. Conversely the abandonment bound ignores retry policies — it is crash-loop protection, and handing stuck work to an operator is the safe default.
 
 **If your retry budgets exceed 3 and your steps also risk crashing workers, raise `abandon_after_attempts` to match.**
 

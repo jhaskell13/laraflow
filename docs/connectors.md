@@ -59,7 +59,7 @@ Instances are cached per connection until `forget()`. Because credentials are no
 | `credentials` | — | The connection's secrets, read per request by the `CredentialProvider` and **stripped** from the `Connection` the connector holds. |
 | `base_url` | the class | Point the same class at another host. |
 | `timeout`, `connect_timeout` | the class, then `laraflow.http.*` | Seconds. |
-| `headers` | merged over the class's | Sent with every request; a request's own headers win over both. |
+| `headers` | merged over the class's | Sent with every request; a request's own headers win over both. Names match case-insensitively at every layer: `accept` overrides `Accept`. |
 | `retries` | merged over `laraflow.http.retries` | In-attempt transport retries; see below. |
 | `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to; `false` lifts an inherited one. See below. |
 | `max_pages` | `laraflow.http.pagination.max_pages` | The page budget. |
@@ -186,7 +186,7 @@ Connector [github:default] received 404 for GET /repos/acme/missing: Not Found
 
 The provider's own explanation is taken from the usual JSON fields and truncated. Like every message Laraflow retains, it passes the configured `ErrorRedactor` before it reaches the execution record, a log, or an event.
 
-Two sharp edges, recorded at the Milestone 6 audit: `throw()` raises a generic `RequestFailedException` for **any** non-2xx the mapper declined to classify — including a `304 Not Modified`, which the mapper deliberately does not consider an error, so conditional-GET connectors should inspect rather than `throw()`. And header names merge **case-sensitively** at every layer: a connection configuring `accept:` under a class declaring `Accept:` sends both headers rather than overriding. Spell header names the way the layer below you spelled them.
+One sharp edge, recorded at the Milestone 6 audit: `throw()` raises a generic `RequestFailedException` for **any** non-2xx the mapper declined to classify — including a `304 Not Modified`, which the mapper deliberately does not consider an error, so conditional-GET connectors should inspect rather than `throw()`. (The audit's other edge — header names merging case-sensitively, so `accept:` under `Accept:` sent both — was closed in Milestone 7: every merge layer matches names case-insensitively, and the overriding layer wins the value and the spelling.)
 
 ## Retries and rate limits
 
@@ -218,7 +218,7 @@ When paginating, pass query parameters through `options['query']` rather than em
 
 ## What a call announces
 
-`ConnectorRequestSent` fires for every response the provider gave. Its `successful` flag reflects the **HTTP status alone**: the event is emitted by the outermost transport layer, before the connector's error mapper runs, so a `200` the mapper rejects (Slack's `ok: false`) is announced as successful — the mapped error lives on the response, not in this event. A listener that must count in-body failures should inspect responses, not this flag. `ConnectorRequestFailed` fires when there was no response at all — and `ConnectorRequestFailed` when there was no response at all. Both carry connector, connection, method, **path without the query string**, duration for the whole call, and wire attempts; neither carries headers, options, or bodies. The failure message is redacted and honours `laraflow.events.include_error_messages`. Neither carries a correlation id, deliberately: a connector may be called outside any workflow, and inside one Laravel's log context already has it.
+`ConnectorRequestSent` fires for every response the provider gave. Its `successful` flag is the connector's verdict, not the wire's: the error mapper runs inside the transport pipeline, before the observing layer emits the event, so a `200` the mapper rejects (Slack's `ok: false`) is announced with `successful: false` — the same answer `ConnectorResponse::successful()` gives the caller. `ConnectorRequestFailed` fires when there was no response at all. Both carry connector, connection, method, **path without the query string**, duration for the whole call, and wire attempts; neither carries headers, options, or bodies. The failure message is redacted and honours `laraflow.events.include_error_messages`. Neither carries a correlation id, deliberately: a connector may be called outside any workflow, and inside one Laravel's log context already has it.
 
 While a request is in flight, `laraflow.connector` and `laraflow.connection` join the log context, restored afterwards including on failure. `laraflow:connectors` lists what is configured, naming each connection's credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy. Details and listener recipes are in [inspection-and-observability.md](inspection-and-observability.md#connector-calls).
 
@@ -240,7 +240,7 @@ Connector tests run without credentials or network, always: fake HTTP with `Http
 
 It checks that the connector holds no credential, classifies every error status into the shared types, returns errors rather than throwing them, and keeps both the credential and the query string out of every message. It installs one HTTP fake with stray requests prevented, so a connector that reached the network fails rather than passing quietly; run it in a test that does not install its own `Http::fake()`. Provider-specific behaviour — Slack's `ok: false`, GitHub's rate-limit 403 — is yours to test alongside it.
 
-The harness works by stubbing Laravel's HTTP client, so it can only hold a connector that sends through it. A connector that overrides `transport()` with a client of its own is **refused up front** rather than assessed against requests the harness never saw: `assertHeldBy()` sends one probe first and fails if nothing reached the fake. If your connector has its own transport, fake that transport and assert these same behaviours directly.
+The harness works by stubbing Laravel's HTTP client, so it can only hold a connector that sends through it. A connector that overrides `transport()` with a client of its own is **refused first** rather than assessed against requests the harness never saw: `assertHeldBy()` sends one probe and fails if nothing reached the fake — which means that for such a connector the probe itself went to the real network, authenticated; run the contract against a sandbox credential. If your connector has its own transport, fake that transport and assert these same behaviours directly.
 
 The recipe for contributing a connector is in [CONTRIBUTING.md](../CONTRIBUTING.md#contributing-a-connector).
 
@@ -248,7 +248,7 @@ The recipe for contributing a connector is in [CONTRIBUTING.md](../CONTRIBUTING.
 
 - Put credentials under `connections.{name}.credentials`, in `.env`, or behind your own `CredentialProvider`. Never at the connector level; the configuration refuses it.
 - Run `laraflow:connectors --check` in your deploy pipeline. It builds every connector and exits non-zero if one cannot be, without sending a request.
-- Keep `http.timeout × retries.max_attempts` below any step deadline the request runs under, or the step is classified as timed out while a retry is still waiting.
+- Keep one logical call's worst case below any step deadline it runs under, or the step is classified as timed out while a retry is still waiting. That worst case is `max_attempts × (timeout + the larger of max_delay and max_retry_after + rate_limit.max_wait)`: each wire attempt may time out, then back off, and a throttled connection may also wait for a slot before every attempt.
 - Enable a step retry policy before enabling a client-side `rate_limit`. Without one, a throttle turns bursts into failures — honestly, but failures.
 - Treat a `PaginationException` on the page budget as a decision, not a nuisance. If the result set is genuinely that large, raise the budget for that call and handle items as they arrive.
 - Set `zend.exception_ignore_args=On` in production, and do not expose an exception renderer that displays frame arguments. Laraflow's frames are clean; the HTTP client's beneath them are not Laraflow's to clean.

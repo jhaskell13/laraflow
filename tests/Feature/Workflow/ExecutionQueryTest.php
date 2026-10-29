@@ -348,13 +348,13 @@ class ExecutionQueryTest extends TestCase
         foreach (array_slice($repository->steps($claimed), 0, 2) as $step) {
             $step->markRunning(new DateTimeImmutable);
             $step->markCompleted(['ok' => true], new DateTimeImmutable);
-            $repository->saveStep($step);
+            $repository->saveStep($claimed, $step);
         }
 
         $progress = $repository->stepProgress([$a->id, $b->id]);
 
-        $this->assertSame(['total' => 3, 'completed' => 2], $progress[(string) $a->id]);
-        $this->assertSame(['total' => 1, 'completed' => 0], $progress[(string) $b->id]);
+        $this->assertSame(['total' => 3, 'completed' => 2, 'skipped' => 0], $progress[(string) $a->id]);
+        $this->assertSame(['total' => 1, 'completed' => 0, 'skipped' => 0], $progress[(string) $b->id]);
     }
 
     public function test_step_progress_is_scoped_to_the_ids_asked_for(): void
@@ -366,7 +366,7 @@ class ExecutionQueryTest extends TestCase
         $progress = $repository->stepProgress([$mine->id]);
 
         $this->assertCount(1, $progress);
-        $this->assertSame(['total' => 1, 'completed' => 0], $progress[(string) $mine->id]);
+        $this->assertSame(['total' => 1, 'completed' => 0, 'skipped' => 0], $progress[(string) $mine->id]);
     }
 
     public function test_step_progress_omits_executions_with_no_steps(): void
@@ -512,7 +512,7 @@ class ExecutionQueryTest extends TestCase
         int $attempt,
         StepAttemptStatus $status,
     ): void {
-        $repository->saveStep($step, new StepAttempt(
+        $repository->saveStep($execution, $step, new StepAttempt(
             executionId: $execution->id,
             stepExecutionId: $step->id,
             attempt: $attempt,

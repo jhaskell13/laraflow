@@ -11,7 +11,9 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
 
 /**
  * Durable storage for workflow executions.
@@ -62,15 +64,18 @@ interface ExecutionRepository
      * Atomically claim an execution for this worker (compare-and-set).
      *
      * Succeeds when the execution is `pending`, `failed`, `retrying`
-     * with `next_retry_at` due (or $ignoreRetrySchedule set — the
+     * with `next_retry_at` due, `waiting` with a non-null, due
+     * `next_retry_at` (or, for both, $ignoreRetrySchedule set — the
      * deliberate operator override), or `running` with a claim older
      * than $staleAfterSeconds. Exactly one concurrent claimant can
-     * succeed.
+     * succeed. The returned handle's `resumedFrom` records the status
+     * the claim took the execution from.
      *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotRunnableException when the execution is completed or cancelled.
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
      * @throws RetryNotDueException when the execution is retrying before its due time.
+     * @throws ExecutionStillWaitingException when the execution is parked on a wait that is not due.
      */
     public function claim(
         int|string $id,
@@ -125,7 +130,7 @@ interface ExecutionRepository
      * as zero, so a caller can tell "no plan" from "nothing done".
      *
      * @param  list<int|string>  $ids
-     * @return array<string, array{total: int, completed: int}> keyed by execution id.
+     * @return array<string, array{total: int, completed: int, skipped: int}> keyed by execution id.
      */
     public function stepProgress(
         array $ids
@@ -193,12 +198,59 @@ interface ExecutionRepository
     ): array;
 
     /**
+     * Durably record a signal for an execution waiting on exactly that
+     * name: the payload becomes the waiting step's output and the
+     * execution becomes due immediately, in one transaction. Refused
+     * with SignalRefusedException when the execution is not waiting on
+     * that signal — resumed, timed out, finished, or a different name.
+     * A second signal before the execution resumes overwrites the
+     * payload: last delivery wins, as at-least-once sources require.
+     * The caller bounds and serializes the payload (see
+     * docs/advanced-workflows.md); recording does not deliver — the
+     * queue fast path and laraflow:recover do.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws SignalRefusedException
+     * @throws ExecutionNotFoundException
+     */
+    public function recordSignal(
+        int|string $id,
+        string $signal,
+        array $payload,
+        DateTimeImmutable $at
+    ): WorkflowExecution;
+
+    /**
+     * Waiting executions whose next event — a timed resume or a signal
+     * deadline — is at or before the cutoff. Indefinite signal waits
+     * (null next_retry_at) never appear; only a signal makes those
+     * claimable. Dispatching these is race-safe: the claim still
+     * decides which worker proceeds.
+     *
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @return WorkflowExecution[] ordered by next_retry_at ascending, at most $limit.
+     */
+    public function waitingDue(
+        DateTimeImmutable $dueBefore,
+        int $limit = 100,
+        ?string $workflow = null,
+        ?string $tenantId = null
+    ): array;
+
+    /**
      * Persist the step row and, when provided, append $attempt to the
-     * history in the same transaction. Pairing the writes is the point:
+     * history in the same transaction, verifying this worker still
+     * holds the claim on $execution. Pairing the writes is the point:
      * history that could commit without its step state (or vice versa)
-     * would be history that can lie.
+     * would be history that can lie. On claim loss nothing is written —
+     * a worker that has been reclaimed must not mark a step the new
+     * owner is running, nor append an attempt it no longer owns.
+     *
+     * @throws ClaimLostException
      */
     public function saveStep(
+        WorkflowExecution $execution,
         StepExecution $step,
         ?StepAttempt $attempt = null
     ): void;
@@ -337,13 +389,19 @@ interface ExecutionRepository
      *
      * Cancelling an already-cancelled execution is an idempotent no-op.
      *
+     * @param  DateTimeImmutable|null  $staleBefore  When given, a `running` execution
+     *                                               whose claim is older than this is treated as unclaimed
+     *                                               and cancelled outright — the claim() test, applied so an
+     *                                               abandoned execution can be cancelled.
+     *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotCancellableException when the execution has completed.
      */
     public function requestCancellation(
         int|string $id,
         ?string $reason,
-        DateTimeImmutable $at
+        DateTimeImmutable $at,
+        ?DateTimeImmutable $staleBefore = null
     ): WorkflowExecution;
 
     /**
@@ -356,7 +414,8 @@ interface ExecutionRepository
     ): array;
 
     /**
-     * Persist a claim-ending transition — completed, failed, or retrying
+     * Persist a claim-ending transition — completed, failed, cancelled,
+     * waiting, or retrying
      * (which waits unclaimed until its due time) — and release the claim,
      * verifying this worker still holds it.
      *

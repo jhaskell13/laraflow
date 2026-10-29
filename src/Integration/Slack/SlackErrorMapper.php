@@ -10,6 +10,7 @@ use Laraflow\Exceptions\Connector\NotFoundException;
 use Laraflow\Exceptions\Connector\RateLimitedException;
 use Laraflow\Exceptions\Connector\RequestFailedException;
 use Laraflow\Exceptions\Connector\ResponseDecodingException;
+use Laraflow\Exceptions\Connector\ServerErrorException;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
@@ -42,6 +43,14 @@ class SlackErrorMapper extends StatusErrorMapper
         'channel_not_found', 'user_not_found', 'users_not_found', 'message_not_found',
         'file_not_found', 'team_not_found', 'thread_not_found',
     ];
+
+    /**
+     * Slack's 5xx-equivalents inside a 200 envelope: transient provider
+     * failure, not a caller error.
+     *
+     * @var list<string>
+     */
+    protected const SERVER = ['internal_error', 'fatal_error', 'service_unavailable', 'request_timeout'];
 
     public function map(ConnectorRequest $request, ConnectorResponse $response, Connection $connection): ?RequestFailedException
     {
@@ -76,6 +85,7 @@ class SlackErrorMapper extends StatusErrorMapper
             in_array($code, self::AUTHENTICATION, true) => AuthenticationFailedException::class,
             in_array($code, self::NOT_FOUND, true) => NotFoundException::class,
             $code === 'ratelimited' || $code === 'rate_limited' => RateLimitedException::class,
+            in_array($code, self::SERVER, true) => ServerErrorException::class,
             default => ClientErrorException::class,
         };
 

@@ -55,13 +55,15 @@ Workers are ordinary Laravel workers — there is no Laraflow-specific worker co
 php artisan queue:work redis --queue=workflows
 ```
 
-> **If your queue connection is `sync`, nothing is asynchronous.** Laravel's `sync` driver — the default when `QUEUE_CONNECTION` is unset — runs a job immediately in the dispatching process, so `dispatch()` returns an execution that has *already finished* (or already thrown). This is Laravel's behaviour rather than Laraflow's, but it surprises people: if `dispatch()` seems to block, or a step's exception reaches your controller, check the connection first. It also inverts one event ordering: `WorkflowExecutionDispatched` describes the queue hand-off, which under `sync` *is* the run, so it fires after the execution's own lifecycle events. Everything else in this document other than worker timeouts applies unchanged — the claim, checkpoints, and recovery behave identically; only the process boundary differs.
+> **If your queue connection is `sync`, nothing is asynchronous.** Laravel's `sync` driver — Laravel 12 and 13 default `QUEUE_CONNECTION` to `database`, but `sync` is common in local and test environments — runs a job immediately in the dispatching process, so `dispatch()` returns an execution that has *already finished* (or already thrown). This is Laravel's behaviour rather than Laraflow's, but it surprises people: if `dispatch()` seems to block, or a step's exception reaches your controller, check the connection first. It also inverts one event ordering: `WorkflowExecutionDispatched` describes the queue hand-off, which under `sync` *is* the run, so it fires after the execution's own lifecycle events. Everything else in this document other than worker timeouts applies unchanged — the claim, checkpoints, and recovery behave identically; only the process boundary differs.
 
 ### `after_commit`
 
 `laraflow.queue.after_commit` defaults to `true`, so the job is pushed only once the surrounding database transaction commits. Without it, a worker can receive an execution id before the row that defines it is visible, and immediately fail to find it. Set it to `false` only if you never dispatch inside a transaction and want the lowest possible latency.
 
 This works correctly in tests that use `RefreshDatabase`: Laravel treats the wrapping test transaction as one that after-commit callbacks should ignore, so dispatched jobs are queued rather than held back.
+
+`WorkflowExecutionDispatched` follows the push. When the push is deferred to the commit, so is the event — registered through the same transaction manager, after the push's own callback — so a listener receives it once the job is genuinely on the queue and the execution row is visible to other connections. If the application rolls back, neither the job nor the event goes out. With `after_commit` off, both happen inside `dispatch()`.
 
 ## Retries: one system, not two
 
@@ -158,9 +160,10 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 | `stale claim` | `running`, with `claimed_at` older than `stale_after` (or null) | Always scanned |
 | `step timeout` | A stale claim whose interrupted step had also passed its deadline; the recovering worker charges that attempt to the step's retry policy | Always scanned |
 | `retry due` | `retrying`, with `next_retry_at` at or before now | Scanned unless `--skip-retries` |
+| `wait due` | `waiting`, with `next_retry_at` at or before now — a timed resume, a signal deadline, a recorded signal, or a sub-workflow heartbeat | Scanned unless `--skip-retries` |
 | `never dispatched` | `pending`, created more than `pending_after` ago | **Off** — opt in |
 
-Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight.
+Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight; abandoned and unrecoverable candidates are reported but do not consume the budget of the scans that follow, so a backlog of stuck work cannot starve due retries and waits. Note that `--skip-retries` withholds due *waits* as well as due retries: it reduces recovery to interrupted and lost work only.
 
 The pending scan is off by default on purpose. `pending` is not only the state of a lost dispatch; it is also the state of an execution created with `start()` and deliberately not yet run. Recovery must never start work the application was intentionally holding. Enable it — with `--pending-after=300` or `laraflow.recovery.pending_after` — only if every pending execution in your application is meant to run immediately.
 
@@ -186,11 +189,12 @@ The pending scan is off by default on purpose. `pending` is not only the state o
 
 Scheduled recovery that blindly re-dispatches would retry a crash-looping workflow until something gives. Three bounds prevent that:
 
-1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across both scans (stale work first, pending work fills the remainder).
-2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable — recovery needs no extra state to be bounded. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
+1. **Per-run limit.** At most `--limit` executions are handled per invocation, shared across all scans (stale work first, then due retries and waits, pending work last).
+2. **Attempt bound.** An *interrupted* execution whose steps have reached `--abandon-after` (default 3) is reported as **abandoned** and is *not* retried. The bound uses the highest step `attempts` value, which is already durable. Due retries are deliberately exempt: their bound is the step's own policy budget, enforced by the runner ([why](retry-and-failure-policy.md#two-bounds-two-jobs)).
+   The same bound is also held against `fruitless_claims` — the number of consecutive claims on the execution that ended before any step row was written. A fault *between* claiming and the first step (a listener throwing on `WorkflowExecutionStarted`, a workflow whose steps no longer match the persisted plan) never moves the step attempt counter, so without this second measure it would be re-dispatched by every run forever. The report names which measure tripped: `abandoned (reached 3 step attempts)` or `abandoned (was claimed 3 times without reaching a step)`. See [execution-lifecycle.md](execution-lifecycle.md#claiming-and-concurrency).
 3. **Missing-class bound.** An execution whose recorded workflow class no longer exists is reported as **unrecoverable** and is never dispatched. This bound exists because such a retry fails *before* any step runs — attempts never increment, so the attempt bound alone could never stop the scheduler from re-queueing it (and filling `failed_jobs`) forever. Restore or redeploy the class, or handle the execution manually.
 
-Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned or any recovery action failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried.
+Abandoned executions are reported on every run, and the command exits with status `1` whenever anything was abandoned, unrecoverable, or failed — including under `--dry-run` — so a scheduled run surfaces stuck work through your existing scheduler failure alerts. They are never silently dropped and never silently retried. To clear one, re-run it deliberately with `laraflow:execute`, or cancel it: `laraflow:cancel` treats a stale claim as unclaimed, so an abandoned execution is cancelled outright rather than left with a request no worker will honour.
 
 An operator deliberately overriding the bound uses the per-execution command, which has no attempt bound:
 
@@ -206,7 +210,7 @@ php artisan laraflow:execute 42 --queue  # or hand it to a worker
 | Id | Workflow     | Status  | Reason          | Attempts | Since               | Action                           |
 +----+--------------+---------+-----------------+----------+---------------------+----------------------------------+
 | 17 | DemoWorkflow | running | stale claim     | 1        | 2026-10-22 10:00:00 | dispatched                       |
-| 23 | DemoWorkflow | running | stale claim     | 3        | 2026-10-22 09:14:02 | abandoned (max attempts reached) |
+| 23 | DemoWorkflow | running | stale claim     | 3        | 2026-10-22 09:14:02 | abandoned (reached 3 step attempts) |
 | 24 | DemoWorkflow | pending | never dispatched| 0        | 2026-10-22 09:02:11 | dispatched                       |
 +----+--------------+---------+-----------------+----------+---------------------+----------------------------------+
 
@@ -216,7 +220,7 @@ php artisan laraflow:execute 42 --queue  # or hand it to a worker
          then re-run deliberately with: laraflow:execute <id>
 ```
 
-`Since` is when the interruption began — the claim time for stale work, the creation time for never-dispatched work. The summary line counts dispatched, ran, abandoned, skipped, and failed executions. *Skipped* means the execution completed or was claimed by a live worker between the scan and the action; those races are expected and harmless.
+`Since` is when the interruption began — the claim time for stale work, the creation time for never-dispatched work. The summary line counts dispatched, ran, abandoned, unrecoverable, skipped, and failed executions. *Skipped* means the execution completed or was claimed by a live worker between the scan and the action; those races are expected and harmless.
 
 ## Lifecycle events
 
@@ -227,13 +231,16 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionDispatched` | An execution was handed to the queue. |
 | `WorkflowExecutionStarted` | A worker claimed an execution and is about to run it. |
 | `WorkflowStepStarted` | A step was marked running. |
-| `WorkflowStepCompleted` | A step's checkpoint committed. |
+| `WorkflowStepCompleted` | A step's checkpoint committed — including a wait resolving. |
+| `WorkflowStepSkipped` | A conditional step's condition answered false and the skip was durably recorded. |
+| `WorkflowStepWaiting` | A step returned a `Wait` and the execution durably parked. |
 | `WorkflowStepFailed` | A step's failure was persisted. |
 | `WorkflowStepRetryScheduled` | A step's retry policy durably scheduled another attempt — with why and when. |
 | `WorkflowExecutionCompleted` | The execution was marked completed. Fires once. |
 | `WorkflowExecutionFailed` | The execution was marked failed. **Terminal only** — never for a scheduled retry. |
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `never_dispatched`). |
+| `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
 
 Two properties hold for all of them:
 
@@ -275,13 +282,12 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 
 ## Known limits (recorded at the Milestone 6 audit)
 
-- **`WorkflowExecutionDispatched` can fire before anything is durable.** With `laraflow.queue.after_commit` (the default) and `dispatch()` called inside an application transaction, the job push is correctly deferred to the commit — but the event is emitted when `dispatch()` returns, which is before that commit. A listener that reads the database on this event may find nothing yet, and if the application rolls back, the event has announced an execution that never existed. Treat it as "a dispatch was requested", not "a dispatch is durable"; every other lifecycle event fires after its durable write.
-- **The abandon bound does not cover the claim-to-first-step window.** See *Known limits of the claim discipline* in [execution-lifecycle.md](execution-lifecycle.md): a deterministic fault in that window is re-dispatched on every recovery run rather than abandoned.
+The audit recorded that `WorkflowExecutionDispatched` could fire before the transaction its push waited for had committed. Closed in Milestone 7: the event is now deferred through the same mechanism as the push (see [`after_commit`](#after_commit)), so every lifecycle event fires after its durable write.
 
 ## Operational checklist
 
 - Run workers for the queue you configured: `php artisan queue:work --queue=workflows`.
-- Schedule `laraflow:recover` with `withoutOverlapping()`. With retries enabled it is not only a repair tool — it is the contractual delivery path for due retries.
+- Schedule `laraflow:recover` with `withoutOverlapping()`. It is not only a repair tool — it is the contractual delivery path for due retries, due waits, recorded signals, and sub-workflow heartbeats; wait-based workflows need it even with retries disabled.
 - Keep `queue.timeout` below `execution.stale_after`.
 - Alert on a non-zero exit from `laraflow:recover` — it means work was abandoned or a recovery action failed.
 - Watch `failed_jobs` for step failures and definition mismatches; `laraflow:list --status=failed` shows the same from Laraflow's side.

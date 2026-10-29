@@ -49,6 +49,20 @@ class QueueRecoveryTest extends TestCase
     // Exit criterion: start asynchronously, inspect, complete
     // ------------------------------------------------------------------
 
+    public function test_the_job_is_pushed_only_once_the_surrounding_transaction_commits(): void
+    {
+        // Asserted against the real database queue, not a fake's
+        // recorded property: inside the transaction no row exists for a
+        // worker to pick up; after it, exactly one does.
+        DB::transaction(function (): void {
+            $this->app->make(WorkflowDispatcher::class)->dispatch(new TwoStepWorkflow);
+
+            $this->assertSame(0, DB::table('jobs')->count(), 'A worker must not see the job before the execution row is visible.');
+        });
+
+        $this->assertSame(1, DB::table('jobs')->count());
+    }
+
     public function test_an_execution_dispatched_to_the_queue_is_run_by_a_worker(): void
     {
         $execution = $this->app->make(WorkflowDispatcher::class)
@@ -221,7 +235,7 @@ class QueueRecoveryTest extends TestCase
             ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover');
 
             $this->assertSame(CommandStatus::FAILURE, $status, 'Abandoned work must surface to the scheduler.');
-            $this->assertStringContainsString('abandoned (max attempts reached)', $output);
+            $this->assertStringContainsString('abandoned (reached 3 step attempts)', $output);
             $this->assertStringContainsString('laraflow:execute', $output);
             $this->assertSame(0, DB::table('jobs')->count(), 'An abandoned execution must never be re-queued.');
         }

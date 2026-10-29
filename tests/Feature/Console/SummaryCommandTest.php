@@ -101,6 +101,29 @@ class SummaryCommandTest extends TestCase
         $this->assertStringContainsString('laraflow:recover', $output);
     }
 
+    public function test_every_scoped_workflow_gets_the_attention_scan(): void
+    {
+        Date::setTestNow('2026-10-01 09:00:00');
+
+        $this->runner()->run(new DemoWorkflow, $this->input());
+        $other = $this->runner()->run(new \Laraflow\Tests\Support\TwoStepWorkflow);
+
+        // Only the second workflow has a retry due.
+        WorkflowExecutionModel::query()->whereKey($other->id)->update([
+            'status' => ExecutionStatus::Retrying->value,
+            'next_retry_at' => '2026-10-01 08:59:00',
+            'finished_at' => null,
+        ]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary', [
+            '--workflow' => [DemoWorkflow::class, \Laraflow\Tests\Support\TwoStepWorkflow::class],
+        ]);
+
+        // Scoping to two workflows must check both, not the first only.
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('1 retry is due now', $output);
+    }
+
     public function test_a_due_retry_outside_the_scope_is_not_reported(): void
     {
         Date::setTestNow('2026-10-01 09:00:00');

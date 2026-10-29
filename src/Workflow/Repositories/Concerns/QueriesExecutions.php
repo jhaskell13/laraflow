@@ -87,11 +87,13 @@ trait QueriesExecutions
         }
 
         $completed = StepStatus::Completed->value;
+        $skipped = StepStatus::Skipped->value;
 
-        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int}> $rows */
+        /** @var \Illuminate\Support\Collection<int, object{workflow_execution_id: int|string, total: int, completed: int, skipped: int}> $rows */
         $rows = StepExecutionModel::query()
             ->selectRaw('workflow_execution_id, count(*) as total')
             ->selectRaw('sum(case when status = ? then 1 else 0 end) as completed', [$completed])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as skipped', [$skipped])
             ->whereIn('workflow_execution_id', $ids)
             ->groupBy('workflow_execution_id')
             ->get();
@@ -102,6 +104,7 @@ trait QueriesExecutions
             $progress[(string) $row->workflow_execution_id] = [
                 'total' => (int) $row->total,
                 'completed' => (int) $row->completed,
+                'skipped' => (int) $row->skipped,
             ];
         }
 
@@ -158,6 +161,20 @@ trait QueriesExecutions
             ))
             ->when($filter->correlationId !== null, fn (Builder $q) => $q->where('correlation_id', $filter->correlationId))
             ->when($filter->tenantId !== null, fn (Builder $q) => $q->where('tenant_id', $filter->tenantId))
+            ->when($filter->parentId !== null, fn (Builder $q) => $q->where('parent_execution_id', $filter->parentId))
+            // A finished window with no status filter means "finished
+            // executions in this window": saying so in SQL lets the
+            // (status, finished_at) index serve it — without the status
+            // predicate the window alone is a full table scan on every
+            // engine, the one shape this filter design exists to forbid.
+            ->when(
+                $filter->statuses === null && ($filter->finishedAfter !== null || $filter->finishedBefore !== null),
+                fn (Builder $q) => $q->whereIn('status', [
+                    ExecutionStatus::Completed->value,
+                    ExecutionStatus::Failed->value,
+                    ExecutionStatus::Cancelled->value,
+                ]),
+            )
             // Half-open windows: inclusive start, exclusive end.
             ->when($filter->createdAfter !== null, fn (Builder $q) => $q->where('created_at', '>=', $filter->createdAfter))
             ->when($filter->createdBefore !== null, fn (Builder $q) => $q->where('created_at', '<', $filter->createdBefore))

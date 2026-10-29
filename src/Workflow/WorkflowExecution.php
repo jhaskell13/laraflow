@@ -17,13 +17,22 @@ use Laraflow\Support\Duration;
  *   pending → running → completed
  *   pending → running → failed → running (re-execute)
  *   running → retrying → running (scheduled retry, once due)
+ *   running → waiting → running (a step's wait, resolved or due)
  *   running → running (stale reclaim by another worker)
- *   pending | running | failed | retrying → cancelled (terminal)
+ *   pending | running | failed | retrying | waiting → cancelled (terminal)
  *
  * Application code should treat all properties as read-only.
  */
 class WorkflowExecution
 {
+    /**
+     * The status this execution was in when the current claim took it —
+     * set by the repository on claim(), never persisted. The runner reads
+     * it to tell an operator's re-execution of a failed execution from a
+     * resume after a retry or a wait.
+     */
+    public ?ExecutionStatus $resumedFrom = null;
+
     /**
      * @param  array<string, mixed>  $input
      * @param  array<string, mixed>  $context
@@ -48,10 +57,13 @@ class WorkflowExecution
         public ?string $cancelReason = null,
         public readonly ?string $correlationId = null,
         public readonly ?string $tenantId = null,
+        public readonly int|string|null $parentExecutionId = null,
+        public readonly int|string|null $parentStepExecutionId = null,
         public ?DateTimeImmutable $dispatchedAt = null,
         public ?DateTimeImmutable $availableAt = null,
         public ?DateTimeImmutable $finishedAt = null,
         public ?DateTimeImmutable $payloadsScrubbedAt = null,
+        public readonly int $fruitlessClaims = 0,
         protected ?int $persistedDurationMs = null,
     ) {}
 
@@ -61,6 +73,7 @@ class WorkflowExecution
             ExecutionStatus::Pending,
             ExecutionStatus::Failed,
             ExecutionStatus::Retrying,
+            ExecutionStatus::Waiting,
             ExecutionStatus::Running,
         ]);
 
@@ -127,6 +140,30 @@ class WorkflowExecution
     }
 
     /**
+     * A step returned a Wait: park, with next_retry_at as the next
+     * instant anything can happen — a timed wait's resume, a bounded
+     * signal wait's deadline, or null for an indefinite signal wait.
+     * The error columns clear: waiting is not an error state, and a
+     * prior retry's diagnosis must not outlive the attempt it described.
+     */
+    public function markWaiting(?DateTimeImmutable $nextEventAt): void
+    {
+        $this->assertTransition(ExecutionStatus::Waiting, [
+            ExecutionStatus::Running,
+        ]);
+
+        $this->status = ExecutionStatus::Waiting;
+        $this->nextRetryAt = $nextEventAt;
+        $this->error = null;
+        $this->errorClass = null;
+    }
+
+    public function isWaiting(): bool
+    {
+        return $this->status === ExecutionStatus::Waiting;
+    }
+
+    /**
      * Cancellation is terminal and valid from every non-terminal state.
      * A `running` execution reaches here cooperatively: the owning
      * worker notices the request at a step boundary and transitions.
@@ -138,6 +175,7 @@ class WorkflowExecution
             ExecutionStatus::Running,
             ExecutionStatus::Failed,
             ExecutionStatus::Retrying,
+            ExecutionStatus::Waiting,
         ]);
 
         $this->status = ExecutionStatus::Cancelled;

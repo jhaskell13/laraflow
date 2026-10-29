@@ -53,6 +53,26 @@ trait ScansForRecovery
             ->all();
     }
 
+    public function waitingDue(
+        DateTimeImmutable $dueBefore,
+        int $limit = 100,
+        ?string $workflow = null,
+        ?string $tenantId = null
+    ): array {
+        return WorkflowExecutionModel::query()
+            ->where('status', ExecutionStatus::Waiting->value)
+            ->whereNotNull('next_retry_at')
+            ->where('next_retry_at', '<=', $dueBefore)
+            ->when($workflow !== null, fn ($query) => $query->where('workflow', $workflow))
+            ->when($tenantId !== null, fn ($query) => $query->where('tenant_id', $tenantId))
+            ->orderBy('next_retry_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
+            ->all();
+    }
+
     public function dueForRetry(
         DateTimeImmutable $dueBefore,
         int $limit = 100,

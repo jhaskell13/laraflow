@@ -202,7 +202,9 @@ class ConnectorRegistryTest extends TestCase
     {
         $registry = $this->registry([]);
 
-        foreach (['', 'has space', "new\nline"] as $name) {
+        // Dots would nest the credential path; colons collide in the
+        // connector:connection key that names cache slots and buckets.
+        foreach (['', 'has space', "new\nline", 'eu.prod', 'a:b'] as $name) {
             try {
                 $registry->register($name, RecordingConnector::class);
                 $this->fail("Expected [{$name}] to be refused.");

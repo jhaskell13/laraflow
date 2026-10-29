@@ -61,11 +61,14 @@ class MigrationTest extends TestCase
                     'cancel_reason',
                     'correlation_id',
                     'tenant_id',
+                    'parent_execution_id',
+                    'parent_step_execution_id',
                     'dispatched_at',
                     'available_at',
                     'finished_at',
                     'duration_ms',
                     'payloads_scrubbed_at',
+                    'fruitless_claims',
                     'created_at',
                     'updated_at',
                 ]
@@ -94,6 +97,7 @@ class MigrationTest extends TestCase
                     'failed_at',
                     'timeout_at',
                     'next_retry_at',
+                    'wait_signal',
                     'created_at',
                     'updated_at',
                 ]

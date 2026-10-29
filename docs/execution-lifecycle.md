@@ -9,7 +9,7 @@ The two that run anything (`execute()` and `run()`) do so in the calling process
 | Method | Behaviour |
 |--------|-----------|
 | `start(Workflow $workflow, array $input = [], ?ExecutionOptions $options = null): WorkflowExecution` | Validates the input against the serialization contract and the step list against the definition rules (non-empty; every entry an existing class implementing `Step`, else `InvalidWorkflowDefinitionException`), then atomically creates the execution (status `pending`) **and one `pending` step row per step in the definition**. Runs nothing; on validation failure nothing is persisted. `$options` records the correlation and tenant identifiers described in [Correlation identifiers](#correlation-identifiers). |
-| `execute(int\|string $executionId, Workflow $workflow, bool $ignoreRetrySchedule = false): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` in position order, checkpoints after each, and marks the execution terminal. Used for first execution *and* for recovery — there is one code path. `$ignoreRetrySchedule` claims a `retrying` execution before its due time (the operator override behind `laraflow:execute --now`). |
+| `execute(int\|string $executionId, Workflow $workflow, bool $ignoreRetrySchedule = false): WorkflowExecution` | Claims the execution, validates the definition against the persisted plan, restores the context, runs every step that is not `completed` or `skipped` in position order, checkpoints after each, and brings the execution to its resting state — terminal, `retrying`, or `waiting` (a step that returned a `Wait` parks it; see [advanced-workflows.md](advanced-workflows.md)). Used for first execution *and* for recovery — there is one code path. `$ignoreRetrySchedule` claims a `retrying` execution before its due time and resumes a *timed* wait early (the operator override behind `laraflow:execute --now`). |
 | `run(Workflow $workflow, array $input = [], ?ExecutionOptions $options = null): WorkflowExecution` | `start()` followed by `execute()` in the same process. |
 | `cancel(int\|string $executionId, ?string $reason = null): WorkflowExecution` | Cancels an execution, or requests cooperative cancellation from the worker that owns it. See [retry-and-failure-policy.md](retry-and-failure-policy.md#cancellation). |
 
@@ -26,9 +26,10 @@ pending ──→ running ──→ completed   (terminal)
             failed                  (re-executable)
 
 running ──→ retrying ──→ running    (scheduled retry, once next_retry_at is due)
+running ──→ waiting  ──→ running    (a step's wait: resolved, due, or heartbeat)
 running ──→ running                 (stale reclaim by another worker)
 
-pending | running | failed | retrying ──→ cancelled   (terminal)
+pending | running | failed | retrying | waiting ──→ cancelled   (terminal)
 ```
 
 ### Step
@@ -39,9 +40,13 @@ pending ──→ running ──→ completed   (terminal)
               ▼ │
             failed                  (re-run on execute)
 
+pending ──→ skipped                 (conditional step; terminal, replayed from the record)
+running ──→ waiting ──→ completed   (wait resolved) | failed | retrying (wait timed out)
 running ──→ retrying ──→ running    (scheduled retry)
 running ──→ running                 (interrupted step re-run)
 ```
+
+The `skipped` and `waiting` machinery — conditions, waits, signals, and sub-workflows — is specified in [advanced-workflows.md](advanced-workflows.md); this document's claiming, checkpointing, and recovery rules apply to them unchanged.
 
 Transitions are enforced by `WorkflowExecution::mark*()` and `StepExecution::mark*()`; anything else throws `InvalidStateTransitionException`. `attempts` increments on every step `running` transition. The *execution's* `started_at` records the first start and is preserved across re-executions; a *step's* `started_at` is rewritten on each attempt, so together with `attempts` it describes the most recent run. Completing clears a previous `error`/`error_class`.
 
@@ -65,33 +70,32 @@ There is no workflow-version migration mechanism yet. If a workflow definition m
 
 `execute()` claims the execution with a single compare-and-set `UPDATE`:
 
-- Claimable: status `pending`, `failed`, `retrying` whose `next_retry_at` is due (or with the `ignoreRetrySchedule` override), or `running` with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds). `completed` and `cancelled` are terminal and never claimable.
+- Claimable: status `pending`, `failed`, `retrying` whose `next_retry_at` is due (or with the `ignoreRetrySchedule` override), `waiting` whose `next_retry_at` is non-null and due — a null instant is an indefinite signal wait, claimable only once a signal sets one (or under the override) — or `running` with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds). `completed` and `cancelled` are terminal and never claimable.
 - The update sets `status = running`, a random 32-hex-char `claim_token`, `claimed_at = now`, and clears `next_retry_at`.
-- Zero affected rows means the claim failed; the repository then reports *why*: `ExecutionNotFoundException`, `ExecutionAlreadyClaimedException` (fresh claim held elsewhere), `RetryNotDueException` (retrying, but not yet due), or `ExecutionNotRunnableException` (terminal status).
+- Zero affected rows means the claim failed; the repository then reports *why*: `ExecutionNotFoundException`, `ExecutionAlreadyClaimedException` (fresh claim held elsewhere), `RetryNotDueException` (retrying, but not yet due), `ExecutionStillWaitingException` (parked on a wait that is not due — indefinitely, for an unsignalled signal wait), or `ExecutionNotRunnableException` (terminal status).
 
 Cancellation of an unclaimed execution uses the same compare-and-set predicate, so cancelling cannot race a worker claiming it: whichever `UPDATE` lands first, the other is refused.
 
 Because claiming is one guarded `UPDATE`, exactly one of any number of concurrent claimants succeeds on every supported engine, including SQLite (single writer) and MySQL/PostgreSQL/MariaDB (row-locked atomic update). No advisory locks or `SELECT ... FOR UPDATE` are required.
 
-**Claim verification on writes.** Checkpoints and terminal transitions include `WHERE claim_token = <mine>`. If another worker has legitimately reclaimed a stale execution, the old worker's write matches zero rows and it receives `ClaimLostException`; the checkpoint transaction rolls back entirely, so a zombie worker cannot corrupt a reclaimed execution's durable state. Interim step-status writes (`running` markers) are not token-guarded; they are diagnostic and are rewritten by the active owner.
+**Claim verification on writes.** Every durable write a worker makes after claiming — step `running` markers, step failures and retry schedules, attempt-history rows, checkpoints, and terminal transitions — is made in a transaction that includes `WHERE claim_token = <mine>` on the executions row. If another worker has legitimately reclaimed a stale execution, the old worker's write matches zero rows and it receives `ClaimLostException`; the transaction rolls back entirely, step row and attempt row included, so a zombie worker cannot corrupt a reclaimed execution's durable state. The step rows carry no claim column of their own: `saveStep()` verifies the claim by touching the executions row in the same transaction, which is what makes a step write by a dead worker fail rather than land.
 
 **Worker death.** A dead worker leaves `status = running` with an aging `claimed_at`. After `stale_after` seconds the execution becomes claimable again and `execute()` recovers it. Set `stale_after` comfortably above your longest step; a too-short value makes two live workers fight, which the claim token turns from corruption into a `ClaimLostException` on the loser. Finding such executions automatically is the job of `laraflow:recover` — see [docs/queue-and-recovery.md](queue-and-recovery.md#recovering-interrupted-work).
 
+**Claims that make no progress.** Every claim increments `fruitless_claims` on the executions row, and it is zeroed by the first step-row write under that claim and by every orderly `release()` — a park, a scheduled retry, a terminal transition — in the same guarded `UPDATE` that verifies the claim, so it costs nothing extra. A heartbeat that claims a waiting execution, consults its child, and parks it again is deliberate work, not a fruitless claim. A worker that faults *between* claiming and its first step write (a listener throwing on `WorkflowExecutionStarted`, a definition that no longer matches the persisted plan) leaves the counter standing, and the step attempt counter — which recovery's abandonment bound otherwise reads — never moves. `laraflow:recover` therefore holds `fruitless_claims` to the same bound as step attempts (`recovery.abandon_after_attempts`), so such an execution is abandoned and reported after that many claims rather than re-dispatched by every run forever. `laraflow:show` surfaces the count when it exceeds one.
+
 ## Checkpoints and context
 
-The context is seeded from the workflow input (`array_merge(input, persisted context)`), handed to each step, and persisted at every checkpoint:
+The context is seeded from the workflow input (`array_replace(input, persisted context)` — the persisted context wins key by key, and integer keys survive), handed to each step, and persisted at every checkpoint:
 
 1. Step completes → in one database transaction: the step row is updated to `completed` with its output, the attempt is appended to `laraflow_step_attempts`, and the execution row's `context` column is updated to the full context snapshot, guarded by the claim token.
 2. On recovery, the context is rebuilt from `input` + the persisted `context` column — not by re-running steps. Completed steps are skipped and their contribution to the context is exactly what the checkpoint recorded.
 
 Because the step output and context snapshot commit atomically, there is no reachable state where a step is `completed` but its context contribution is missing.
 
-### Known limits of the claim discipline (recorded at the Milestone 6 audit)
+### Limits closed since the Milestone 6 audit
 
-Two windows exist where the claim does not protect everything, both bounded, both candidates for hardening before 1.0:
-
-- **Step rows are last-writer-wins until the next checkpoint.** Only the executions row is compare-and-set on every write; `saveStep()` writes the step row by id. A worker stalled past `stale_after` whose execution is reclaimed will have its *next* step-row write land (marking a step the new worker owns as running/failed, or appending a stale attempt row) before its first checkpoint or release fails with `ClaimLostException` and stops it. The executions row — status, context, outcome — is never corrupted this way; the blast radius is step-row status and attempt history written by a worker that is already dead by contract.
-- **A deterministic fault between `claim()` and the first step write recurs unbounded.** The abandon bound counts durable step attempts, and a worker that fails after claiming but before `startStep()` (a fatal while building the plan, a listener throwing on `WorkflowExecutionStarted`, a definition mismatch) leaves attempts at zero, so `laraflow:recover` will re-dispatch it every run, each occupying a claim for `stale_after`. Watch for an execution whose `claimed_at` keeps advancing while its attempt count stays at zero.
+The audit recorded two windows where the claim did not protect everything. Both are closed in Milestone 7 and kept here so the record of the contract's evolution stays with the contract: step rows were last-writer-wins until a dead worker's first checkpoint failed (closed by claim-guarding `saveStep()`, under *Claim verification on writes*), and a deterministic fault between `claim()` and the first step write was re-dispatched by recovery without bound (closed by the `fruitless_claims` counter, under *Claims that make no progress*).
 
 ## Persistence boundaries and the at-least-once contract
 
@@ -105,6 +109,9 @@ The persistence boundaries in one step iteration, and what a crash at each one m
 | **After `handle()`, before checkpoint commit** | Step `running` | **Step re-runs. Side effects happened once and will happen again.** |
 | After checkpoint commit | Step `completed`, context and attempt history updated | Step is skipped; later steps see its context. |
 | After last checkpoint, before release | All steps `completed`, execution `running` | No steps re-run; execution is marked `completed`. |
+| After a park's checkpoint, before its release | Step `waiting`, execution `running` with a stale claim | The reclaiming worker finds the wait not due and parks the execution again; nothing re-runs. |
+| After a terminal failure's step write, before its release | Step `failed` at its last attempt, execution `running` with a stale claim | The reclaiming worker re-runs the failed step once more before the policy refuses it — one attempt past the budget, side effects included. |
+| After a scheduled retry's step write, before its release | Step `retrying` with `next_retry_at`, execution `running` with a stale claim | The reclaiming worker (after `stale_after`) re-runs the step without honouring the backoff; the dependency the backoff protects is hit early when `stale_after` is shorter than the delay. |
 
 The bold row is the at-least-once contract: **Laraflow guarantees each step's checkpoint commits at most once, but the step's side effects can occur more than once** when a worker dies between performing them and checkpointing. No framework can remove this window for arbitrary external calls. A retry policy widens it deliberately — re-running a failed step is the point — which is why idempotency matters more, not less, once retries are enabled.
 
@@ -172,6 +179,8 @@ If persisting the failure *itself* fails (storage down), the storage exception i
 | `failed` execution | Claims it, skips `completed` steps, re-runs the failed step (attempts accumulate). |
 | `retrying`, due | Claims it and runs the scheduled retry. |
 | `retrying`, before `next_retry_at` | `RetryNotDueException` (override with `ignoreRetrySchedule` / `--now`). |
+| `waiting`, due (timed resume, signal delivered, deadline, or heartbeat) | Claims it and resolves the wait: completes the step, charges the timeout, or parks again. |
+| `waiting`, not due or indefinite | `ExecutionStillWaitingException` (`--now` resumes a timed wait early; a signal wait has nothing to resume with and parks again). |
 | `running`, fresh claim | `ExecutionAlreadyClaimedException`. |
 | `running`, stale claim | Reclaims and continues from durable state. An interrupted step past its deadline is charged as a timeout rather than re-run free; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts). |
 | `completed` or `cancelled` execution | `ExecutionNotRunnableException`. |

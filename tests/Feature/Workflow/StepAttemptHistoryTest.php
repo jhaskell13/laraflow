@@ -36,7 +36,7 @@ class StepAttemptHistoryTest extends TestCase
         $step->markRunning(new DateTimeImmutable('2026-10-23 10:00:00'));
         $step->markFailed('boom', RuntimeException::class, new DateTimeImmutable('2026-10-23 10:00:02'));
 
-        $repository->saveStep($step, new StepAttempt(
+        $repository->saveStep($execution, $step, new StepAttempt(
             executionId: $execution->id,
             stepExecutionId: $step->id,
             attempt: 1,
@@ -62,11 +62,11 @@ class StepAttemptHistoryTest extends TestCase
 
     public function test_save_step_without_an_attempt_writes_no_history(): void
     {
-        [$repository, , $step] = $this->claimedExecutionWithFirstStep();
+        [$repository, $execution, $step] = $this->claimedExecutionWithFirstStep();
 
         // A `running` marker is not a finished attempt.
         $step->markRunning(new DateTimeImmutable);
-        $repository->saveStep($step);
+        $repository->saveStep($execution, $step);
 
         $this->assertSame(0, StepAttemptModel::query()->count());
     }
@@ -100,7 +100,7 @@ class StepAttemptHistoryTest extends TestCase
 
         // Recorded out of order on purpose; attempts() must sort.
         foreach ([2, 1] as $attempt) {
-            $repository->saveStep($step, new StepAttempt(
+            $repository->saveStep($execution, $step, new StepAttempt(
                 executionId: $execution->id,
                 stepExecutionId: $step->id,
                 attempt: $attempt,
@@ -122,7 +122,7 @@ class StepAttemptHistoryTest extends TestCase
     {
         [$repository, $execution, $step] = $this->claimedExecutionWithFirstStep();
 
-        $record = fn () => $repository->saveStep($step, new StepAttempt(
+        $record = fn () => $repository->saveStep($execution, $step, new StepAttempt(
             executionId: $execution->id,
             stepExecutionId: $step->id,
             attempt: 1,
@@ -186,7 +186,7 @@ class StepAttemptHistoryTest extends TestCase
     {
         [$repository, $execution, $step] = $this->claimedExecutionWithFirstStep();
 
-        $repository->saveStep($step, new StepAttempt(
+        $repository->saveStep($execution, $step, new StepAttempt(
             executionId: $execution->id,
             stepExecutionId: $step->id,
             attempt: 1,

@@ -44,6 +44,11 @@ class UpgradePathTest extends TestCase
             File::deleteDirectory($this->path);
         }
 
+        // DDL commits the test transaction on MySQL and MariaDB, so the
+        // rows these tests insert would otherwise survive into the next
+        // test's "empty" table. Explicit, like the column rollback above.
+        WorkflowExecutionModel::query()->delete();
+
         parent::tearDown();
     }
 
@@ -103,6 +108,46 @@ class UpgradePathTest extends TestCase
 
         $stored = WorkflowExecutionModel::query()->findOrFail($execution->id);
         $this->assertSame(['customer_id' => 42], $stored->input);
+    }
+
+    public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
+    {
+        // The Milestone 7 migrations, exercised the way an installed
+        // application meets them: rows written under the frozen schema,
+        // then the new migrations applied — simulated by rolling them
+        // back first, since the harness installs every migration up
+        // front. One rollback step per post-freeze migration — four.
+        $execution = $this->app->make(ExecutionRepository::class)->create(
+            workflow: 'App\\Workflows\\SyncCustomer',
+            input: ['customer_id' => 42],
+            steps: ['App\\Steps\\LoadCustomer'],
+        );
+
+        $this->command('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
+        $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'Steps back are migrations, not the batch.');
+        $this->assertSame(1, WorkflowExecutionModel::query()->count(), 'Rolling the upgrade back keeps the install.');
+
+        // Migrate back up before the test ends: MySQL and MariaDB commit
+        // on DDL, so the rest of the suite would otherwise run without
+        // the columns regardless of engine.
+        $this->command('migrate', ['--force' => true])->assertSuccessful();
+
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
+
+        // A row that predates the column has made no fruitless claims,
+        // and the package reads it that way without a coalesce.
+        $this->assertSame(0, WorkflowExecutionModel::query()->findOrFail($execution->id)->fruitless_claims);
+        $this->assertSame(0, $this->app->make(ExecutionRepository::class)->find($execution->id)->fruitlessClaims);
+
+        // And the upgraded row takes part in the new behaviour.
+        $claimed = $this->app->make(ExecutionRepository::class)->claim($execution->id, 'worker', 300);
+        $this->assertSame(1, $claimed->fruitlessClaims);
     }
 
     public function test_running_migrate_again_changes_nothing(): void

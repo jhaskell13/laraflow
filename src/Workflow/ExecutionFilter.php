@@ -48,6 +48,7 @@ readonly class ExecutionFilter
      * @param  DateTimeImmutable|null  $finishedBefore  Exclusive upper bound on finished_at;
      *                                                  implicitly restricts to terminal executions.
      * @param  bool  $oldestFirst  Order by id ascending instead of the default descending.
+     * @param  int|string|null  $parentId  Only children of this execution (sub-workflows).
      */
     public function __construct(
         string|array|null $workflow = null,
@@ -59,6 +60,7 @@ readonly class ExecutionFilter
         public ?DateTimeImmutable $finishedAfter = null,
         public ?DateTimeImmutable $finishedBefore = null,
         public bool $oldestFirst = false,
+        public int|string|null $parentId = null,
     ) {
         $this->workflows = self::normalizeWorkflows($workflow);
         $this->statuses = self::normalizeStatuses($status);
@@ -105,6 +107,7 @@ readonly class ExecutionFilter
             finishedAfter: $this->finishedAfter,
             finishedBefore: $this->finishedBefore,
             oldestFirst: $this->oldestFirst,
+            parentId: $this->parentId,
         );
     }
 
@@ -123,6 +126,7 @@ readonly class ExecutionFilter
             finishedAfter: $this->finishedAfter,
             finishedBefore: $this->finishedBefore,
             oldestFirst: $oldestFirst,
+            parentId: $this->parentId,
         );
     }
 
@@ -139,7 +143,8 @@ readonly class ExecutionFilter
             && $this->createdAfter === null
             && $this->createdBefore === null
             && $this->finishedAfter === null
-            && $this->finishedBefore === null;
+            && $this->finishedBefore === null
+            && $this->parentId === null;
     }
 
     /**

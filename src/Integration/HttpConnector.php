@@ -127,13 +127,21 @@ abstract class HttpConnector implements Connector
             $this->credentials->credentials($this->connection),
         ));
 
+        // Mapping happens inside the pipeline — under the observing
+        // layer, so ConnectorRequestSent.successful reflects a provider
+        // that rejected the call inside a 2xx body. The closure holds
+        // the request as the caller made it, so nothing the
+        // authenticator added can reach the mapper or an exception
+        // message.
         $response = $this->pipeline
-            ->through($this->transport(), $this->options, $this->connection)
+            ->through(
+                $this->transport(),
+                $this->options,
+                $this->connection,
+                fn (ConnectorResponse $response): ConnectorResponse => $response
+                    ->withError($this->errors->map($request, $response, $this->connection)),
+            )
             ->send($authenticated, $this->options);
-
-        // The mapper sees the request as the caller made it, so nothing
-        // the authenticator added can reach an exception message.
-        $response = $response->withError($this->errors->map($request, $response, $this->connection));
 
         if ($this->throwsOnError()) {
             $response->throw();
@@ -273,6 +281,12 @@ abstract class HttpConnector implements Connector
      */
     protected function assertSameHost(ConnectorRequest $request): void
     {
+        // A link that does not parse at all is refused, not handed to
+        // the transport to make sense of: the credential travels with it.
+        if (parse_url($request->uri) === false) {
+            throw PaginationException::unverifiableHost($this->connection, $request->uri);
+        }
+
         $host = parse_url($request->uri, PHP_URL_HOST);
 
         if (! is_string($host) || $host === '') {
@@ -311,6 +325,32 @@ abstract class HttpConnector implements Connector
                 "{$linkScheme}://{$host}:{$linkPort}",
             );
         }
+    }
+
+    /**
+     * A root-relative next-page link (`/api/v3/repos?page=2`) resolves
+     * against the base URL's *origin*, not its path — the transport
+     * would otherwise prefix the whole base URL and double the path.
+     * Anything else is sent as given.
+     */
+    protected function absolute(ConnectorRequest $request): ConnectorRequest
+    {
+        if (! str_starts_with($request->uri, '/') || str_starts_with($request->uri, '//') || $this->options->baseUrl === null) {
+            return $request;
+        }
+
+        $base = $this->options->baseUrl;
+        $scheme = parse_url($base, PHP_URL_SCHEME);
+        $host = parse_url($base, PHP_URL_HOST);
+        $port = parse_url($base, PHP_URL_PORT);
+
+        if (! is_string($scheme) || ! is_string($host)) {
+            return $request;
+        }
+
+        $origin = "{$scheme}://{$host}".($port !== null ? ":{$port}" : '');
+
+        return new ConnectorRequest($request->method, $origin.$request->uri, $request->options, $request->idempotent);
     }
 
     /**
@@ -366,6 +406,7 @@ abstract class HttpConnector implements Connector
                 return;
             }
 
+            $next = $this->absolute($next);
             $this->assertSameHost($next);
 
             if ($next->method === $request->method && $next->uri === $request->uri && $next->options === $request->options) {

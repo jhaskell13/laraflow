@@ -12,7 +12,9 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Support\Clock;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
@@ -65,6 +67,12 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
                 'correlation_id' => $options?->correlationId,
                 'tenant_id' => $options?->tenantId,
+                'parent_execution_id' => $options?->parentExecutionId,
+                'parent_step_execution_id' => $options?->parentStepExecutionId,
+                // Written rather than left to the column default, so the
+                // handle built from this model reads the same number a
+                // reload would.
+                'fruitless_claims' => 0,
             ]);
 
             foreach ($steps as $position => $stepClass) {
@@ -103,6 +111,13 @@ class EloquentExecutionRepository implements ExecutionRepository
         $now = $this->clock->now();
         $staleBefore = $now->modify("-{$staleAfterSeconds} seconds");
 
+        // Read, not returned by the UPDATE: an engine-portable UPDATE
+        // cannot hand back the previous row. A status that moves between
+        // this read and the claim is decided by the claim's own
+        // predicate; the read only informs the runner's choice between
+        // "re-executing a failure" and "resuming after a retry or wait".
+        $resumedFrom = WorkflowExecutionModel::query()->whereKey($id)->value('status');
+
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
             ->where(function ($query) use ($staleBefore, $now, $ignoreRetrySchedule) {
@@ -126,6 +141,19 @@ class EloquentExecutionRepository implements ExecutionRepository
                                     ->whereNull('next_retry_at')
                                     ->orWhere('next_retry_at', '<=', $now);
                             });
+                        }
+                    })
+                    ->orWhere(function ($query) use ($now, $ignoreRetrySchedule) {
+                        $query->where('status', ExecutionStatus::Waiting->value);
+
+                        if (! $ignoreRetrySchedule) {
+                            // Unlike retrying, a null instant here means
+                            // an indefinite signal wait: claimable only
+                            // once a signal sets next_retry_at, never by
+                            // the clock.
+                            $query
+                                ->whereNotNull('next_retry_at')
+                                ->where('next_retry_at', '<=', $now);
                         }
                     })
                     ->orWhere(function ($query) use ($staleBefore) {
@@ -154,6 +182,12 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // claim is superseding.
                 'finished_at' => null,
                 'duration_ms' => null,
+                // One more claim that has, so far, reached no step. The
+                // first step write under this claim zeroes it; a worker
+                // that never gets that far leaves it standing, and
+                // recovery abandons the execution once it reaches the
+                // bound instead of re-dispatching it forever.
+                'fruitless_claims' => new Expression('fruitless_claims + 1'),
             ]));
 
         if ($claimed === 0) {
@@ -168,7 +202,10 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->whereNull('started_at')
             ->update($this->counted(['started_at' => $now]));
 
-        return $this->find($id);
+        $execution = $this->find($id);
+        $execution->resumedFrom = is_string($resumedFrom) ? ExecutionStatus::tryFrom($resumedFrom) : null;
+
+        return $execution;
     }
 
     public function steps(
@@ -183,19 +220,26 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function saveStep(
+        WorkflowExecution $execution,
         StepExecution $step,
         ?StepAttempt $attempt = null
     ): void {
-        if ($attempt !== null) {
-            $this->transaction(function () use ($step, $attempt) {
-                $this->writeStep($step);
+        // The step row has no claim column of its own; the guard is the
+        // executions row, touched in the same transaction. A step write
+        // costs one guarded UPDATE more than a bare row write, and the
+        // step row can no longer be scribbled by a worker that has lost
+        // the claim. The same UPDATE records that this claim made
+        // progress: a step row written under it means the execution is
+        // past the claim-to-first-step window recovery bounds separately.
+        $this->transaction(function () use ($execution, $step, $attempt) {
+            $this->writeStep($step);
+
+            if ($attempt !== null) {
                 $this->appendAttempt($attempt);
-            });
+            }
 
-            return;
-        }
-
-        $this->writeStep($step);
+            $this->assertClaimHeld($execution, ['fruitless_claims' => 0]);
+        });
     }
 
     public function checkpoint(
@@ -210,19 +254,66 @@ class EloquentExecutionRepository implements ExecutionRepository
                 $this->appendAttempt($attempt);
             }
 
-            $updated = WorkflowExecutionModel::query()
-                ->whereKey($execution->id)
-                ->where('claim_token', $execution->claimToken)
-                ->update($this->counted([
-                    'context' => $this->asJson($execution->context),
-                ]));
+            $this->assertClaimHeld($execution, [
+                'context' => $this->asJson($execution->context),
+                'fruitless_claims' => 0,
+            ]);
+        });
+    }
 
-            if ($updated === 0) {
-                // Rolls back the step write and the attempt row with it:
-                // a worker without the claim must not persist anything.
-                throw ClaimLostException::forId($execution->id);
+    public function recordSignal(
+        int|string $id,
+        string $signal,
+        array $payload,
+        DateTimeImmutable $at
+    ): WorkflowExecution {
+        $this->transaction(function () use ($id, $signal, $payload, $at) {
+            // Whether anything is parked on this name is decided by a
+            // read, not by the payload UPDATE's affected-row count: a
+            // duplicate delivery rewriting an identical payload counts
+            // zero rows *changed* on MySQL and MariaDB and would read
+            // as a refusal. A duplicate before the resume overwrites
+            // the payload instead — last delivery wins, mirroring the
+            // at-least-once sources signals come from.
+            //
+            // The row is locked for the transaction (a no-op on SQLite,
+            // whose writers serialise anyway), so a worker completing
+            // this step and parking the next cannot slip between this
+            // read and the write below and have a late duplicate land
+            // on a completed step.
+            $row = StepExecutionModel::query()
+                ->where('workflow_execution_id', $id)
+                ->where('status', StepStatus::Waiting->value)
+                ->where('wait_signal', $signal)
+                ->lockForUpdate()
+                ->first(['id', 'wait_signal']);
+
+            // The database match is case-insensitive on MySQL, MariaDB,
+            // and SQL Server; the reserved prefix is an authorization
+            // boundary, so the name must match byte for byte.
+            if ($row === null || $row->wait_signal !== $signal) {
+                throw SignalRefusedException::forSignal($id, $signal);
+            }
+
+            StepExecutionModel::query()
+                ->whereKey($row->id)
+                ->where('status', StepStatus::Waiting->value)
+                ->update(['output' => $this->asJson($payload)]);
+
+            // Compare-and-set on the executions row, counted, so a
+            // worker claiming on a concurrent timeout rolls the payload
+            // back with the refusal.
+            $due = WorkflowExecutionModel::query()
+                ->whereKey($id)
+                ->where('status', ExecutionStatus::Waiting->value)
+                ->update($this->counted(['next_retry_at' => $at]));
+
+            if ($due !== 1) {
+                throw SignalRefusedException::forSignal($id, $signal);
             }
         });
+
+        return $this->find($id);
     }
 
     public function recordDispatch(
@@ -249,18 +340,41 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function requestCancellation(
         int|string $id,
         ?string $reason,
-        DateTimeImmutable $at
+        DateTimeImmutable $at,
+        ?DateTimeImmutable $staleBefore = null
     ): WorkflowExecution {
         // Unclaimed work is cancelled outright. The status predicate is
         // the same compare-and-set claiming uses, so this cannot race a
-        // worker: whichever UPDATE lands first, the other is refused.
+        // worker: whichever UPDATE lands first, the other is refused. A
+        // running execution whose claim is older than $staleBefore is
+        // unclaimed by contract too — the same test claim() applies —
+        // which is what lets an operator cancel an abandoned execution
+        // no worker will ever return to.
         $cancelled = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->whereIn('status', [
-                ExecutionStatus::Pending->value,
-                ExecutionStatus::Failed->value,
-                ExecutionStatus::Retrying->value,
-            ])
+            ->where(function ($query) use ($staleBefore) {
+                $query->whereIn('status', [
+                    ExecutionStatus::Pending->value,
+                    ExecutionStatus::Failed->value,
+                    ExecutionStatus::Retrying->value,
+                    // A waiting execution is unclaimed, so cancellation
+                    // takes the immediate path; whoever signals it
+                    // afterwards is refused by the status check.
+                    ExecutionStatus::Waiting->value,
+                ]);
+
+                if ($staleBefore !== null) {
+                    $query->orWhere(function ($query) use ($staleBefore) {
+                        $query
+                            ->where('status', ExecutionStatus::Running->value)
+                            ->where(function ($query) use ($staleBefore) {
+                                $query
+                                    ->whereNull('claimed_at')
+                                    ->orWhere('claimed_at', '<=', $staleBefore);
+                            });
+                    });
+                }
+            })
             ->update($this->counted([
                 'status' => ExecutionStatus::Cancelled->value,
                 'cancelled_at' => $at,
@@ -307,6 +421,12 @@ class EloquentExecutionRepository implements ExecutionRepository
     ): void {
         $values = [
             'status' => $execution->status->value,
+            // An orderly release means the claim concluded deliberately —
+            // a park, a scheduled retry, a terminal state. The fruitless
+            // counter exists for claims that die before any orderly
+            // write, so a heartbeat that claims, consults a child, and
+            // parks again must not be counted toward abandonment.
+            'fruitless_claims' => 0,
             'context' => $this->asJson($execution->context),
             'error' => $execution->error,
             'error_class' => $execution->errorClass,
@@ -344,6 +464,29 @@ class EloquentExecutionRepository implements ExecutionRepository
         }
     }
 
+    /**
+     * Write $values to the executions row only if this worker still
+     * holds the claim, and throw otherwise. Called inside the step
+     * transactions so a lost claim rolls back the step write and the
+     * attempt row with it: a worker without the claim must not persist
+     * anything.
+     *
+     * @param  array<string, mixed>  $values
+     *
+     * @throws ClaimLostException
+     */
+    protected function assertClaimHeld(WorkflowExecution $execution, array $values): void
+    {
+        $updated = WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->where('claim_token', $execution->claimToken)
+            ->update($this->counted($values));
+
+        if ($updated === 0) {
+            throw ClaimLostException::forId($execution->id);
+        }
+    }
+
     protected function writeStep(StepExecution $step): void
     {
         StepExecutionModel::query()
@@ -359,6 +502,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'failed_at' => $step->failedAt,
                 'timeout_at' => $step->timeoutAt,
                 'next_retry_at' => $step->nextRetryAt,
+                'wait_signal' => $step->waitSignal,
             ]);
     }
 
@@ -395,6 +539,10 @@ class EloquentExecutionRepository implements ExecutionRepository
         if ($status === ExecutionStatus::Retrying) {
             // The only way a retrying claim misses: it is not due yet.
             throw RetryNotDueException::forId($id, $current->next_retry_at?->toImmutable());
+        }
+
+        if ($status === ExecutionStatus::Waiting) {
+            throw ExecutionStillWaitingException::forId($id, $current->next_retry_at?->toImmutable());
         }
 
         throw ExecutionNotRunnableException::forStatus($id, $status);
@@ -452,9 +600,10 @@ class EloquentExecutionRepository implements ExecutionRepository
      * the write silently misses. Encoding here keeps every engine on
      * the byte-identical write the model cast will read back.
      *
-     * @param  array<array-key, mixed>|null  $value
+     * Any durable value: a step's output may be a scalar as well as an
+     * array (DurableValue allows both), and null stays SQL NULL.
      */
-    protected function asJson(?array $value): ?string
+    protected function asJson(mixed $value): ?string
     {
         return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR);
     }
@@ -482,10 +631,13 @@ class EloquentExecutionRepository implements ExecutionRepository
             cancelReason: $model->cancel_reason,
             correlationId: $model->correlation_id,
             tenantId: $model->tenant_id,
+            parentExecutionId: $model->parent_execution_id,
+            parentStepExecutionId: $model->parent_step_execution_id,
             dispatchedAt: $model->dispatched_at?->toImmutable(),
             availableAt: $model->available_at?->toImmutable(),
             finishedAt: $model->finished_at?->toImmutable(),
             payloadsScrubbedAt: $model->payloads_scrubbed_at?->toImmutable(),
+            fruitlessClaims: $model->fruitless_claims,
             persistedDurationMs: $model->duration_ms,
         );
     }
@@ -509,6 +661,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             failedAt: $model->failed_at?->toImmutable(),
             timeoutAt: $model->timeout_at?->toImmutable(),
             nextRetryAt: $model->next_retry_at?->toImmutable(),
+            waitSignal: $model->wait_signal,
         );
     }
 }

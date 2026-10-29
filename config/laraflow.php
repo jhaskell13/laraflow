@@ -165,16 +165,19 @@ return [
     | Defaults for the laraflow:recover command, which finds interrupted
     | work (running executions with a stale claim, and pending executions
     | whose dispatch was lost), re-dispatches it, and delivers scheduled
-    | retries that have come due — the contractual pickup behind
+    | work that has come due — retries, waits, recorded signals, and
+    | sub-workflow heartbeats — the contractual pickup behind
     | retry.dispatch_delayed, and the only delivery path for in-process
     | and sync-driver runs.
     |
     | limit: maximum executions handled per run, most urgent first.
     |
     | abandon_after_attempts: an *interrupted* execution where any step
-    | has already been attempted this many times is reported as abandoned
-    | instead of re-dispatched, so a crash-looping workflow cannot be
-    | retried forever by the scheduler. This bound is crash-loop
+    | has already been attempted this many times — or which has been
+    | claimed this many times without reaching a step or an orderly
+    | release — is reported as
+    | abandoned instead of re-dispatched, so a crash-looping workflow
+    | cannot be retried forever by the scheduler. This bound is crash-loop
     | protection and deliberately independent of step retry policies,
     | which govern *failures* through the retrying state and carry their
     | own budget; due retries are exempt from it. If your retry budgets
@@ -214,7 +217,7 @@ return [
     |
     | All bounds count from finished_at — when the execution stopped —
     | so a long-running execution is never pruned for having started a
-    | long time ago. Executions that are pending, running, or retrying
+    | long time ago. Executions that are pending, running, retrying, or waiting
     | are invisible to retention: a retry waiting out its backoff is
     | future work, not old work.
     |
@@ -252,6 +255,22 @@ return [
         'delete_failed_after_days' => env('LARAFLOW_RETENTION_DELETE_FAILED_AFTER_DAYS'),
         'limit' => env('LARAFLOW_RETENTION_LIMIT', 1000),
         'chunk' => env('LARAFLOW_RETENTION_CHUNK', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Workflows
+    |--------------------------------------------------------------------------
+    |
+    | max_depth: how deep sub-workflows may nest, counted from the root
+    | execution. A child that would nest past this is refused at creation
+    | with WorkflowDepthExceededException, so mutual recursion between
+    | workflow classes is one exception rather than an unbounded tree.
+    |
+    */
+
+    'workflows' => [
+        'max_depth' => env('LARAFLOW_WORKFLOWS_MAX_DEPTH', 8),
     ],
 
     /*
@@ -405,6 +424,7 @@ return [
     |                second entry here, not a second class.
     |
     | A connection may also set base_url, timeout, connect_timeout, headers,
+    | rate_limit, max_pages, api_version, throw_on_error,
     | and retries, overriding the connector class and the `http` section
     | above, and throw_on_error to have request() throw a mapped error
     | rather than return the failed response.

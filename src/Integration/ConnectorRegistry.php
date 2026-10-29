@@ -278,7 +278,10 @@ class ConnectorRegistry
 
     protected function assertValidName(string $name, string $kind): void
     {
-        if ($name === '' || preg_match('/[\s\x00-\x1F\x7F]/', $name) === 1) {
+        // Dots would be read as nesting by the dot-path credential lookup
+        // and colons would collide in the `connector:connection` key that
+        // names cache slots and rate-limit buckets.
+        if ($name === '' || preg_match('/[\s\x00-\x1F\x7F.:]/', $name) === 1) {
             throw ConnectorConfigurationException::invalidName($name, $kind);
         }
     }

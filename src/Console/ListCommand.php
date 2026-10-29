@@ -63,10 +63,19 @@ class ListCommand extends Command
             return self::FAILURE;
         }
 
+        $limit = $this->option('limit');
+
+        if (! is_numeric($limit) || (int) $limit < 1) {
+            $display = is_scalar($limit) ? (string) $limit : get_debug_type($limit);
+            $this->components->error("The --limit option must be a positive integer, got [{$display}].");
+
+            return self::FAILURE;
+        }
+
         try {
             $page = $repository->list(
                 $filter,
-                (int) $this->option('limit'),
+                (int) $limit,
                 $this->stringOption('cursor'),
             );
         } catch (InvalidArgumentException $exception) {
@@ -183,14 +192,17 @@ class ListCommand extends Command
     }
 
     /**
-     * Completed steps out of the plan.
+     * Steps done — completed or skipped — out of the plan.
      *
-     * @param  array<string, array{total: int, completed: int}>  $progress
+     * @param  array<string, array{total: int, completed: int, skipped: int}>  $progress
      */
     protected function stepProgress(array $progress, WorkflowExecution $execution): string
     {
-        $counts = $progress[(string) $execution->id] ?? ['total' => 0, 'completed' => 0];
+        $counts = $progress[(string) $execution->id] ?? ['total' => 0, 'completed' => 0, 'skipped' => 0];
 
-        return sprintf('%d/%d', $counts['completed'], $counts['total']);
+        // Skipped steps are decisions, not work left to do: an
+        // execution whose steps are all completed-or-skipped reads as
+        // done rather than stuck.
+        return sprintf('%d/%d', $counts['completed'] + $counts['skipped'], $counts['total']);
     }
 }

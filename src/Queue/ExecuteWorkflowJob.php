@@ -13,6 +13,7 @@ use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
@@ -85,11 +86,22 @@ class ExecuteWorkflowJob implements ShouldQueue
         try {
             $result = $runner->execute($execution->id, $workflow);
 
-            if ($result->isRetrying() && $result->nextRetryAt !== null) {
-                // A retry was durably scheduled; nothing failed. Hand the
-                // due time to the queue where that is enabled and safe.
+            if (($result->isRetrying() || $result->isWaiting()) && $result->nextRetryAt !== null) {
+                // A retry was durably scheduled, or a wait parked with a
+                // known next instant (a timed resume, a signal deadline);
+                // nothing failed. Hand the due time to the queue where
+                // that is enabled and safe. An indefinite signal wait has
+                // no instant to deliver — the signaller re-dispatches.
                 $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
             }
+        } catch (ExecutionStillWaitingException) {
+            // A delivery raced a park: a heartbeat landed after a signal
+            // already resumed and re-parked the execution, or a delayed
+            // delivery outlived the wait it was scheduled for. The park
+            // stands and this delivery has nothing to do.
+            $logger->info('Laraflow ignored a delivery for an execution that is parked on a wait.', [
+                'execution_id' => $execution->id,
+            ]);
         } catch (RetryNotDueException) {
             // A delivery raced the schedule: a duplicate, an imprecise
             // driver, or an operator who already ran it. The schedule

@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -37,10 +38,34 @@ class ShowCommand extends Command
 
         $this->displayExecution($execution, $steps);
 
+        if ($execution->parentExecutionId !== null) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Parent</>',
+                "execution {$execution->parentExecutionId} (this is a sub-workflow)",
+            );
+            $this->newLine();
+        }
+
+        if ($execution->isWaiting()) {
+            $this->displayWait($execution, $steps);
+        }
+
         if ($execution->claimToken !== null) {
             $this->components->twoColumnDetail(
                 '<fg=gray>Claimed at</>',
                 $this->formatDate($execution->claimedAt).' (a worker owns or owned this execution)'
+            );
+            $this->newLine();
+        }
+
+        if ($execution->fruitlessClaims > 1) {
+            // One is the claim any run opens with. More than one, and
+            // the execution has been claimed and dropped before a step
+            // was written — the signature of a fault recovery's step
+            // attempt bound cannot see.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Claims without progress</>',
+                "<fg=yellow>{$execution->fruitlessClaims}</> (claimed repeatedly without reaching a step)"
             );
             $this->newLine();
         }
@@ -50,6 +75,41 @@ class ShowCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * What a waiting execution is parked on: the signal and its
+     * deadline, or the resume instant — "indefinitely" said out loud
+     * when nothing but a signal can wake it.
+     *
+     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     */
+    protected function displayWait(WorkflowExecution $execution, array $steps): void
+    {
+        foreach ($steps as $step) {
+            if (! $step->isWaiting()) {
+                continue;
+            }
+
+            if (Wait::isChildSignal($step->waitSignal)) {
+                // A child wait is never indefinite: the parent checks on
+                // the child at every heartbeat, recorded on the execution.
+                $detail = 'on child execution '.Wait::childIdFrom((string) $step->waitSignal)
+                    .' (next check '.$this->formatDate($execution->nextRetryAt).')';
+            } elseif ($step->waitSignal === null) {
+                $detail = 'until '.$this->formatDate($step->nextRetryAt);
+            } else {
+                $detail = "for signal [{$step->waitSignal}]".($step->timeoutAt !== null
+                    ? ', until '.$this->formatDate($step->timeoutAt)
+                    : ', indefinitely');
+            }
+
+            $this->components->twoColumnDetail(
+                '<fg=gray>Waiting</>',
+                class_basename($step->step).' '.$detail,
+            );
+            $this->newLine();
+        }
     }
 
     /**

@@ -20,7 +20,7 @@ use Psr\Clock\ClockInterface;
  * not yet covered by the compatibility policy.
  *
  * Finds recoverable executions and retries them within an explicit
- * bound. Three kinds are recognised:
+ * bound. Four kinds are recognised:
  *
  * - stale claim: a `running` execution whose claim has outlived
  *   `stale_after` — the worker died mid-run. Reported as `step_timeout`
@@ -28,12 +28,20 @@ use Psr\Clock\ClockInterface;
  * - retry due: a `retrying` execution whose next_retry_at has arrived.
  *   This is the contractual delivery path for scheduled retries; the
  *   delayed queue job (retry.dispatch_delayed) is only the fast path.
+ * - wait due: a `waiting` execution whose next event — a timed resume
+ *   or a signal deadline — has arrived. Like due retries, this is the
+ *   contractual delivery path; the delayed queue job is the fast path,
+ *   and a recorded signal's dispatch is the signaller's.
  * - never dispatched: a `pending` execution older than a threshold — its
  *   queue dispatch was lost. Opt-in, because `pending` is also the state
  *   of work created by start() and deliberately not yet executed.
  *
  * The scan only reads. The abandonment bound applies to *interruption*
- * recovery — crash-loop protection. Due retries are deliberately exempt:
+ * recovery — crash-loop protection — and is measured two ways against
+ * the same number: the highest step attempt count, and the count of
+ * consecutive claims that reached no step at all. The second exists
+ * because a worker that faults between claiming and its first step
+ * write never moves the first. Due retries are deliberately exempt:
  * their bound is the step's own retry budget, already enforced durably
  * by the runner via `attempts`, and applying the interruption bound to
  * them would strand every policy whose budget exceeds it.
@@ -60,7 +68,8 @@ class RecoveryService
      *
      * @param  int|null  $pendingAfterSeconds  Null skips the pending scan entirely.
      * @param  int  $abandonAfterAttempts  Interrupted candidates whose steps already
-     *                                     reached this many attempts are flagged abandoned.
+     *                                     reached this many attempts, or which were claimed this
+     *                                     many times without reaching a step, are flagged abandoned.
      * @param  bool  $includeDueRetries  Scan for scheduled retries that have come due.
      * @return RecoveryCandidate[]
      */
@@ -82,14 +91,22 @@ class RecoveryService
         );
 
         foreach ($stale as $execution) {
+            $steps = $this->repository->steps($execution);
+
             $candidates[] = $this->candidate(
                 $execution,
-                $this->staleReason($execution, $now),
+                $this->staleReason($steps, $now),
                 $abandonAfterAttempts,
+                $steps,
             );
         }
 
-        if ($includeDueRetries && ($remaining = $limit - count($candidates)) > 0) {
+        // Abandoned and unrecoverable candidates are reported, not acted
+        // on; they stay in the stale set until an operator cancels or
+        // re-runs them and must not starve the scans below of budget.
+        $spent = fn (): int => count(array_filter($candidates, fn (RecoveryCandidate $c): bool => $c->retryable()));
+
+        if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
             foreach ($this->repository->dueForRetry($now, $remaining, $workflow) as $execution) {
                 // Exempt from the interruption bound: a scheduled retry's
                 // budget is its policy, which the runner enforces.
@@ -101,7 +118,20 @@ class RecoveryService
             }
         }
 
-        if ($pendingAfterSeconds !== null && ($remaining = $limit - count($candidates)) > 0) {
+        if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
+            foreach ($this->repository->waitingDue($now, $remaining, $workflow) as $execution) {
+                // Exempt like due retries: a wait is scheduled work, not
+                // an interruption, and a timed-out signal answers to the
+                // step's own policy once a worker classifies it.
+                $candidates[] = $this->candidate(
+                    $execution,
+                    WorkflowExecutionRetryScheduled::REASON_WAIT_DUE,
+                    abandonAfterAttempts: null,
+                );
+            }
+        }
+
+        if ($pendingAfterSeconds !== null && ($remaining = $limit - $spent()) > 0) {
             $pending = $this->repository->pendingBefore(
                 $now->modify("-{$pendingAfterSeconds} seconds"),
                 $remaining,
@@ -163,6 +193,10 @@ class RecoveryService
      */
     protected function assertRetryable(RecoveryCandidate $candidate): void
     {
+        if ($candidate->retryable()) {
+            return;
+        }
+
         if ($candidate->workflowMissing) {
             throw new InvalidArgumentException(
                 "Execution [{$candidate->execution->id}] was created from "
@@ -173,8 +207,8 @@ class RecoveryService
 
         if ($candidate->abandoned) {
             throw new InvalidArgumentException(
-                "Execution [{$candidate->execution->id}] has reached {$candidate->attempts} step "
-                .'attempts and is abandoned by recovery. Re-run it deliberately with laraflow:execute.'
+                "Execution [{$candidate->execution->id}] has {$candidate->abandonedBecause()} "
+                .'and is abandoned by recovery. Re-run it deliberately with laraflow:execute.'
             );
         }
     }
@@ -185,9 +219,12 @@ class RecoveryService
      * charge the attempt to the step's retry policy, and the report
      * should say so.
      */
-    protected function staleReason(WorkflowExecution $execution, DateTimeImmutable $now): string
+    /**
+     * @param  StepExecution[]  $steps
+     */
+    protected function staleReason(array $steps, DateTimeImmutable $now): string
     {
-        foreach ($this->repository->steps($execution) as $step) {
+        foreach ($steps as $step) {
             if ($step->isRunning() && $step->timeoutAt !== null && $step->timeoutAt <= $now) {
                 return WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT;
             }
@@ -200,14 +237,18 @@ class RecoveryService
      * @param  int|null  $abandonAfterAttempts  Null exempts the candidate
      *                                          from the interruption bound (due retries).
      */
+    /**
+     * @param  StepExecution[]|null  $steps  Already loaded by the caller, or null to load.
+     */
     protected function candidate(
         WorkflowExecution $execution,
         string $reason,
         ?int $abandonAfterAttempts,
+        ?array $steps = null,
     ): RecoveryCandidate {
         $attempts = 0;
 
-        foreach ($this->repository->steps($execution) as $step) {
+        foreach ($steps ?? $this->repository->steps($execution) as $step) {
             $attempts = max($attempts, $step->attempts);
         }
 
@@ -215,12 +256,15 @@ class RecoveryService
             execution: $execution,
             reason: $reason,
             attempts: $attempts,
-            abandoned: $abandonAfterAttempts !== null && $attempts >= $abandonAfterAttempts,
+            abandoned: $abandonAfterAttempts !== null
+                && ($attempts >= $abandonAfterAttempts
+                    || $execution->fruitlessClaims >= $abandonAfterAttempts),
             // A retry of a missing class fails before any step runs, so
             // attempts never grow and the bound above would never engage —
             // the scheduler would re-queue it forever. Flag it instead.
             workflowMissing: ! class_exists($execution->workflow)
                 || ! is_subclass_of($execution->workflow, Workflow::class),
+            fruitlessClaims: $execution->fruitlessClaims,
         );
     }
 

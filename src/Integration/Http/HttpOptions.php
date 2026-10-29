@@ -109,7 +109,7 @@ final readonly class HttpOptions
                 baseUrl: self::stringOrNull($connection->get('base_url')) ?? $this->baseUrl,
                 timeoutSeconds: self::floatOrNull($connection->get('timeout')) ?? $this->timeoutSeconds,
                 connectTimeoutSeconds: self::floatOrNull($connection->get('connect_timeout')) ?? $this->connectTimeoutSeconds,
-                headers: array_merge($this->headers, array_map('strval', $headers)),
+                headers: Headers::merge($this->headers, array_map('strval', $headers)),
                 retries: TransportPolicy::fromArray($retries, $this->retries),
                 rateLimit: RateLimitPolicy::fromArray($rateLimit, $this->rateLimit),
                 maxPages: (int) (self::floatOrNull($connection->get('max_pages')) ?? $this->maxPages),
@@ -125,11 +125,13 @@ final readonly class HttpOptions
     }
 
     /**
-     * @param  array<string, string>  $headers  Merged under the existing ones.
+     * @param  array<string, string>  $headers  Merged under the existing
+     *                                          ones, names matched case-insensitively — an existing
+     *                                          header keeps its value and its spelling.
      */
     public function withHeaders(array $headers): self
     {
-        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, array_merge($headers, $this->headers), $this->retries, $this->rateLimit, $this->maxPages);
+        return new self($this->baseUrl, $this->timeoutSeconds, $this->connectTimeoutSeconds, Headers::merge($headers, $this->headers), $this->retries, $this->rateLimit, $this->maxPages);
     }
 
     public function withRetries(TransportPolicy $retries): self

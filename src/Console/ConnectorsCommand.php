@@ -118,7 +118,8 @@ class ConnectorsCommand extends Command
         }
 
         $options = $connector->options();
-        $row[2] = $options->baseUrl ?? '-';
+        // Never values: a base URL may carry `user:secret@`.
+        $row[2] = $options->baseUrl === null ? '-' : (string) preg_replace('#^([a-z][a-z0-9+.-]*://)[^/@]*@#i', '$1', $options->baseUrl);
         $row[3] = $connector->providerApiVersion() ?? 'unversioned';
         $row[4] = rtrim(rtrim(number_format($options->timeoutSeconds, 1, '.', ''), '0'), '.').'s';
         $row[5] = $options->retries->enabled() ? $options->retries->maxAttempts.' attempts' : 'off';

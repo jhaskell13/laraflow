@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Workflow;
 
 use Illuminate\Support\Facades\Date;
+use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
@@ -22,6 +23,7 @@ use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\RunnerOptions;
@@ -357,6 +359,67 @@ class WorkflowRecoveryTest extends TestCase
         $this->assertNull(WorkflowExecutionModel::query()->value('claim_token'));
     }
 
+    public function test_a_reclaimed_worker_cannot_record_a_step_failure(): void
+    {
+        // Worker A is mid-step-two when it is treated as dead and the
+        // execution is taken over. Step two then throws on worker A,
+        // whose next write is the step's failure and its attempt row.
+        StepTwo::$beforeRun = fn () => $this->takeOver('other-worker');
+        StepTwo::$failTimes = 1;
+
+        try {
+            $this->runner()->run(new TwoStepWorkflow);
+            $this->fail('Expected ClaimLostException.');
+        } catch (ClaimLostException) {
+            // Worker A stopped as soon as it learned it no longer owned
+            // the execution — before the step's own exception could be
+            // written down as the outcome.
+        }
+
+        // Step two reads exactly as the new owner found it: running,
+        // not failed, with no attempt row from the dead worker.
+        $stepTwo = StepExecutionModel::query()->where('position', 1)->firstOrFail();
+        $this->assertSame(StepStatus::Running->value, $stepTwo->status);
+        $this->assertNull($stepTwo->error);
+        $this->assertSame(
+            1,
+            StepAttemptModel::query()->count(),
+            'Only step one\'s completed attempt is in history.'
+        );
+
+        // The execution row is the new owner's, untouched.
+        $row = WorkflowExecutionModel::query()->firstOrFail();
+        $this->assertSame(ExecutionStatus::Running->value, $row->status);
+        $this->assertSame('other-worker', $row->claim_token);
+
+        // A lost claim is not a storage failure, and is not logged as one.
+        $this->assertFalse($this->logger->hasRecordContaining('error', 'could not persist'));
+    }
+
+    public function test_a_reclaimed_worker_cannot_checkpoint_its_step(): void
+    {
+        StepOne::$beforeReturn = fn () => $this->takeOver('other-worker');
+
+        try {
+            $this->runner()->run(new TwoStepWorkflow);
+            $this->fail('Expected ClaimLostException.');
+        } catch (ClaimLostException) {
+            // Expected.
+        }
+
+        $stepOne = StepExecutionModel::query()->where('position', 0)->firstOrFail();
+        $this->assertSame(StepStatus::Running->value, $stepOne->status);
+        $this->assertNull($stepOne->output);
+        $this->assertSame(0, StepAttemptModel::query()->count());
+        $this->assertSame(
+            StepStatus::Pending->value,
+            StepExecutionModel::query()->where('position', 1)->value('status'),
+            'The dead worker never reached step two.'
+        );
+        $this->assertSame([], WorkflowExecutionModel::query()->firstOrFail()->context);
+        $this->assertSame(0, StepTwo::$runs);
+    }
+
     public function test_a_completed_execution_cannot_be_executed_again(): void
     {
         $runner = $this->runner();
@@ -479,6 +542,18 @@ class WorkflowRecoveryTest extends TestCase
             logger: $this->logger,
             options: new RunnerOptions(staleAfterSeconds: $staleAfter, maxErrorLength: $maxErrorLength),
         );
+    }
+
+    /**
+     * Another worker takes the (sole) execution over, as it would after
+     * this worker's claim aged past stale_after.
+     */
+    protected function takeOver(string $claimToken): void
+    {
+        WorkflowExecutionModel::query()->update([
+            'claim_token' => $claimToken,
+            'claimed_at' => Date::now(),
+        ]);
     }
 
     protected function crashingRunner(string $dieOn, int $call = 1, string $phase = 'before'): WorkflowRunner

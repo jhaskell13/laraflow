@@ -6,7 +6,7 @@ The guarantees here start at the schema freeze (Milestone 6). Before it, migrati
 
 ## What the freeze guarantees
 
-**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again. Any later schema change arrives as a *new* dated migration.
+**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again, and neither will any migration shipped after them — Milestone 7 added three, all additive: `fruitless_claims` on executions, `wait_signal` on steps, and the sub-workflow parent-linkage columns. Any later schema change arrives as a *new* dated migration.
 
 Concretely, for an installed application:
 
@@ -34,7 +34,7 @@ Before a **minor or major** bump, read the changelog entries between your versio
 Laraflow's own migrations are written to be additive — new nullable columns, new indexes, new tables — so the usual sequence is safe while workers are running:
 
 1. **Deploy the new code to a worker-free host first**, or put the new code in place without restarting workers. Old workers keep running the old code against the old schema.
-2. **Run `php artisan migrate`.** Additive changes do not disturb rows that the running workers hold claims on.
+2. **Run `php artisan migrate`.** Additive changes do not disturb rows that the running workers hold claims on. An *index* build is the exception to "online": PostgreSQL builds it under a lock that blocks writers for the duration (the migration runs inside a transaction, where `CONCURRENTLY` is unavailable), SQL Server likewise outside Enterprise's `ONLINE = ON`, and MySQL before 8.0.29 rebuilds the table for a column added with `AFTER`. On a large table, run such a migration in a quiet window; the changelog names every migration that adds an index.
 3. **Restart workers** so they pick up the new code. Executions claimed by a worker that stops mid-run are not lost; see [Recovering work](#recovering-work-interrupted-by-an-upgrade).
 
 If a release ever needs a migration that is *not* safe to run against live workers, its changelog entry will say so explicitly and give the sequence. Drain the queue first in that case: stop dispatching, let `php artisan queue:work --stop-when-empty` finish, then migrate.
@@ -90,7 +90,7 @@ php artisan laraflow:recover --dry-run
 php artisan laraflow:recover
 ```
 
-`laraflow:recover` only touches *interrupted* work — executions claimed by a worker that is gone. It does not retry genuinely failed executions; those answer to their step's retry policy, or to `laraflow:execute <id>` if you want to re-run one deliberately.
+`laraflow:recover` touches interrupted work — executions claimed by a worker that is gone — and delivers scheduled work that has come due: retries, waits, recorded signals, and sub-workflow heartbeats. It does not retry genuinely failed executions; those answer to their step's retry policy, or to `laraflow:execute <id>` if you want to re-run one deliberately.
 
 Two points that matter during a deploy:
 

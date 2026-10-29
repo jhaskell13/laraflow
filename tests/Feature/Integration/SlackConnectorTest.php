@@ -61,6 +61,16 @@ class SlackConnectorTest extends TestCase
             && $r->data() === ['channel' => 'C1', 'text' => 'hello']);
     }
 
+    public function test_slacks_server_side_error_codes_are_server_errors(): void
+    {
+        Http::fake(['slack.com/*' => Http::response(['ok' => false, 'error' => 'internal_error'])]);
+
+        $slack = $this->slack();
+        $response = $slack->request($slack->write('chat.postMessage', ['channel' => 'C1']));
+
+        $this->assertInstanceOf(\Laraflow\Exceptions\Connector\ServerErrorException::class, $response->error(), 'Transient provider failure, not caller error.');
+    }
+
     public function test_a_200_carrying_ok_false_is_a_failure(): void
     {
         Http::fake(['slack.com/*' => Http::response(['ok' => false, 'error' => 'channel_not_found'])]);

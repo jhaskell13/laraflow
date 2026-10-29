@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.1.0`, the first tagged release.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable. The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Branching, fan-out, sub-workflows, human approval, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md) Milestone 7). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), or run another workflow as a child ([docs/advanced-workflows.md](docs/advanced-workflows.md)). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching, fan-out/fan-in, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md)). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -16,6 +16,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Configuration](#configuration)
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
+- [Conditions, waits, and sub-workflows](#conditions-waits-and-sub-workflows)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
@@ -31,7 +32,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 |------------|-----------|
 | PHP        | 8.2, 8.3, 8.4, 8.5 |
 | Laravel    | 12.x, 13.x (Laravel 13 requires PHP 8.3+) |
-| Database   | SQLite (tested), MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ |
+| Database   | SQLite, MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ — all five run the full suite in CI |
 
 See [docs/compatibility.md](docs/compatibility.md) for the full policy, including what "supported" means at this stage.
 
@@ -48,7 +49,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.1.0
+composer require laraflow/laraflow:^0.2.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.
@@ -344,7 +345,7 @@ Publish the configuration file if you need to change defaults:
 php artisan vendor:publish --tag=laraflow-config
 ```
 
-This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector and carries a documenting comment block per section):
+This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector, the `workflows.max_depth` bound on sub-workflow nesting, and carries a documenting comment block per section):
 
 ```php
 return [
@@ -403,7 +404,8 @@ return [
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
-        // Interrupted executions whose steps reach this many attempts are
+        // Interrupted executions whose steps reach this many attempts — or
+        // that were claimed this many times without progress — are
         // abandoned by recovery rather than retried forever.
         'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         // null disables recovery of never-dispatched pending executions.
@@ -600,8 +602,8 @@ A step that repeats this way may re-perform external side effects — that is th
 
 | Record | Fields |
 |--------|--------|
-| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry time, cancellation request/time/reason |
-| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's deadline, next retry time |
+| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `waiting`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry/resume time, cancellation request/time/reason, parent linkage for sub-workflows |
+| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`, `skipped`, `waiting`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's (or signal wait's) deadline, next retry/resume time, awaited signal name |
 | Step attempt | attempt number, outcome (`completed`, `failed`, `timed_out`, `interrupted`), error message and class, started/ended timestamps, duration, scheduled retry time |
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
@@ -643,6 +645,77 @@ php artisan laraflow:cancel 42 --reason="customer withdrew the order"
 Cancellation is immediate for work that is waiting and **cooperative** for work that is running — the worker stops at its next step boundary, and the step in flight finishes and checkpoints first.
 
 Timeouts are deadlines, not preemption: Laraflow does not interrupt running PHP. A step reads its own deadline from the context (`$context->remainingSeconds()`) and bounds its own work; an attempt whose worker died *past* its deadline is charged to the retry budget as a timeout, while one that died before it re-runs for free. The full contract — schedules, the three-way timeout distinction, the two attempt bounds, cancellation semantics, and error redaction — is in [docs/retry-and-failure-policy.md](docs/retry-and-failure-policy.md).
+
+## Conditions, waits, and sub-workflows
+
+The plan stays a linear list of steps, but a step can decide not to run, park the execution until something happens, or run a whole other workflow. The semantics — what persists, what happens on recovery, what the events say — are one document: [docs/advanced-workflows.md](docs/advanced-workflows.md).
+
+### Conditional steps
+
+A step that implements `ConditionalStep` is asked, from the context, whether it has anything to do:
+
+```php
+use Laraflow\Workflow\ConditionalStep;
+
+class NotifyAccountManager implements Step, ConditionalStep
+{
+    public function shouldRun(WorkflowContext $context): bool
+    {
+        return $context->get('deal_size', 0) >= 50_000;
+    }
+
+    public function handle(WorkflowContext $context): mixed { /* ... */ }
+}
+```
+
+A false answer durably marks the step `skipped` — no attempt counted, nothing written to the context — and recovery replays the recorded decision rather than asking again. Conditions must be pure functions of the context: same context, same answer.
+
+### Delays, signals, and human approval
+
+A step pauses the execution by returning a `Wait` instead of an output. Everything it did first is checkpointed, the claim is released, and **resuming completes the step** — the method body never resumes mid-function, so work after the wait belongs in the next step.
+
+```php
+use Laraflow\Workflow\Wait;
+
+public function handle(WorkflowContext $context): mixed
+{
+    $this->postApprovalRequest($context);              // runs once
+
+    return Wait::forSignal('manager-approval')         // park until the signal
+        ->timeoutAfterSeconds(7 * 86_400);             // or fail after a week
+}
+```
+
+`Wait::untilSeconds(600)` is the timed form — resume in ten minutes, no signal involved. The application delivers a signal through the runner, from a controller, a webhook, wherever the approval arrives:
+
+```php
+app(WorkflowRunner::class)->signal($executionId, 'manager-approval', ['approved_by' => $user->email]);
+```
+
+The payload becomes the waiting step's output and lands in the context under the signal's name, so later steps read it like any other step's contribution. Recording is not delivery: the queue fast path handles waits with a known instant, and `laraflow:recover` is the contractual pickup for everything — schedule it, exactly as you already do for retries. A signal wait past its deadline fails the step with `WaitTimedOutException` under the step's own retry policy, and retrying an approval step re-posts the request.
+
+### Sub-workflows
+
+A step extending `SubWorkflowStep` runs another workflow as a linked child execution and parks until it finishes:
+
+```php
+use Laraflow\Workflow\SubWorkflowStep;
+
+class SyncSubsidiary extends SubWorkflowStep
+{
+    public function workflow(WorkflowContext $context): Workflow
+    {
+        return new SyncCustomerWorkflow;
+    }
+
+    public function input(WorkflowContext $context): array
+    {
+        return ['customer_id' => $context->get('subsidiary_id')];
+    }
+}
+```
+
+The child inherits the parent's correlation and tenant identifiers, runs like any other execution, and its outcome — identity and status, never its context — becomes the parent step's output. A failed child fails the parent step under the step's retry policy, and a retry resumes the *same* child from its own checkpoints rather than starting over. Cancelling a parent cascades to its unfinished children; nesting is bounded by `laraflow.workflows.max_depth`; and the parent checks on its child every `stale_after` seconds, so a lost signal or a lost dispatch heals instead of hanging.
 
 ## Running on a queue
 
@@ -689,7 +762,7 @@ The same command also delivers scheduled retries that have come due, making it t
 
 ### Lifecycle events
 
-Laraflow fires events for dispatch, execution start, each step's start/completion/failure, scheduled retries, and execution completion/failure/cancellation. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
+Laraflow fires events for dispatch, execution start, each step's start/completion/skip/wait/failure, scheduled retries, recorded signals, and execution completion/failure/cancellation. Each fires **after** the durable write it describes, and none of them carry workflow input, step output, or context — only identifiers and metadata.
 
 ```php
 use Laraflow\Events\WorkflowExecutionFailed;
@@ -948,7 +1021,7 @@ Do not accumulate pages into a step's output. A result set big enough to need pa
 
 A connector declares the **provider API version** it was written against and sends it where the provider wants it — GitHub's `X-GitHub-Api-Version: 2022-11-28` — and a connection may pin another with `api_version`, per account. What that promises, and what it cannot, is in [docs/compatibility.md](docs/compatibility.md#provider-apis).
 
-Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — and nothing else, no headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
+Every call announces itself: `ConnectorRequestSent` for any response the provider gave, `ConnectorRequestFailed` when there was none. Both carry the connector, connection, method, path, duration, and wire attempts — plus the status and the connector's success verdict on `Sent`, the exception class and redacted message on `Failed` — and never headers or bodies, with the path deliberately stripped of its query string. While a request is in flight, `laraflow.connector` and `laraflow.connection` join Laravel's log context. `php artisan laraflow:connectors` lists what is configured, naming credentials without printing them; `--check` resolves everything and exits non-zero on a problem, so it can gate a deploy.
 
 Override `errorMapper()` when the provider has its own way of saying no — Slack answers `200` with `"ok": false`; GitHub reports an exhausted rate limit as `403`. Extend `StatusErrorMapper`, handle the special case, and fall back to `parent::map()`.
 
@@ -970,7 +1043,7 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 5; they are the focus of the next milestone in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 7; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
@@ -983,7 +1056,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 - **Connector tests prove shapes, not providers.** They fake HTTP and run without network, so they prove a connector handles the responses a provider documented — not that the provider still sends them. See [docs/compatibility.md](docs/compatibility.md#provider-apis).
 - **Stack frames beneath a connector may carry the credential.** Laraflow's own frames are clean, but Laravel's HTTP client frames hold the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client. See [SECURITY.md](SECURITY.md).
 - **`0.x`, so minor versions may break.** The schema is frozen and upgrades follow [docs/upgrading.md](docs/upgrading.md), but the public API may still move before 1.0; breaking changes are listed in [CHANGELOG.md](CHANGELOG.md) under **Breaking**. Pin a version you have tested.
-- **No production usage yet.** Everything here is proven by 877 tests across five database engines and the CI matrix, not by having survived a real incident. Read [docs/execution-lifecycle.md](docs/execution-lifecycle.md) — in particular *Known limits of the claim discipline* — before depending on it for work you cannot afford to re-run.
+- **No production usage yet.** Everything here is proven by the test suite across five database engines and the CI matrix, not by having survived a real incident. Read [docs/execution-lifecycle.md](docs/execution-lifecycle.md) before depending on it for work you cannot afford to re-run.
 
 ## Design principles
 

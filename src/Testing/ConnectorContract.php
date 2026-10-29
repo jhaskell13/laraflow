@@ -92,7 +92,12 @@ final class ConnectorContract
      *                              No rendering of the connector and no message it
      *                              produces may contain it.
      * @param  ConnectorRequest  $probe  A request shaped like one the connector
-     *                                   really makes. It is never actually sent.
+     *                                   really makes. It is sent only through the stubbed client —
+     *                                   which is the first assertion: a connector whose transport
+     *                                   bypasses Laravel's client would send it for real, and that
+     *                                   is reported as the failure rather than silently tolerated.
+     *                                   Run the contract against a connection with `throw_on_error`
+     *                                   off, which is the default.
      */
     public function assertHeldBy(HttpConnector $connector, string $credential, ConnectorRequest $probe): void
     {
@@ -106,12 +111,9 @@ final class ConnectorContract
 
     public function assertIsNamed(HttpConnector $connector): void
     {
+        // Non-empty is the contract; HttpConnector invites overriding
+        // name() for a class that serves a provider under another key.
         Assert::assertNotSame('', trim($connector->name()), 'A connector must have a name.');
-        Assert::assertSame(
-            $connector->connection()->connector,
-            $connector->name(),
-            'A connector should answer to the name it is registered under.',
-        );
     }
 
     /**
@@ -259,6 +261,11 @@ final class ConnectorContract
 
     private function assertClean(Throwable $exception, string $credential): void
     {
+        // The outer message only. The harness plants the credential in
+        // the simulated driver failure precisely to prove the connector's
+        // own message hides it; the chained previous is Laravel's and the
+        // HTTP client's, and SECURITY.md names it as a sink the
+        // application's exception handler must be configured for.
         Assert::assertStringNotContainsString(
             $credential,
             $exception->getMessage(),

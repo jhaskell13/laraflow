@@ -30,5 +30,12 @@ class ConnectorRequestTest extends TestCase
         $this->assertTrue($request->withOptions(['json' => ['a' => 2]])->isIdempotent());
         $this->assertTrue($request->withHeaders(['X' => 'y'])->isIdempotent());
         $this->assertSame(['json' => ['a' => 1], 'headers' => ['X' => 'y']], $request->withHeaders(['X' => 'y'])->options);
+        $this->assertSame(
+            ['headers' => ['if-none-match' => '"new"']],
+            (new ConnectorRequest('GET', '/x', ['headers' => ['If-None-Match' => '"old"']]))
+                ->withHeaders(['if-none-match' => '"new"'])
+                ->options,
+            'withHeaders() replaces a header whatever its casing.',
+        );
     }
 }

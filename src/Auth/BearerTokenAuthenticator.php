@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Auth;
 
 use Laraflow\Integration\Credentials;
+use Laraflow\Integration\Http\Headers;
 
 /**
  * `Authorization: Bearer <token>`, the token read from the named
@@ -29,7 +30,9 @@ class BearerTokenAuthenticator implements Authenticator
     {
         $token = $credentials->require($this->credential, $this->environmentVariable)->reveal();
 
-        $requestOptions['headers']['Authorization'] = 'Bearer '.$token;
+        // Through the one merge rule, so a request already carrying
+        // `authorization` in another casing is replaced, not joined.
+        $requestOptions['headers'] = Headers::merge($requestOptions['headers'] ?? [], ['Authorization' => 'Bearer '.$token]);
 
         return $requestOptions;
     }

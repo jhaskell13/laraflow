@@ -45,6 +45,21 @@ class GithubConnectorTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer test-token'));
     }
 
+    public function test_a_secondary_rate_limit_is_rate_limited_not_an_authentication_failure(): void
+    {
+        // GitHub's abuse limit: 403 with Retry-After and a non-zero
+        // remaining count. Read as an auth failure it would never be
+        // retried later — and ignoring the wait is when GitHub escalates.
+        Http::fake(['api.github.com/*' => Http::response(['message' => 'secondary rate limit'], 403, [
+            'Retry-After' => '30',
+            'X-RateLimit-Remaining' => '58',
+        ])]);
+
+        $response = $this->connector()->request(new ConnectorRequest('GET', '/repos/a/b'));
+
+        $this->assertInstanceOf(RateLimitedException::class, $response->error());
+    }
+
     public function test_it_pins_the_api_version_it_was_written_against(): void
     {
         Http::fake(['api.github.com/*' => Http::response([])]);

@@ -79,7 +79,7 @@ class RetentionServiceTest extends TestCase
     {
         // Each is old by creation, but none has finished: finished_at is
         // the only clock retention reads.
-        foreach (['pending', 'running', 'retrying'] as $state) {
+        foreach (['pending', 'running', 'retrying', 'waiting'] as $state) {
             $this->unfinished($state);
         }
 
@@ -91,7 +91,7 @@ class RetentionServiceTest extends TestCase
         ));
 
         $this->assertSame(0, $report->scanned);
-        $this->assertSame(3, WorkflowExecutionModel::query()->count());
+        $this->assertSame(4, WorkflowExecutionModel::query()->count());
     }
 
     public function test_a_retry_waiting_out_its_backoff_is_not_old_work(): void
@@ -171,22 +171,40 @@ class RetentionServiceTest extends TestCase
         $this->assertSame(2, StepAttemptModel::query()->where('workflow_execution_id', $kept->id)->count());
     }
 
-    public function test_deleting_leaves_no_orphans_without_database_cascades(): void
+    public function test_deleting_does_not_depend_on_database_cascades(): void
     {
-        // SQLite enforces the declared cascade only when the connection
-        // asks. Retention must clean up either way, so this proves the
-        // behaviour with enforcement off. Only SQLite lets a session
-        // switch enforcement off, so only SQLite can stage this case;
-        // on the other engines the ordinary delete tests cover cascades.
-        if ($this->databaseDriver() !== 'sqlite') {
-            $this->markTestSkipped('Staging a cascade-less schema needs SQLite\'s PRAGMA.');
-        }
-
-        DB::statement('PRAGMA foreign_keys = OFF');
-
+        // Switching SQLite's foreign keys off inside the test transaction
+        // is a documented no-op, so the proof is the statements: after
+        // the parent delete, retention issues its own orphan sweeps over
+        // the attempt and step tables on every engine — the sweeps that
+        // do the work wherever no cascade fires.
         $doomed = $this->aged('completed', 100, attempts: 2);
 
-        $this->service()->prune(new RetentionPolicy(deleteAfterDays: 90));
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        try {
+            $this->service()->prune(new RetentionPolicy(deleteAfterDays: 90));
+        } finally {
+            $log = DB::getQueryLog();
+            DB::disableQueryLog();
+        }
+
+        $deletes = array_values(array_filter(
+            array_map(fn (array $entry): string => strtolower((string) $entry['query']), $log),
+            fn (string $sql): bool => str_starts_with($sql, 'delete'),
+        ));
+
+        // The table a DELETE targets, not one it merely names in a
+        // NOT EXISTS subquery; quoting differs per engine.
+        $targets = fn (string $table): int => count(array_filter(
+            $deletes,
+            fn (string $sql): bool => preg_match('/^delete\s+from\s+\W?'.preg_quote($table, '/').'\W/', $sql) === 1,
+        ));
+
+        $this->assertSame(1, $targets('laraflow_workflow_executions'));
+        $this->assertGreaterThanOrEqual(1, $targets('laraflow_step_attempts'), 'The attempt-history sweep is issued, cascade or no cascade.');
+        $this->assertGreaterThanOrEqual(1, $targets('laraflow_step_executions'), 'The step-row sweep is issued, cascade or no cascade.');
 
         $this->assertNull(WorkflowExecutionModel::query()->find($doomed->id));
         $this->assertSame(0, StepExecutionModel::query()->count());
@@ -426,6 +444,13 @@ class RetentionServiceTest extends TestCase
         );
 
         $this->assertSame(1, $deleted);
+
+        // And the service reports the one the guard spared as skipped:
+        // the count is how an operator knows the guard did its job.
+        WorkflowExecutionModel::query()->whereKey($spared->id)->update(['finished_at' => $cutoff->modify('-1 day')]);
+        $report = $this->service()->prune(new RetentionPolicy(deleteAfterDays: 90, chunk: 1));
+        $this->assertSame(1, $report->deleted);
+        $this->assertSame(0, $report->skipped, 'Nothing raced this run.');
     }
 
     // ------------------------------------------------------------------
@@ -653,7 +678,7 @@ class RetentionServiceTest extends TestCase
             $succeeded = $last && $outcome !== 'failed';
 
             $step->markRunning($finishedAt);
-            $repository->saveStep($step, new StepAttempt(
+            $repository->saveStep($execution, $step, new StepAttempt(
                 executionId: $execution->id,
                 stepExecutionId: $step->id,
                 attempt: $attempt,
@@ -671,7 +696,7 @@ class RetentionServiceTest extends TestCase
                 $step->markFailed('boom', 'RuntimeException', $finishedAt);
             }
 
-            $repository->saveStep($step);
+            $repository->saveStep($execution, $step);
         }
 
         $execution->context = ['loaded' => true];

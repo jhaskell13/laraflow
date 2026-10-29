@@ -89,10 +89,20 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId));
     }
 
-    public function saveStep(StepExecution $step, ?StepAttempt $attempt = null): void
+    public function recordSignal(int|string $id, string $signal, array $payload, DateTimeImmutable $at): WorkflowExecution
     {
-        $this->call(__FUNCTION__, function () use ($step, $attempt) {
-            $this->inner->saveStep($step, $attempt);
+        return $this->call(__FUNCTION__, fn () => $this->inner->recordSignal($id, $signal, $payload, $at));
+    }
+
+    public function waitingDue(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow, $tenantId));
+    }
+
+    public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void
+    {
+        $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {
+            $this->inner->saveStep($execution, $step, $attempt);
         });
     }
 
@@ -130,9 +140,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         });
     }
 
-    public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at): WorkflowExecution
+    public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at, ?DateTimeImmutable $staleBefore = null): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at));
+        return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at, $staleBefore));
     }
 
     public function attempts(StepExecution $step): array

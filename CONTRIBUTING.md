@@ -1,10 +1,10 @@
 # Contributing to Laraflow
 
-Thanks for your interest. Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the current milestone in [ROADMAP.md](ROADMAP.md).
+Thanks for your interest. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Laraflow is early-stage, so the most valuable contributions right now are focused ones: bug reports with reproductions, test coverage for recovery edge cases, and changes that advance the work recorded in [ROADMAP.md](ROADMAP.md).
 
 ## Before you start
 
-- **Check the roadmap.** Work is ordered by dependency. A feature from a later milestone (branching, sub-workflows, new connectors, a dashboard) is unlikely to be merged before the milestone in progress is complete, however good the code is. Open an issue first to discuss anything beyond the current milestone.
+- **Check the roadmap.** Work is ordered by dependency. A feature the roadmap defers (graph branching, fan-out, compensation, new connectors, a dashboard) is unlikely to be merged ahead of the work it depends on, however good the code is. Open an issue first to discuss anything the roadmap does not already name.
 - **Open an issue for anything non-trivial.** Bug fixes with tests can go straight to a pull request. Design changes, new public API, and schema changes should be discussed first.
 - **Read [docs/public-api.md](docs/public-api.md).** Changes to public classes need a changelog entry; changes to internal classes do not.
 
@@ -17,7 +17,7 @@ composer install
 composer check   # code style + static analysis + tests
 ```
 
-CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.5 against Laravel 12 and 13 (excluding PHP 8.2 + Laravel 13, which Laravel does not support), plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. A database matrix runs the whole suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job builds a fresh `laravel/laravel` application (oldest and newest supported pairing), requires the package from the local path, and walks `composer require` → auto-discovery → publish → migrate → a persisted execution → failure recovery → rollback, asserting each step with the commands a user would run. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
+CI (`.github/workflows/ci.yml`) splits the work: a single quality job runs `composer validate --strict`, `composer audit`, lint, and static analysis; the test matrix covers PHP 8.2–8.5 against Laravel 12 and 13 (excluding PHP 8.2 + Laravel 13, which Laravel does not support), plus one `prefer-lowest` cell on PHP 8.2 that resolves every constraint to its floor and must pass tests *and* static analysis there. A database matrix runs the whole suite against MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019, and an install job builds a fresh `laravel/laravel` application (the oldest supported pairing, and Laravel 13 on PHP 8.4), requires the package from the local path, and walks `composer require` → auto-discovery → publish → migrate → a persisted execution → failure recovery → rollback, asserting each step with the commands a user would run. The audit runs only against the committed lock file — the lowest leg deliberately resolves old dev dependencies, which would always carry advisories.
 
 The individual checks:
 
@@ -112,7 +112,7 @@ A connector in a third-party package registers itself from that package's own se
 
 ### Database migrations
 
-**The schema is frozen.** The three shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.
+**The schema is frozen.** Shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.
 
 `tests/Feature/Database/SchemaFreezeTest.php` enforces this — it fails if the schema the shipped migrations produce changes at all — and `UpgradePathTest` is the harness a new migration is tested through: it applies one to an already-populated database and asserts the data survives both the upgrade and its rollback. A schema change needs an explicit changelog entry describing its operational impact, and `docs/upgrading.md` is the contract it has to honour.
 
