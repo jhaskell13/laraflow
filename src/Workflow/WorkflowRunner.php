@@ -23,7 +23,6 @@ use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
-use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\LoggingContext;

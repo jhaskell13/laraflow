@@ -179,6 +179,18 @@ abstract class TestCase extends Orchestra
     }
 
     /**
+     * Every index on a table as its column list, which is how the schema
+     * freeze and the upgrade harness both compare indexes: engines name
+     * them differently, and columns are what an index is.
+     *
+     * @return list<list<string>>
+     */
+    protected function indexColumns(string $table): array
+    {
+        return array_map(fn (array $index): array => $index['columns'], Schema::getIndexes($table));
+    }
+
+    /**
      * `artisan()` for the cases that chain expectations onto it.
      *
      * It is typed `PendingCommand|int` because it returns the exit code

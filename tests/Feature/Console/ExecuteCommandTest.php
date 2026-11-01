@@ -57,11 +57,11 @@ class ExecuteCommandTest extends TestCase
 
     public function test_a_non_integer_execution_id_is_refused_in_both_modes(): void
     {
-        foreach ([[], ['--queue' => true]] as $mode) {
-            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:execute', ['execution' => 'abc'] + $mode);
+        foreach (['inline' => [], 'queued' => ['--queue' => true]] as $mode => $options) {
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:execute', ['execution' => 'abc'] + $options);
 
-            $this->assertSame(CommandStatus::FAILURE, $status);
-            $this->assertStringContainsString('must be a positive integer execution id', $output);
+            $this->assertSame(CommandStatus::FAILURE, $status, "[{$mode}] accepted a non-integer id.");
+            $this->assertStringContainsString('must be a positive integer execution id', $output, "[{$mode}]");
         }
     }
 

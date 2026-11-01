@@ -219,7 +219,7 @@ Hardening deferred from the Milestone 6 closing audit, to take before or alongsi
 
 Milestone 7's capability scope was decided in October 2026 and its semantics fixed in `docs/advanced-workflows.md` before implementation; all three capabilities shipped the same month: conditional steps (step 7), delays/wait states with signals (step 8), and sub-workflow composition (step 9), each with persistence, recovery, and observability semantics decided first and enforced by `tests/Feature/Workflow/{ConditionalStepTest,WaitStateTest,SubWorkflowTest}.php`. Fan-out/fan-in, compensation/saga, and multi-tenant throttling are deferred past this milestone, to be driven by real user needs.
 
-**Deferred from the closing audit** (design findings judged real but not worth the churn before 1.0; each is a candidate for the first post-1.0 minor): rename the four recovery scans to one shape (`stale`, `pendingBefore`, `dueForRetry`, `waitingDue`) and give all four tenant scoping; a backed `RecoveryReason` enum in place of the string constants on `WorkflowExecutionRetryScheduled`; `int|string` execution ids on the public contract against an int-only implementation — commit to one; extract the wait/child-wait state machine out of `WorkflowRunner` into a `WaitResolver`; make every service collaborator required rather than nullable-with-defaults; a `(status, created_at)` index for the opt-in pending scan; the per-connection (not per-tenant) rate-limit bucket; and the engine matrix meeting Laravel 12 and `prefer-lowest`, which today run on SQLite only.
+**Deferred from the closing audit** (design findings judged real but not worth the churn before 1.0; recorded here as candidates for the first post-1.0 minor — in the event, Milestone 8 took all but the rate-limit bucket, which moved to Milestone 10): rename the four recovery scans to one shape (`stale`, `pendingBefore`, `dueForRetry`, `waitingDue`) and give all four tenant scoping; a backed `RecoveryReason` enum in place of the string constants on `WorkflowExecutionRetryScheduled`; `int|string` execution ids on the public contract against an int-only implementation — commit to one; extract the wait/child-wait state machine out of `WorkflowRunner` into a `WaitResolver`; make every service collaborator required rather than nullable-with-defaults; a `(status, created_at)` index for the opt-in pending scan; the per-connection (not per-tenant) rate-limit bucket; and the engine matrix meeting Laravel 12 and `prefer-lowest`, which today run on SQLite only.
 
 From the original list, still intentionally later:
 
@@ -243,14 +243,15 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 
 - Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code.
 - An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.
-- The deferred audit items, each its own step, taken first because the capabilities below land on the signatures they change:
+- The deferred audit items, each its own step and taken first, because the two capabilities above land on the signatures they change:
   - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
   - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).
   - ~~A backed `RecoveryReason` enum.~~ Done (step 3).
   - ~~Required collaborators instead of nullable defaults.~~ Done (step 4).
   - ~~Extract the wait and child-wait state machine from `WorkflowRunner`.~~ Done (step 5).
   - ~~A `(status, created_at)` index for the pending scan.~~ Done (step 6).
-  - Per-tenant rate-limit buckets: **deferred to Milestone 10** at Milestone 8 planning. The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
+  - Per-tenant rate-limit buckets: **deferred to Milestone 10** at Milestone 8 planning.
+  - Phase A closed with a three-way hostile audit — concurrency, code quality, contract alignment — of the six steps: 36 findings, one defect (the recovery limit was never shared past the stale scan, since Milestone 2), fixed with its regression test; the rest documentation accuracy, duplication, and a derived rather than listed services rule. Done (step 6a). The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
 - The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.
 - `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed — and `laraflow:start {workflow}`, the command that runs an arbitrary workflow class, without which no install story can be proved with the generators alone.
 
@@ -332,7 +333,7 @@ The two capabilities deferred from Milestone 7, each specified in `docs/advanced
 9. ~~Harden the connector contracts.~~ Done.
 10. ~~Release automation and the schema freeze.~~ Done.
 11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete and the MVP is released as 0.2.0.
-12. Workflow versioning and the idempotency store, then the deferred audit items and the generators (Milestone 8).
+12. The deferred audit items first, then workflow versioning and the idempotency store, then the generators and the install story (Milestone 8).
 13. Fan-out/fan-in, then compensation — semantics first (Milestone 9).
 14. Schedules, signed triggers, tenant throttling (Milestone 10).
 15. Dashboard and metrics packages, the documentation site, the connector ecosystem (Milestone 11).

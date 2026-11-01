@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature;
 
+use Closure;
+use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Laraflow\Tests\TestCase;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
+use ReflectionType;
+use ReflectionUnionType;
 use SensitiveParameter;
+use Stringable;
+use Throwable;
 
 /**
  * Holds the project's documentation and its code to each other.
@@ -190,17 +197,7 @@ class ProjectContractsTest extends TestCase
         $doc = (string) file_get_contents($this->path('docs/public-api.md'));
         $undocumented = [];
 
-        foreach (File::allFiles($this->path('src')) as $file) {
-            $class = 'Laraflow\\'.str_replace(
-                ['/', '.php'],
-                ['\\', ''],
-                mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1),
-            );
-
-            if (! class_exists($class) && ! interface_exists($class) && ! enum_exists($class)) {
-                continue;
-            }
-
+        foreach ($this->packageClasses() as $class) {
             $reflection = new ReflectionClass($class);
             $docblock = (string) $reflection->getDocComment();
 
@@ -350,9 +347,7 @@ class ProjectContractsTest extends TestCase
         // own stack frames.
         $missing = [];
 
-        foreach (File::allFiles($this->path('src')) as $file) {
-            $class = 'Laraflow\\'.str_replace(['/', '.php'], ['\\', ''], mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1));
-
+        foreach ($this->packageClasses() as $class) {
             if (! class_exists($class) || ! is_subclass_of($class, \Laraflow\Integration\Http\HttpTransport::class)) {
                 continue;
             }
@@ -425,8 +420,13 @@ class ProjectContractsTest extends TestCase
      */
     public function test_execution_ids_are_integers_on_every_signature(): void
     {
-        $idNames = '/^(id|executionId|childExecutionId|parentExecutionId|parentStepExecutionId|stepExecutionId|parentId|childId)$/';
+        // Anything named like an id, less the two application-supplied
+        // identifiers, which are strings by contract. Lists of ids are
+        // array-typed and left to static analysis.
+        $idNames = '/^(id|.+Id)$/';
+        $stringIdentifiers = ['correlationId', 'tenantId'];
         $offenders = [];
+        $inspected = 0;
 
         foreach ($this->packageClasses() as $class) {
             $reflection = new ReflectionClass($class);
@@ -443,23 +443,35 @@ class ProjectContractsTest extends TestCase
                 }
 
                 foreach ($method->getParameters() as $parameter) {
-                    if (preg_match($idNames, $parameter->getName()) === 1
-                        && ! in_array((string) $parameter->getType(), ['int', '?int'], true)) {
+                    if (preg_match($idNames, $parameter->getName()) !== 1 || in_array($parameter->getName(), $stringIdentifiers, true)) {
+                        continue;
+                    }
+
+                    $inspected++;
+
+                    if (! in_array((string) $parameter->getType(), ['int', '?int'], true)) {
                         $offenders[] = sprintf('%s::%s($%s): %s', $class, $method->getName(), $parameter->getName(), (string) $parameter->getType());
                     }
                 }
             }
 
             foreach ($reflection->getProperties() as $property) {
-                if ($property->getDeclaringClass()->getName() === $class
-                    && preg_match($idNames, $property->getName()) === 1
-                    && ! in_array((string) $property->getType(), ['int', '?int'], true)) {
+                if ($property->getDeclaringClass()->getName() !== $class
+                    || preg_match($idNames, $property->getName()) !== 1
+                    || in_array($property->getName(), $stringIdentifiers, true)) {
+                    continue;
+                }
+
+                $inspected++;
+
+                if (! in_array((string) $property->getType(), ['int', '?int'], true)) {
                     $offenders[] = sprintf('%s::$%s: %s', $class, $property->getName(), (string) $property->getType());
                 }
             }
         }
 
         $this->assertSame([], $offenders, 'An execution or step id is not typed int.');
+        $this->assertGreaterThan(40, $inspected, 'The id rule inspected too few signatures to mean anything.');
     }
 
     /**
@@ -498,63 +510,63 @@ class ProjectContractsTest extends TestCase
      * constructor parameter typed as a class with a null default was a
      * second, silent configuration — a runner with its own clock, an
      * observer that emitted nothing — that disagreed with the rest of
-     * the application. The only nullable collaborator left is one whose
-     * null is a documented setting, not a missing wire.
+     * the application.
+     *
+     * A service is any package class whose constructor takes a
+     * collaborator; a collaborator is an interface other than the
+     * language's own, a framework class, or a package class that itself
+     * takes collaborators. Derived rather than listed: the list this
+     * test began as missed WaitResolver one commit after it was written.
+     * The only nullable collaborators allowed are the two whose null is
+     * a documented setting.
      */
     public function test_services_require_their_collaborators(): void
     {
-        $services = [
-            \Laraflow\Workflow\WorkflowRunner::class,
-            \Laraflow\Workflow\RecoveryService::class,
-            \Laraflow\Workflow\RetentionService::class,
-            \Laraflow\Workflow\OutcomeRecorder::class,
-            \Laraflow\Workflow\ParentNotifier::class,
-            \Laraflow\Workflow\ChildWorkflows::class,
-            \Laraflow\Workflow\StepResolver::class,
-            \Laraflow\Workflow\WorkflowResolver::class,
-            \Laraflow\Workflow\Repositories\EloquentExecutionRepository::class,
-            \Laraflow\Queue\WorkflowDispatcher::class,
-            \Laraflow\Queue\QueueChildDelivery::class,
-            \Laraflow\Events\EventEmitter::class,
-            \Laraflow\Support\LoggingContext::class,
-            \Laraflow\Integration\ConnectorRegistry::class,
-            \Laraflow\Integration\Http\ConnectorObserver::class,
-            \Laraflow\Integration\Http\TransportPipeline::class,
-            \Laraflow\Integration\Http\ObservingTransport::class,
-            \Laraflow\Core\LaraflowManager::class,
-        ];
-
-        // Null here is behaviour, not absence: the log context is
-        // disabled by configuration, and the emitter is silenced the
-        // same way. Both are the documented "off" object.
         $nullMeansOff = [
             \Laraflow\Support\LoggingContext::class => ['context'],
             \Laraflow\Events\EventEmitter::class => ['events'],
         ];
 
+        $services = [];
         $optional = [];
 
-        foreach ($services as $service) {
-            $constructor = (new ReflectionClass($service))->getConstructor();
+        foreach ($this->packageClasses() as $class) {
+            $collaborators = $this->collaboratorParameters($class);
 
-            foreach ($constructor?->getParameters() ?? [] as $parameter) {
-                $type = $parameter->getType();
+            if ($collaborators === []) {
+                continue;
+            }
 
-                if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
+            $services[] = $class;
+
+            foreach ($collaborators as $parameter) {
+                if (in_array($parameter->getName(), $nullMeansOff[$class] ?? [], true)) {
                     continue;
                 }
 
-                if (in_array($parameter->getName(), $nullMeansOff[$service] ?? [], true)) {
-                    continue;
-                }
-
-                if ($type->allowsNull() || $parameter->isDefaultValueAvailable()) {
-                    $optional[] = sprintf('%s::__construct($%s)', $service, $parameter->getName());
+                if ($parameter->allowsNull() || $parameter->isDefaultValueAvailable()) {
+                    $optional[] = sprintf('%s::__construct($%s)', $class, $parameter->getName());
                 }
             }
         }
 
         $this->assertSame([], $optional, 'A service constructor makes a collaborator optional.');
+
+        // The rule has teeth only if the derivation recognises the
+        // services it was written for; an empty set would pass above.
+        foreach ([
+            \Laraflow\Workflow\WorkflowRunner::class,
+            \Laraflow\Workflow\WaitResolver::class,
+            \Laraflow\Workflow\OutcomeRecorder::class,
+            \Laraflow\Workflow\RecoveryService::class,
+            \Laraflow\Workflow\RetentionService::class,
+            \Laraflow\Queue\WorkflowDispatcher::class,
+            \Laraflow\Workflow\Repositories\EloquentExecutionRepository::class,
+            \Laraflow\Integration\Http\TransportPipeline::class,
+            \Laraflow\Integration\Http\ConnectorObserver::class,
+        ] as $known) {
+            $this->assertContains($known, $services, "{$known} was not recognised as a service.");
+        }
     }
 
     public function test_no_console_command_reaches_past_the_public_contract(): void
@@ -659,6 +671,71 @@ class ProjectContractsTest extends TestCase
                 class_basename($class).' is never retried but the contract does not say so.',
             );
         }
+    }
+
+    /**
+     * The constructor parameters of $class that are collaborators.
+     *
+     * @param  class-string  $class
+     * @return list<ReflectionParameter>
+     */
+    protected function collaboratorParameters(string $class): array
+    {
+        $constructor = (new ReflectionClass($class))->getConstructor();
+        $collaborators = [];
+
+        foreach ($constructor?->getParameters() ?? [] as $parameter) {
+            $type = $parameter->getType();
+
+            // A union of classes is a collaborator by any member.
+            $names = match (true) {
+                $type instanceof ReflectionNamedType => $type->isBuiltin() ? [] : [$type->getName()],
+                $type instanceof ReflectionUnionType => array_map(
+                    fn (ReflectionType $t): string => $t instanceof ReflectionNamedType && ! $t->isBuiltin() ? $t->getName() : '',
+                    $type->getTypes(),
+                ),
+                default => [],
+            };
+
+            foreach (array_filter($names) as $name) {
+                if ($this->isCollaboratorType($name)) {
+                    $collaborators[] = $parameter;
+
+                    break;
+                }
+            }
+        }
+
+        return $collaborators;
+    }
+
+    protected function isCollaboratorType(string $type): bool
+    {
+        static $memo = [];
+
+        // The language's own interfaces describe values, not services.
+        if (in_array($type, [Throwable::class, DateTimeInterface::class, Stringable::class, Closure::class, DateTimeImmutable::class], true)) {
+            return false;
+        }
+
+        if (interface_exists($type) || str_starts_with($type, 'Illuminate\\') || str_starts_with($type, 'Psr\\')) {
+            return true;
+        }
+
+        // Exceptions are values the package throws, whatever they carry.
+        if (! str_starts_with($type, 'Laraflow\\') || str_starts_with($type, 'Laraflow\\Exceptions\\') || ! class_exists($type) || enum_exists($type)) {
+            return false;
+        }
+
+        if (array_key_exists($type, $memo)) {
+            return $memo[$type];
+        }
+
+        // Cycle guard before the recursion; a class that only reaches
+        // itself has no collaborator.
+        $memo[$type] = false;
+
+        return $memo[$type] = $this->collaboratorParameters($type) !== [];
     }
 
     /**

@@ -36,6 +36,17 @@ class ChildWorkflowFailedException extends WorkflowException
         ));
     }
 
+    public static function malformedSignal(string $step, int $position, string $signal): self
+    {
+        return new self(sprintf(
+            'Step [%s] at position %d is parked on child signal [%s], which does not name a child execution. '
+            .'Only the sub-workflow machinery writes this column; the row has been altered.',
+            $step,
+            $position,
+            $signal,
+        ));
+    }
+
     public static function missing(string $step, int $position, int $childId): self
     {
         return new self(sprintf(

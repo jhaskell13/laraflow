@@ -369,7 +369,7 @@ class RecoverCommandTest extends TestCase
         Queue::assertPushed(ExecuteWorkflowJob::class, 1);
     }
 
-    public function test_the_tenant_filter_narrows_every_scan(): void
+    public function test_the_tenant_filter_narrows_the_scans_that_lacked_it(): void
     {
         Queue::fake();
 

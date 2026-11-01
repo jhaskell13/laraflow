@@ -26,7 +26,7 @@ use Throwable;
  * timed out, parked again because nothing is due, or, for a parent
  * parked on a child, settled from the child's outcome. The semantics
  * are fixed in docs/advanced-workflows.md; this class is where the
- * runner's step loop hands a waiting step and gets a WaitResolution
+ * runner's step loop hands a waiting step and gets a StepResolution
  * back.
  *
  * It never cancels: a park is a step boundary, and the runner honours
@@ -36,12 +36,12 @@ use Throwable;
 final class WaitResolver
 {
     public function __construct(
-        protected ExecutionRepository $repository,
-        protected LoggerInterface $logger,
-        protected ClockInterface $clock,
-        protected RunnerOptions $options,
-        protected ChildDelivery $childDelivery,
-        protected OutcomeRecorder $outcomes,
+        private ExecutionRepository $repository,
+        private LoggerInterface $logger,
+        private ClockInterface $clock,
+        private RunnerOptions $options,
+        private ChildDelivery $childDelivery,
+        private OutcomeRecorder $outcomes,
     ) {}
 
     /**
@@ -103,7 +103,7 @@ final class WaitResolver
         FailurePolicy $failurePolicy,
         bool $forcedDue,
         DateTimeImmutable $now,
-    ): WaitResolution {
+    ): StepResolution {
         if (Wait::isChildSignal($stepExecution->waitSignal)) {
             return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy, $now);
         }
@@ -133,7 +133,7 @@ final class WaitResolver
 
             $this->outcomes->completeStep($execution, $stepExecution, $context, $payload);
 
-            return WaitResolution::resumed();
+            return StepResolution::resumed();
         }
 
         if ($stepExecution->waitSignal !== null
@@ -164,14 +164,14 @@ final class WaitResolver
      * for it, so it is resumed rather than charged twice. A missing
      * child was pruned; nothing can finish it.
      */
-    protected function resolveChildWait(
+    private function resolveChildWait(
         WorkflowExecution $execution,
         StepExecution $stepExecution,
         WorkflowContext $context,
         StepPolicy $policy,
         FailurePolicy $failurePolicy,
         DateTimeImmutable $now,
-    ): WaitResolution {
+    ): StepResolution {
         // The payload round-trips through JSON, so its shape is checked
         // rather than assumed: a malformed one reads as a failed child.
         /** @var array<array-key, mixed>|null $outcome */
@@ -179,6 +179,15 @@ final class WaitResolver
 
         if ($outcome === null) {
             $childId = Wait::childIdFrom((string) $stepExecution->waitSignal);
+
+            // Only forChild() writes a child signal, and it writes digits.
+            // Anything else on the row is damage, and the failure should
+            // say so rather than report a child that was never named.
+            if ($childId === 0) {
+                $malformed = ChildWorkflowFailedException::malformedSignal($stepExecution->step, $stepExecution->position, (string) $stepExecution->waitSignal);
+
+                return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, $malformed);
+            }
 
             try {
                 $child = $this->repository->find($childId);
@@ -228,7 +237,7 @@ final class WaitResolver
         if (($outcome['status'] ?? null) === ExecutionStatus::Completed->value) {
             $this->outcomes->completeStep($execution, $stepExecution, $context, $outcome);
 
-            return WaitResolution::resumed();
+            return StepResolution::resumed();
         }
 
         // The payload names the child; the wait signal is the durable
@@ -251,15 +260,15 @@ final class WaitResolver
      * due, or a child is still working. The runner honours a pending
      * cancellation once this returns.
      */
-    protected function parkAgain(WorkflowExecution $execution, ?DateTimeImmutable $nextEventAt): WaitResolution
+    private function parkAgain(WorkflowExecution $execution, ?DateTimeImmutable $nextEventAt): StepResolution
     {
         $execution->markWaiting($nextEventAt);
         $this->repository->release($execution);
 
-        return WaitResolution::parked();
+        return StepResolution::parked();
     }
 
-    protected function waitTimeout(StepExecution $stepExecution): WaitTimedOutException
+    private function waitTimeout(StepExecution $stepExecution): WaitTimedOutException
     {
         return WaitTimedOutException::forSignal(
             $stepExecution->step,

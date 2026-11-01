@@ -10,9 +10,11 @@ namespace Laraflow\Workflow;
  * strings the event carried before Milestone 8, so a listener matching
  * on them keeps matching through `->value`.
  *
- * Two of these are interruptions and bounded by the recovery
- * abandonment rule; three are scheduled work and exempt from it, their
+ * Three of these are interruptions and bounded by the recovery
+ * abandonment rule; two are scheduled work and exempt from it, their
  * bound being the step's own policy (docs/queue-and-recovery.md).
+ * `isInterruption()` is that distinction, and RecoveryService reads it
+ * rather than keeping a copy.
  */
 enum RecoveryReason: string
 {

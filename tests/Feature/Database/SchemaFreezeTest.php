@@ -104,7 +104,7 @@ class SchemaFreezeTest extends TestCase
         '2026_10_28_000001_add_wait_signal_to_laraflow_step_executions.php' => '67736320011ef3d5dd9475ccab43508fcbf4514684c03e3de92f36d120210a85',
         '2026_10_28_000002_add_parent_links_to_laraflow_workflow_executions.php' => 'eb6f47d57df0250318dad185c8cd6d54e301ee89396ec25bd8772a3a1403fa18',
         '2026_10_28_000003_add_scrub_scan_index_to_laraflow_workflow_executions.php' => '250b1192065da97f03d14a4919437c9805cbd0429f6c9b2f3fc63f2c567462ac',
-        '2026_11_01_000000_add_pending_scan_index_to_laraflow_workflow_executions.php' => '2ad40c098b365e447da576cf41df1982e3568248f118b328edef1dca4a1a3e78',
+        '2026_11_01_000000_add_pending_scan_index_to_laraflow_workflow_executions.php' => '41c51997344b3a10298f98e417b230414b700a665c5d40f92d8d99995e8f66e9',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void
@@ -123,9 +123,7 @@ class SchemaFreezeTest extends TestCase
     public function test_the_frozen_tables_have_exactly_these_indexes(): void
     {
         foreach (self::INDEXES as $table => $expected) {
-            $actual = collect(Schema::getIndexes($table))
-                ->map(fn (array $index): array => $index['columns'])
-                ->all();
+            $actual = $this->indexColumns($table);
 
             // Both sides through the same sort: engines report indexes
             // in their own order, and the literal above is written for

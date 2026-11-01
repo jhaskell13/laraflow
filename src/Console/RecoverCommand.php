@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
@@ -23,8 +24,8 @@ use Throwable;
  *
  * Finds recoverable executions — stale running claims (reported as step
  * timeouts when the interrupted step overran its deadline), scheduled
- * retries that have come due, and optionally lost pending dispatches —
- * and re-dispatches them. Designed to run from the scheduler:
+ * retries and waits that have come due, and optionally lost pending
+ * dispatches — and re-dispatches them. Designed to run from the scheduler:
  *
  *   Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
  *
@@ -40,6 +41,7 @@ use Throwable;
 class RecoverCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionFilters;
 
     protected $signature = 'laraflow:recover
         {--stale-after= : Seconds after which a running claim counts as stale (default: laraflow.execution.stale_after)}
@@ -81,9 +83,9 @@ class RecoverCommand extends Command
             pendingAfterSeconds: $pendingAfter,
             limit: $limit,
             abandonAfterAttempts: $abandonAfter,
-            workflow: $this->scopeOption('workflow'),
+            workflow: $this->stringOption('workflow'),
             includeDueRetries: ! (bool) $this->option('skip-retries'),
-            tenantId: $this->scopeOption('tenant'),
+            tenantId: $this->stringOption('tenant'),
         );
 
         if ($candidates === []) {
@@ -253,18 +255,6 @@ class RecoverCommand extends Command
             RecoveryReason::RetryDue, RecoveryReason::WaitDue => $candidate->execution->nextRetryAt,
             RecoveryReason::NeverDispatched => $candidate->execution->createdAt,
         };
-    }
-
-    /**
-     * A scope option — workflow class or tenant id — trimmed, with blank
-     * meaning unscoped, the same reading ExecutionFilter gives the
-     * listing commands' options.
-     */
-    protected function scopeOption(string $name): ?string
-    {
-        $value = $this->option($name);
-
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     /**

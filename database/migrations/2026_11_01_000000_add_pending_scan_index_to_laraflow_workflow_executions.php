@@ -21,8 +21,9 @@ return new class extends Migration
      * the predicate the way its siblings are served; the Milestone 7
      * audit recorded the gap.
      *
-     * Index builds are not online on PostgreSQL or SQL Server inside a
-     * migration transaction; see docs/upgrading.md.
+     * An index build is not online on PostgreSQL inside a migration
+     * transaction, nor on SQL Server outside Enterprise; see
+     * docs/upgrading.md.
      */
     public function up(): void
     {

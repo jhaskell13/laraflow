@@ -7,13 +7,13 @@ namespace Laraflow\Workflow;
 use Throwable;
 
 /**
- * @internal How a claimed step's wait or failure resolved — the
- * runner's loop either continues past the step, carries a
- * continue-policy failure forward, or is finished with the execution
- * for this claim; and if finished by parking it, honours a pending
- * cancellation first.
+ * @internal How a claimed step's wait or failure resolved, as the
+ * runner's loop needs to know it: continue past the step, carry a
+ * continue-policy failure forward, or stop — this claim is finished
+ * with the execution. A stop that parked the execution says so, so the
+ * runner can honour a cancellation requested across the park.
  */
-final readonly class WaitResolution
+final readonly class StepResolution
 {
     private function __construct(
         public bool $resumed,
@@ -28,8 +28,9 @@ final readonly class WaitResolution
     }
 
     /**
-     * This claim is finished with the execution: a retry was scheduled
-     * or the execution failed terminally. The handle describes the rest.
+     * This claim is finished with the execution: a retry was durably
+     * scheduled and the claim released. (A terminal failure is thrown,
+     * never returned.) The handle describes the schedule.
      */
     public static function settled(): self
     {

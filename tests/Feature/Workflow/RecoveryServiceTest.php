@@ -190,6 +190,45 @@ class RecoveryServiceTest extends TestCase
         );
     }
 
+    public function test_the_scan_limit_is_shared_across_the_scheduled_scans_too(): void
+    {
+        // No stale work at all: two due retries, two due waits, two lost
+        // pendings. The budget left for each scan was recomputed from a
+        // closure that had captured the candidate list by value when
+        // only the stale scan had run — so with nothing stale, every
+        // later scan saw a full budget and a limit of two returned six.
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        $runner = $this->app->make(WorkflowRunner::class);
+
+        foreach ([1, 2] as $i) {
+            $waiting = $runner->start(new TwoStepWorkflow);
+            WorkflowExecutionModel::query()->whereKey($waiting->id)->update([
+                'status' => ExecutionStatus::Waiting->value,
+                'next_retry_at' => '2026-10-22 10:01:00',
+            ]);
+        }
+
+        $runner->start(new TwoStepWorkflow);
+        $runner->start(new TwoStepWorkflow);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $reasons = fn (int $limit): array => array_map(
+            fn (RecoveryCandidate $candidate) => $candidate->reason,
+            $this->service()->scan(300, 300, limit: $limit, abandonAfterAttempts: 3),
+        );
+
+        $this->assertSame([RecoveryReason::RetryDue, RecoveryReason::RetryDue], $reasons(2));
+        $this->assertSame([RecoveryReason::RetryDue, RecoveryReason::RetryDue, RecoveryReason::WaitDue], $reasons(3));
+        $this->assertSame(
+            [RecoveryReason::RetryDue, RecoveryReason::RetryDue, RecoveryReason::WaitDue, RecoveryReason::WaitDue, RecoveryReason::NeverDispatched],
+            $reasons(5),
+        );
+        $this->assertCount(6, $reasons(100), 'Everything is found when the limit allows it.');
+    }
+
     public function test_scan_flags_executions_whose_workflow_class_is_gone_as_unrecoverable(): void
     {
         $execution = $this->makeStaleExecution();

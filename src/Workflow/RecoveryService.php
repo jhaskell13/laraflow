@@ -19,7 +19,9 @@ use Psr\Clock\ClockInterface;
  * not yet covered by the compatibility policy.
  *
  * Finds recoverable executions and retries them within an explicit
- * bound. Four kinds are recognised:
+ * bound. Four kinds are recognised, scanned in this order — stale
+ * claims, due retries, due waits, lost pendings — under one shared
+ * limit:
  *
  * - stale claim: a `running` execution whose claim has outlived
  *   `stale_after` — the worker died mid-run. Reported as `step_timeout`
@@ -62,8 +64,8 @@ class RecoveryService
 
     /**
      * Find recoverable executions, most urgent first — stale claims,
-     * then due retries, then lost pendings — bounded by $limit across
-     * all scans together. Makes no state changes.
+     * then due retries, then due waits, then lost pendings — bounded by
+     * $limit across all scans together. Makes no state changes.
      *
      * @param  int|null  $pendingAfterSeconds  Null skips the pending scan entirely.
      * @param  int  $abandonAfterAttempts  Interrupted candidates whose steps already
@@ -109,30 +111,24 @@ class RecoveryService
         // Abandoned and unrecoverable candidates are reported, not acted
         // on; they stay in the stale set until an operator cancels or
         // re-runs them and must not starve the scans below of budget.
-        $spent = fn (): int => count(array_filter($candidates, fn (RecoveryCandidate $c): bool => $c->retryable()));
+        // By reference, deliberately: an arrow function would capture
+        // $candidates as it stood here — the stale set alone — and every
+        // later scan would be budgeted against that instead of against
+        // everything found so far, which is how this bound was once three
+        // times the number it promised.
+        $spent = function () use (&$candidates): int {
+            return count(array_filter($candidates, fn (RecoveryCandidate $c): bool => $c->retryable()));
+        };
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
             foreach ($this->repository->dueForRetry($now, $remaining, $workflow, $tenantId) as $execution) {
-                // Exempt from the interruption bound: a scheduled retry's
-                // budget is its policy, which the runner enforces.
-                $candidates[] = $this->candidate(
-                    $execution,
-                    RecoveryReason::RetryDue,
-                    abandonAfterAttempts: null,
-                );
+                $candidates[] = $this->candidate($execution, RecoveryReason::RetryDue, $abandonAfterAttempts);
             }
         }
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
             foreach ($this->repository->waitingDue($now, $remaining, $workflow, $tenantId) as $execution) {
-                // Exempt like due retries: a wait is scheduled work, not
-                // an interruption, and a timed-out signal answers to the
-                // step's own policy once a worker classifies it.
-                $candidates[] = $this->candidate(
-                    $execution,
-                    RecoveryReason::WaitDue,
-                    abandonAfterAttempts: null,
-                );
+                $candidates[] = $this->candidate($execution, RecoveryReason::WaitDue, $abandonAfterAttempts);
             }
         }
 
@@ -145,11 +141,7 @@ class RecoveryService
             );
 
             foreach ($pending as $execution) {
-                $candidates[] = $this->candidate(
-                    $execution,
-                    RecoveryReason::NeverDispatched,
-                    $abandonAfterAttempts,
-                );
+                $candidates[] = $this->candidate($execution, RecoveryReason::NeverDispatched, $abandonAfterAttempts);
             }
         }
 
@@ -240,16 +232,18 @@ class RecoveryService
     }
 
     /**
-     * @param  int|null  $abandonAfterAttempts  Null exempts the candidate
-     *                                          from the interruption bound (due retries).
-     */
-    /**
+     * The abandonment bound applies to interruptions only. Scheduled
+     * work — a due retry, a due wait — is exempt: its budget is the
+     * step's own policy, which the runner enforces, and holding it to
+     * the interruption bound would strand every policy whose budget
+     * exceeds it. The reason knows which it is.
+     *
      * @param  StepExecution[]|null  $steps  Already loaded by the caller, or null to load.
      */
     protected function candidate(
         WorkflowExecution $execution,
         RecoveryReason $reason,
-        ?int $abandonAfterAttempts,
+        int $abandonAfterAttempts,
         ?array $steps = null,
     ): RecoveryCandidate {
         $attempts = 0;
@@ -262,7 +256,7 @@ class RecoveryService
             execution: $execution,
             reason: $reason,
             attempts: $attempts,
-            abandoned: $abandonAfterAttempts !== null
+            abandoned: $reason->isInterruption()
                 && ($attempts >= $abandonAfterAttempts
                     || $execution->fruitlessClaims >= $abandonAfterAttempts),
             // A retry of a missing class fails before any step runs, so

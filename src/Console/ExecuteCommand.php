@@ -44,11 +44,18 @@ class ExecuteCommand extends Command
     ): int {
         try {
             $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        try {
             $execution = $repository->find($id);
             // Resolve up front in both modes: a missing workflow class
             // should fail here, not minutes later on a queue worker.
             $workflow = $resolver->resolve($execution->id, $execution->workflow);
-        } catch (WorkflowException|InvalidArgumentException $exception) {
+        } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;

@@ -23,9 +23,12 @@ use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
+use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
+use Psr\Clock\ClockInterface;
 
 /**
  * The wait contract (docs/advanced-workflows.md): a wait is the step's
@@ -317,6 +320,42 @@ class WaitStateTest extends TestCase
         $this->assertSame('changed my mind', WorkflowExecutionModel::query()->sole()->cancel_reason);
     }
 
+    public function test_a_cancellation_requested_as_the_park_releases_is_honoured_after_it(): void
+    {
+        // The request lands after the boundary check and before the
+        // park's release, while the row still says running — so it is
+        // recorded as a request, not an outright cancel. The runner's
+        // post-park check is the only thing that can honour it; without
+        // it the execution would sit on a wait with a request nobody
+        // reads. Phase A moved that check out of the park; this is the
+        // test the move was missing.
+        $repository = $this->repositoryWithLateCancellationRequest();
+
+        $this->makeRunner(repository: $repository)->run(new PausedWorkflow);
+
+        $row = WorkflowExecutionModel::query()->sole();
+        $this->assertSame(ExecutionStatus::Cancelled->value, $row->status, 'The post-park check did not honour the request.');
+        $this->assertSame('late request', $row->cancel_reason);
+        $this->assertSame(0, StepTwo::$runs, 'Nothing ran after the cancelled park.');
+    }
+
+    public function test_a_cancellation_requested_as_a_re_park_releases_is_honoured_after_it(): void
+    {
+        // The same window on the heartbeat path: an early claim on an
+        // unsignalled wait parks the execution again, and the request
+        // lands as that re-park releases.
+        Date::setTestNow('2026-10-28 10:00:00');
+        $execution = $this->runner()->run(new ApprovalWorkflow);
+
+        $repository = $this->repositoryWithLateCancellationRequest();
+
+        $this->makeRunner(repository: $repository)->execute($execution->id, new ApprovalWorkflow, ignoreRetrySchedule: true);
+
+        $row = WorkflowExecutionModel::query()->sole();
+        $this->assertSame(ExecutionStatus::Cancelled->value, $row->status, 'The post-re-park check did not honour the request.');
+        $this->assertSame('late request', $row->cancel_reason);
+    }
+
     public function test_heartbeat_style_reparks_do_not_count_toward_abandonment(): void
     {
         // A park, then two early claims that correctly park again: each
@@ -380,6 +419,30 @@ class WaitStateTest extends TestCase
             'The refused claim is information, not a failed job.',
         );
         $this->assertTrue($this->app->make(\Laraflow\Workflow\ExecutionRepository::class)->find($execution->id)->isWaiting());
+    }
+
+    /**
+     * A repository under which a cancellation request lands in the
+     * instant between a park's last write and its release: the handle
+     * already says waiting, the row still says running, so the request
+     * is recorded as a request. Fires once, on the first such release.
+     */
+    protected function repositoryWithLateCancellationRequest(): EloquentExecutionRepository
+    {
+        return new class($this->app->make(ClockInterface::class)) extends EloquentExecutionRepository
+        {
+            private bool $armed = true;
+
+            public function release(WorkflowExecution $execution): void
+            {
+                if ($this->armed && $execution->isWaiting()) {
+                    $this->armed = false;
+                    $this->requestCancellation($execution->id, 'late request', $this->clock->now());
+                }
+
+                parent::release($execution);
+            }
+        };
     }
 
     protected function runner(int $staleAfter = 300): WorkflowRunner

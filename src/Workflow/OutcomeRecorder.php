@@ -27,7 +27,8 @@ use Throwable;
  * Completion is one checkpoint (`completeStep`), and a failure is
  * settled one way wherever it arose — thrown from handle(), classified
  * at recovery, or resolved from a wait — by `settle()`, which hands it
- * to one of the four failure outcomes below. Their storage-failure
+ * to the first three failure outcomes below; the fourth is the loop's
+ * own, for a `Continue` run's first failure. Their storage-failure
  * behaviour differs on purpose — the differences are the contract, not
  * an inconsistency:
  *
@@ -135,15 +136,15 @@ class OutcomeRecorder
         FailurePolicy $failurePolicy,
         Throwable $exception,
         StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed,
-    ): WaitResolution {
+    ): StepResolution {
         if ($this->scheduleRetry($execution, $stepExecution, $policy, $exception, $attemptStatus)) {
-            return WaitResolution::settled();
+            return StepResolution::settled();
         }
 
         if ($failurePolicy === FailurePolicy::Continue) {
             $this->stepFailure($execution, $stepExecution, $exception, $attemptStatus);
 
-            return WaitResolution::continueWith($exception);
+            return StepResolution::continueWith($exception);
         }
 
         $this->failure($execution, $stepExecution, $exception, $attemptStatus);

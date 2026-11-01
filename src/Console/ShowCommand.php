@@ -30,8 +30,16 @@ class ShowCommand extends Command
     public function handle(ExecutionRepository $repository): int
     {
         try {
-            $execution = $repository->find($this->executionIdArgument());
-        } catch (WorkflowException|InvalidArgumentException $exception) {
+            $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        try {
+            $execution = $repository->find($id);
+        } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
@@ -97,7 +105,8 @@ class ShowCommand extends Command
             if (Wait::isChildSignal($step->waitSignal)) {
                 // A child wait is never indefinite: the parent checks on
                 // the child at every heartbeat, recorded on the execution.
-                $detail = 'on child execution '.Wait::childIdFrom((string) $step->waitSignal)
+                $childId = Wait::childIdFrom((string) $step->waitSignal);
+                $detail = ($childId === 0 ? 'on a malformed child signal '.$step->waitSignal : 'on child execution '.$childId)
                     .' (next check '.$this->formatDate($execution->nextRetryAt).')';
             } elseif ($step->waitSignal === null) {
                 $detail = 'until '.$this->formatDate($step->nextRetryAt);

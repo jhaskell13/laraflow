@@ -164,18 +164,6 @@ class UpgradePathTest extends TestCase
     }
 
     /**
-     * Every index on a table as its column list, the way the freeze
-     * test compares them: engines name indexes differently, columns
-     * are what an index is.
-     *
-     * @return list<list<string>>
-     */
-    protected function indexColumns(string $table): array
-    {
-        return array_map(fn (array $index): array => $index['columns'], Schema::getIndexes($table));
-    }
-
-    /**
      * Write and run a dated migration that lands after the frozen ones.
      */
     private function migrateFuture(): void

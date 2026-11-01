@@ -89,9 +89,8 @@ trait ScansForRecovery
     }
 
     /**
-     * The bound and the two scopes every scan shares. The status and
-     * cutoff predicates the caller adds come first in the index the
-     * scan is served from; these narrow the result, not the plan.
+     * The bound and the two scopes every scan shares, added after the
+     * status-and-cutoff predicate each scan's index leads with.
      *
      * @return Builder<WorkflowExecutionModel>
      */

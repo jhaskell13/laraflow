@@ -38,8 +38,15 @@ class CancelCommand extends Command
 
         try {
             $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        try {
             $execution = $runner->cancel($id, $reason);
-        } catch (WorkflowException|InvalidArgumentException $exception) {
+        } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
