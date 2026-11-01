@@ -1,6 +1,6 @@
 # Workflow versioning
 
-> This document is the design contract for Milestone 8's workflow versioning, written before any of it was built. The enforcing suite will be `tests/Feature/Workflow/WorkflowVersioningTest.php`. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
+> This document was written as the design contract for Milestone 8's workflow versioning before any of it was built, and is now the shipped contract. The enforcing suite is `tests/Feature/Workflow/WorkflowVersioningTest.php`. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 
 ## The problem this solves
 
@@ -113,6 +113,6 @@ The rewrite deletes the tail's step rows and reinserts them at their new positio
 - The failure mode for an undeclared change is unchanged: `WorkflowDefinitionMismatchException`, same message.
 - `PlanDraft`, `PlanMigrationRefusedException`, and `WorkflowPlanMigrated` are new Public names.
 
-## Decided here, implemented in step 9
+## Decided in step 8, implemented in step 9
 
-Nothing above is built yet. Step 9 implements it against this document, and `WorkflowVersioningTest` is where the exit criterion lands: an in-flight execution survives a workflow definition change through the documented migration path, on every supported engine.
+Everything above is built and enforced by `WorkflowVersioningTest`, which carries the milestone's exit criterion: an in-flight execution survives a workflow definition change through the documented migration path, on every supported engine.

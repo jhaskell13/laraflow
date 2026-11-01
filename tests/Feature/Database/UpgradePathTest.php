@@ -116,17 +116,18 @@ class UpgradePathTest extends TestCase
         // application meets them: rows written under the frozen schema,
         // then the new migrations applied — simulated by rolling them
         // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration — six.
+        // front. One rollback step per post-freeze migration — seven.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 6, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
+        $this->assertFalse(Schema::hasTable('laraflow_idempotency_keys'));
         $this->assertNotContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
@@ -143,6 +144,7 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
         $this->assertContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index is back.');
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
+        $this->assertTrue(Schema::hasTable('laraflow_idempotency_keys'));
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so

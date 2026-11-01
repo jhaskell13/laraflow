@@ -525,6 +525,10 @@ class ProjectContractsTest extends TestCase
         $nullMeansOff = [
             \Laraflow\Support\LoggingContext::class => ['context'],
             \Laraflow\Events\EventEmitter::class => ['events'],
+            // The context is a value object the runner builds; one built
+            // by hand has no execution behind it, and remember() on it
+            // raises rather than running the work (docs/idempotency.md).
+            \Laraflow\Workflow\WorkflowContext::class => ['idempotency'],
         ];
 
         $services = [];

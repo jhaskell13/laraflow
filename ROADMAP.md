@@ -242,7 +242,7 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 #### Work
 
 - ~~Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code.~~ Semantics fixed in `docs/workflow-versioning.md` before implementation (step 8); shipped in step 9.
-- An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch. Semantics fixed in `docs/idempotency.md` before implementation (step 8).
+- ~~An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.~~ Semantics fixed in `docs/idempotency.md` before implementation (step 8); shipped in step 10.
 - The deferred audit items, each its own step and taken first, because the two capabilities above land on the signatures they change:
   - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
   - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).

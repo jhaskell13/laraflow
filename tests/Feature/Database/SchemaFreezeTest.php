@@ -50,6 +50,10 @@ class SchemaFreezeTest extends TestCase
             'error_class', 'id', 'next_retry_at', 'started_at', 'status',
             'step_execution_id', 'updated_at', 'workflow_execution_id',
         ],
+        'laraflow_idempotency_keys' => [
+            'created_at', 'error_class', 'id', 'key', 'settled_at', 'started_at', 'status',
+            'step_position', 'updated_at', 'value', 'workflow_execution_id',
+        ],
     ];
 
     /**
@@ -82,6 +86,11 @@ class SchemaFreezeTest extends TestCase
             ['step_execution_id', 'attempt'],
             ['workflow_execution_id'],
         ],
+        'laraflow_idempotency_keys' => [
+            ['id'],
+            ['workflow_execution_id'],
+            ['workflow_execution_id', 'key'],
+        ],
     ];
 
     private const EXPLANATION = 'The shipped migrations are frozen: an installed application must be able '
@@ -106,6 +115,7 @@ class SchemaFreezeTest extends TestCase
         '2026_10_28_000003_add_scrub_scan_index_to_laraflow_workflow_executions.php' => '250b1192065da97f03d14a4919437c9805cbd0429f6c9b2f3fc63f2c567462ac',
         '2026_11_01_000000_add_pending_scan_index_to_laraflow_workflow_executions.php' => '41c51997344b3a10298f98e417b230414b700a665c5d40f92d8d99995e8f66e9',
         '2026_11_01_000001_add_plan_version_to_laraflow_workflow_executions.php' => '5f328f52e8e2a79400e4af240b6d2ffd95cd71879981aa5a3a13c376b7ebc13b',
+        '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => '01be997c562426d80d4875d351fa99d96dc76fc2f946a097600bb2c1c2d855ff',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void
@@ -157,7 +167,7 @@ class SchemaFreezeTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "[{$table}] is missing. ".self::EXPLANATION);
         }
 
-        // A fourth Laraflow table is a schema change like any other, and
+        // A fifth Laraflow table is a schema change like any other, and
         // the queue tables this suite creates are Laravel's, not ours.
         $laraflow = collect(Schema::getTableListing())
             // SQL Server reports tables schema-qualified (dbo.foo).

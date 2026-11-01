@@ -6,9 +6,13 @@ namespace Laraflow\Workflow\Policy;
 
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
+use Laraflow\Exceptions\Workflow\IdempotencyStoreUnavailableException;
+use Laraflow\Exceptions\Workflow\IdempotentOutcomeUncertainException;
+use Laraflow\Exceptions\Workflow\InvalidIdempotencyKeyException;
 use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
 use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
+use Laraflow\Exceptions\Workflow\TooManyIdempotencyKeysException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Throwable;
@@ -45,6 +49,10 @@ readonly class StepPolicy
         InvalidWorkflowDefinitionException::class,
         InvalidStateTransitionException::class,
         ClaimLostException::class,
+        IdempotentOutcomeUncertainException::class,
+        InvalidIdempotencyKeyException::class,
+        TooManyIdempotencyKeysException::class,
+        IdempotencyStoreUnavailableException::class,
     ];
 
     /**

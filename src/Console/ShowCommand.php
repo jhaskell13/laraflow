@@ -10,6 +10,8 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\IdempotencyStatus;
+use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -27,7 +29,7 @@ class ShowCommand extends Command
 
     protected $description = 'Inspect a workflow execution and its steps';
 
-    public function handle(ExecutionRepository $repository): int
+    public function handle(ExecutionRepository $repository, IdempotencyStore $idempotency): int
     {
         try {
             $id = $this->executionIdArgument();
@@ -83,6 +85,7 @@ class ShowCommand extends Command
 
         if ((bool) $this->option('attempts')) {
             $this->displayAttemptHistory($repository, $execution, $steps);
+            $this->displayIdempotency($idempotency, $execution, $steps);
         }
 
         return self::SUCCESS;
@@ -170,5 +173,48 @@ class ShowCommand extends Command
             ['Step', 'Attempt', 'Outcome', 'Started', 'Duration', 'Scheduled retry', 'Error'],
             $rows,
         );
+    }
+
+    /**
+     * What the execution has remembered: step, key, status, and when.
+     * Values are never printed — they are the results of side effects
+     * and may carry anything. A pending record is an unresolved
+     * outcome, and is said so.
+     *
+     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     */
+    protected function displayIdempotency(IdempotencyStore $store, WorkflowExecution $execution, array $steps): void
+    {
+        $records = $store->records($execution->id);
+
+        if ($records === []) {
+            return;
+        }
+
+        $names = [];
+
+        foreach ($steps as $step) {
+            $names[$step->position] = class_basename($step->step);
+        }
+
+        $rows = [];
+
+        foreach ($records as $record) {
+            $rows[] = [
+                $names[$record->stepPosition] ?? "position {$record->stepPosition}",
+                // The caller's key, without the scope the store adds.
+                (string) preg_replace('/^laraflow:\d+:\d+:/', '', $record->key),
+                $record->status === IdempotencyStatus::Pending
+                    ? '<fg=yellow>pending (outcome unknown)</>'
+                    : $this->coloredStatus($record->status->value),
+                $this->formatDate($record->startedAt),
+                $record->settledAt !== null ? $this->formatDate($record->settledAt) : '',
+                $record->errorClass ?? '',
+            ];
+        }
+
+        $this->newLine();
+        $this->components->twoColumnDetail('<fg=gray>Remembered work</>', (string) count($records));
+        $this->table(['Step', 'Key', 'Status', 'Began', 'Settled', 'Error'], $rows);
     }
 }

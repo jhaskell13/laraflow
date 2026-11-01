@@ -64,7 +64,7 @@ The full step plan is persisted at `start()`, before anything runs. Consequences
 - Recovery never needs the workflow definition to know *what was supposed to happen* — only to supply the code to run it.
 - `execute()` validates that the supplied workflow matches the persisted plan — same workflow class, same step classes, same order — and throws `WorkflowDefinitionMismatchException` otherwise. Durable state is never silently reinterpreted by changed code. A step class that no longer exists fails the same way, as a persisted step failure.
 
-There is no workflow-version migration mechanism yet. If a workflow definition must change while executions are in flight, those executions can only be finished by code with the original step list.
+A workflow that declares a `version()` and a matching plan migration carries its in-flight executions forward on their next claim, rewriting only the steps they have not reached; one that does not is refused exactly as above. The contract is [workflow-versioning.md](workflow-versioning.md).
 
 ## Claiming and concurrency
 
@@ -117,7 +117,7 @@ The bold row is the at-least-once contract: **Laraflow guarantees each step's ch
 
 Each of the re-run rows above also closes out the dead attempt in history, as `interrupted` or — if its deadline had passed — as `timed_out`, which is charged to the retry budget; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts).
 
-To make repeated side effects safe, steps get an idempotency hook: `WorkflowContext::idempotencyKey()` returns `laraflow:{executionId}:{stepPosition}` — stable across crashes and retries of the same logical step, different for different steps and executions. `executionId()`, `stepPosition()`, and `attempt()` are also exposed for custom schemes. Pass the key to providers that support idempotency keys, or use it to deduplicate in your own tables.
+To make repeated side effects safe, a step wraps them in `$context->remember(key, work)`: the work runs at most once per execution across every retry, recovery, and worker, and a crash *inside* the window — after the side effect, before its result was recorded — is detected and raised as `IdempotentOutcomeUncertainException` rather than silently repeated. The contract, including how to reconcile such an outcome with the provider, is [idempotency.md](idempotency.md). For custom schemes, `WorkflowContext::idempotencyKey()` returns `laraflow:{executionId}:{stepPosition}` — stable across crashes and retries of the same logical step — and `executionId()`, `stepPosition()`, and `attempt()` are exposed alongside it.
 
 ## Correlation identifiers
 

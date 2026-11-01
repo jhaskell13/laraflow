@@ -42,10 +42,13 @@ use Laraflow\Support\SystemSleeper;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\IdempotencyResolver;
+use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\Repositories\EloquentIdempotencyStore;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionService;
 use Laraflow\Workflow\RunnerOptions;
@@ -107,6 +110,13 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ClockInterface::class, Clock::class);
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+        $this->app->singleton(IdempotencyStore::class, EloquentIdempotencyStore::class);
+
+        $this->app->singleton(IdempotencyResolver::class, fn (Container $app): IdempotencyResolver => new IdempotencyResolver(
+            store: $app->make(IdempotencyStore::class),
+            clock: $app->make(ClockInterface::class),
+            options: $app->make(RunnerOptions::class),
+        ));
 
         $this->app->singleton(ErrorRedactor::class, function (Container $app): ErrorRedactor {
             $class = $this->setting($app->make(Config::class), 'laraflow.errors.redactor');
@@ -188,6 +198,7 @@ class LaraflowServiceProvider extends ServiceProvider
             redactor: $app->make(ErrorRedactor::class),
             logging: $app->make(LoggingContext::class),
             childDelivery: $app->make(ChildDelivery::class),
+            idempotency: $app->make(IdempotencyResolver::class),
         ));
 
         $this->app->singleton(ChildDelivery::class, fn (Container $app): ChildDelivery => new QueueChildDelivery($app));

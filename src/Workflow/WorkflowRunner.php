@@ -75,6 +75,7 @@ class WorkflowRunner
         ErrorRedactor $redactor,
         protected LoggingContext $logging,
         protected ChildDelivery $childDelivery,
+        protected IdempotencyResolver $idempotency,
     ) {
         // Every collaborator is required: the service provider is the
         // one place that knows the configured clock, policy, redactor,
@@ -374,6 +375,7 @@ class WorkflowRunner
             // the execution was created with.
             correlationId: $execution->correlationId,
             tenantId: $execution->tenantId,
+            idempotency: $this->idempotency,
         );
 
         $failurePolicy = $workflow->failurePolicy();
@@ -718,7 +720,7 @@ class WorkflowRunner
         // both write during the event — with the keys set afterwards
         // they would be attributed to the previous step, or to none
         // at all on the first one.
-        $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt);
+        $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt, $stepExecution->step);
         $this->logging->enterStep($stepExecution);
 
         $this->event(new WorkflowStepStarted(

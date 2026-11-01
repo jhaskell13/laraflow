@@ -19,6 +19,7 @@ use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\FixtureState;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\IdempotencyResolver;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\PolicyResolver;
@@ -163,6 +164,7 @@ abstract class TestCase extends Orchestra
         ?ErrorRedactor $redactor = null,
         ?LoggingContext $logging = null,
         ?ChildDelivery $childDelivery = null,
+        ?IdempotencyResolver $idempotency = null,
     ): WorkflowRunner {
         return new WorkflowRunner(
             repository: $repository ?? $this->app->make(ExecutionRepository::class),
@@ -175,6 +177,7 @@ abstract class TestCase extends Orchestra
             redactor: $redactor ?? $this->app->make(ErrorRedactor::class),
             logging: $logging ?? $this->app->make(LoggingContext::class),
             childDelivery: $childDelivery ?? $this->app->make(ChildDelivery::class),
+            idempotency: $idempotency ?? $this->app->make(IdempotencyResolver::class),
         );
     }
 

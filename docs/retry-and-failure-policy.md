@@ -72,7 +72,7 @@ When the jitter window would cross the ceiling it **slides down to fit** rather 
 
 ### What is never retried
 
-Regardless of policy, these fail terminally on first occurrence: `UnserializableValueException`, `PayloadTooLargeException`, `WorkflowDefinitionMismatchException`, `InvalidWorkflowDefinitionException`, `InvalidStateTransitionException`, `ClaimLostException`. Each is a deterministic definition/serialization fault or a lost-ownership signal — another attempt could only repeat the outcome, and scheduling one would fill the queue with work that cannot succeed.
+Regardless of policy, these fail terminally on first occurrence: `UnserializableValueException`, `PayloadTooLargeException`, `WorkflowDefinitionMismatchException`, `InvalidWorkflowDefinitionException`, `InvalidStateTransitionException`, `ClaimLostException`, and the idempotency store's `IdempotentOutcomeUncertainException`, `InvalidIdempotencyKeyException`, `TooManyIdempotencyKeysException`, and `IdempotencyStoreUnavailableException`. Each is a deterministic definition/serialization fault, a lost-ownership signal, or — for the uncertain outcome — a question a retry would only ask again: another attempt could only repeat the outcome, and scheduling one would fill the queue with work that cannot succeed. See [idempotency.md](idempotency.md).
 
 ### Attempts count every start
 

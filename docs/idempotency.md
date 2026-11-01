@@ -1,6 +1,6 @@
 # The idempotency store
 
-> This document is the design contract for Milestone 8's idempotency store, written before any of it was built. The enforcing suite will be `tests/Feature/Workflow/IdempotencyTest.php`. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
+> This document was written as the design contract for Milestone 8's idempotency store before any of it was built, and is now the shipped contract. The enforcing suite is `tests/Feature/Workflow/IdempotencyTest.php`. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 
 ## The problem this solves
 
@@ -103,7 +103,7 @@ One additive migration creates `laraflow_idempotency_keys`:
 
 `unique(workflow_execution_id, key)` is the concurrency guarantee above. The index on `workflow_execution_id` serves both the per-execution read and retention's scans; like the attempts table, it is declared explicitly because not every engine creates one for a foreign key.
 
-**Bounded per execution.** A configured cap (a `max_keys_per_execution` setting in a new `idempotency` config section, default 100) limits how many distinct keys one execution may record. A loop calling `remember()` with a generated key is a bug that would otherwise grow a table without bound; past the cap the step fails with `TooManyIdempotencyKeysException`. Raise it deliberately if a workflow genuinely needs more.
+**Bounded per execution.** `laraflow.idempotency.max_keys_per_execution` (default 100) limits how many distinct keys one execution may record. A loop calling `remember()` with a generated key is a bug that would otherwise grow a table without bound; past the cap the step fails with `TooManyIdempotencyKeysException`. Raise it deliberately if a workflow genuinely needs more.
 
 **Values obey the serialization contract.** The same JSON-only rule and the same `laraflow.execution.max_payload_bytes` bound that govern step output govern a remembered value, checked before the write so an oversized value fails by name rather than as a driver error.
 
@@ -141,9 +141,9 @@ No lifecycle event fires for a remembered value. Events carry metadata and never
 
 - `WorkflowContext::remember()` is additive, and the constructor gains a trailing optional store.
 - One new table, additive, under the freeze.
-- The per-execution key cap is a new configuration key with a default; nothing changes for an application that never calls `remember()`.
+- `laraflow.idempotency.max_keys_per_execution` is a new configuration key with a default; nothing changes for an application that never calls `remember()`.
 - `IdempotentOutcomeUncertainException`, `InvalidIdempotencyKeyException`, `TooManyIdempotencyKeysException`, `IdempotencyStoreUnavailableException`, `IndicatesUncertainOutcome`, and the `IdempotencyStore` contract are new Public names. The default binding is swappable through the container like every other Laraflow contract.
 
-## Decided here, implemented in step 10
+## Decided in step 8, implemented in step 10
 
-Nothing above is built yet. Step 10 implements it against this document, including a crash injected between the marker and the value — the window the whole design exists to detect.
+Everything above is built and enforced by `IdempotencyTest`, including a worker dying between the marker and the value — the window the whole design exists to detect — a second worker losing the race on the unique key, and a reconciler answering each way.
