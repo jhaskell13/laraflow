@@ -116,16 +116,17 @@ class UpgradePathTest extends TestCase
         // application meets them: rows written under the frozen schema,
         // then the new migrations applied — simulated by rolling them
         // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration — five.
+        // front. One rollback step per post-freeze migration — six.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 5, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 6, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
         $this->assertNotContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
@@ -141,6 +142,13 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
         $this->assertContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index is back.');
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
+
+        // A row that predates the column is running plan version 1,
+        // which is exactly what it is, and the package reads it so
+        // without a coalesce.
+        $this->assertSame(1, WorkflowExecutionModel::query()->findOrFail($execution->id)->plan_version);
+        $this->assertSame(1, $this->app->make(ExecutionRepository::class)->find($execution->id)->planVersion);
 
         // A row that predates the column has made no fruitless claims,
         // and the package reads it that way without a coalesce.

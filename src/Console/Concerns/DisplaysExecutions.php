@@ -26,6 +26,12 @@ trait DisplaysExecutions
         $this->newLine();
         $this->components->twoColumnDetail('<fg=gray>Execution</>', (string) $execution->id);
         $this->components->twoColumnDetail('<fg=gray>Workflow</>', $execution->workflow);
+
+        if ($execution->planVersion > 1) {
+            // Only worth a line once a workflow has versioned its plan;
+            // every execution of an unversioned workflow is version 1.
+            $this->components->twoColumnDetail('<fg=gray>Plan version</>', (string) $execution->planVersion);
+        }
         $this->components->twoColumnDetail('<fg=gray>Status</>', $this->coloredStatus($execution->status->value));
         $this->components->twoColumnDetail('<fg=gray>Started</>', $this->formatDate($execution->startedAt));
 

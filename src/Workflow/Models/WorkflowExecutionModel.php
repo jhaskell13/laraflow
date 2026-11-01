@@ -39,6 +39,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $payloads_scrubbed_at
  * @property int $version
  * @property int $fruitless_claims
+ * @property int $plan_version
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
@@ -70,6 +71,7 @@ class WorkflowExecutionModel extends Model
         'tenant_id',
         'parent_execution_id',
         'parent_step_execution_id',
+        'plan_version',
         'dispatched_at',
         'available_at',
         'finished_at',
@@ -111,6 +113,7 @@ class WorkflowExecutionModel extends Model
             'parent_execution_id' => 'integer',
             'parent_step_execution_id' => 'integer',
             'fruitless_claims' => 'integer',
+            'plan_version' => 'integer',
         ];
     }
 }

@@ -57,9 +57,10 @@ class EloquentExecutionRepository implements ExecutionRepository
         string $workflow,
         array $input = [],
         array $steps = [],
-        ?ExecutionOptions $options = null
+        ?ExecutionOptions $options = null,
+        int $planVersion = 1
     ): WorkflowExecution {
-        $model = $this->transaction(function () use ($workflow, $input, $steps, $options) {
+        $model = $this->transaction(function () use ($workflow, $input, $steps, $options, $planVersion) {
             $model = WorkflowExecutionModel::query()->create([
                 'workflow' => $workflow,
                 'status' => ExecutionStatus::Pending->value,
@@ -73,6 +74,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // handle built from this model reads the same number a
                 // reload would.
                 'fruitless_claims' => 0,
+                'plan_version' => $planVersion,
             ]);
 
             foreach ($steps as $position => $stepClass) {
@@ -240,6 +242,42 @@ class EloquentExecutionRepository implements ExecutionRepository
 
             $this->assertClaimHeld($execution, ['fruitless_claims' => 0]);
         });
+    }
+
+    public function rewritePlan(
+        WorkflowExecution $execution,
+        int $frozenBefore,
+        array $tail,
+        int $planVersion
+    ): array {
+        $this->transaction(function () use ($execution, $frozenBefore, $tail, $planVersion) {
+            StepExecutionModel::query()
+                ->where('workflow_execution_id', $execution->id)
+                ->where('position', '>=', $frozenBefore)
+                ->delete();
+
+            foreach ($tail as $offset => $stepClass) {
+                StepExecutionModel::query()->create([
+                    'workflow_execution_id' => $execution->id,
+                    'step' => $stepClass,
+                    'position' => $frozenBefore + $offset,
+                    'status' => StepStatus::Pending->value,
+                    'attempts' => 0,
+                ]);
+            }
+
+            // Guarded last, like every other durable write: a worker
+            // that lost the claim rolls the whole rewrite back. The
+            // fruitless-claims counter is deliberately *not* cleared —
+            // migrating is not reaching a step, and an execution whose
+            // migration faults before its first step must stay bounded
+            // by that counter.
+            $this->assertClaimHeld($execution, ['plan_version' => $planVersion]);
+        });
+
+        $execution->planVersion = $planVersion;
+
+        return $this->steps($execution);
     }
 
     public function checkpoint(
@@ -638,6 +676,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             finishedAt: $model->finished_at?->toImmutable(),
             payloadsScrubbedAt: $model->payloads_scrubbed_at?->toImmutable(),
             fruitlessClaims: $model->fruitless_claims,
+            planVersion: $model->plan_version,
             persistedDurationMs: $model->duration_ms,
         );
     }

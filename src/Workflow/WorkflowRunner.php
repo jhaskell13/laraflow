@@ -57,6 +57,8 @@ class WorkflowRunner
 
     protected WaitResolver $waits;
 
+    protected PlanMigrator $plans;
+
     /**
      * Collaborators are injected; the configured numbers and flags
      * arrive together in RunnerOptions. Construction is internal
@@ -105,6 +107,13 @@ class WorkflowRunner
             childDelivery: $childDelivery,
             outcomes: $this->outcomes,
         );
+
+        $this->plans = new PlanMigrator(
+            repository: $repository,
+            steps: $this->steps,
+            outcomes: $this->outcomes,
+            logger: $logger,
+        );
     }
 
     /**
@@ -130,6 +139,7 @@ class WorkflowRunner
             input: $input,
             steps: $this->steps->plan($workflow),
             options: $options,
+            planVersion: $workflow->version(),
         );
     }
 
@@ -343,6 +353,13 @@ class WorkflowRunner
         ));
 
         $steps = $this->repository->steps($execution);
+
+        // Before the first step write, so a migration that throws is
+        // bounded by the fruitless-claims counter like every other
+        // fault in this position. The migrator proposes; the plan
+        // check below judges — a migration whose output is not the
+        // current definition fails as an ordinary mismatch.
+        $steps = $this->plans->migrate($execution, $workflow, $steps);
 
         $this->steps->assertMatches($workflow, $execution, $steps);
 

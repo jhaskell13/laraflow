@@ -34,9 +34,14 @@ class CrashingExecutionRepository implements ExecutionRepository
         protected string $phase = 'before',
     ) {}
 
-    public function create(string $workflow, array $input = [], array $steps = [], ?ExecutionOptions $options = null): WorkflowExecution
+    public function create(string $workflow, array $input = [], array $steps = [], ?ExecutionOptions $options = null, int $planVersion = 1): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->create($workflow, $input, $steps, $options));
+        return $this->call(__FUNCTION__, fn () => $this->inner->create($workflow, $input, $steps, $options, $planVersion));
+    }
+
+    public function rewritePlan(WorkflowExecution $execution, int $frozenBefore, array $tail, int $planVersion): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->rewritePlan($execution, $frozenBefore, $tail, $planVersion));
     }
 
     public function find(int $id): WorkflowExecution

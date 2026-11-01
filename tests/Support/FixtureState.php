@@ -31,6 +31,7 @@ class FixtureState
         StepThree::$runs = 0;
         StepThree::$seenContextValueFromStepTwo = null;
         MutableWorkflow::$steps = [];
+        VersionedWorkflow::reset();
         ConditionalGate::$open = true;
         ConditionalGate::$runs = 0;
         ConditionalGate::$throw = null;

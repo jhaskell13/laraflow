@@ -57,6 +57,7 @@ class WorkflowExecution
         public ?string $cancelReason = null,
         public readonly ?string $correlationId = null,
         public readonly ?string $tenantId = null,
+        public int $planVersion = 1,
         public readonly ?int $parentExecutionId = null,
         public readonly ?int $parentStepExecutionId = null,
         public ?DateTimeImmutable $dispatchedAt = null,

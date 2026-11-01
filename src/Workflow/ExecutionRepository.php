@@ -45,13 +45,42 @@ interface ExecutionRepository
      * @param  ExecutionOptions|null  $options  Application-supplied correlation
      *                                          and tenant identifiers, recorded with the execution. Null
      *                                          records none.
+     * @param  int  $planVersion  The workflow's declared plan version, recorded
+     *                            so a later deploy can tell which plan this execution is running.
      */
     public function create(
         string $workflow,
         array $input = [],
         array $steps = [],
-        ?ExecutionOptions $options = null
+        ?ExecutionOptions $options = null,
+        int $planVersion = 1
     ): WorkflowExecution;
+
+    /**
+     * Replace the undecided tail of an execution's persisted plan and
+     * record the plan version it now runs, in one claim-guarded
+     * transaction.
+     *
+     * The rows from $frozenBefore onward are deleted and the steps in
+     * $tail inserted in their place, because `(execution, position)` is
+     * unique and renumbering in place collides with itself halfway
+     * through on every engine. Deleting them is safe precisely because
+     * they are undecided: a pending step row has no output, no attempt
+     * history, and no context contribution, so nothing refers to it and
+     * nothing was learned from it. Every row before $frozenBefore is
+     * untouched. See docs/workflow-versioning.md.
+     *
+     * @param  list<string>  $tail  Ordered step class names from $frozenBefore onward.
+     * @return StepExecution[] The execution's full plan after the rewrite, in position order.
+     *
+     * @throws ClaimLostException when this worker no longer holds the claim.
+     */
+    public function rewritePlan(
+        WorkflowExecution $execution,
+        int $frozenBefore,
+        array $tail,
+        int $planVersion
+    ): array;
 
     /**
      * @throws ExecutionNotFoundException

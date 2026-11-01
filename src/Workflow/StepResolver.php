@@ -81,6 +81,21 @@ class StepResolver
     }
 
     /**
+     * Validate a step list that did not come from steps() — the output
+     * of a plan migration, which is author-written and no more trusted
+     * than the definition itself.
+     *
+     * @param  array<mixed>  $steps
+     * @return list<class-string<Step>>
+     *
+     * @throws InvalidWorkflowDefinitionException
+     */
+    public function validatePlan(string $workflow, array $steps): array
+    {
+        return $this->validate($workflow, $steps);
+    }
+
+    /**
      * Build one step from the container.
      *
      * A class that has been removed or no longer implements Step is a
