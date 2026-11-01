@@ -352,7 +352,7 @@ class WaitStateTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertSame(
-            \Laraflow\Events\WorkflowExecutionRetryScheduled::REASON_WAIT_DUE,
+            \Laraflow\Workflow\RecoveryReason::WaitDue,
             $candidates[0]->reason,
         );
         $this->assertFalse($candidates[0]->abandoned, 'Due waits are exempt from the abandonment bound.');

@@ -108,7 +108,7 @@ Duplicates stay safe exactly as in Milestone 2 — the claim decides. An early d
 | `WorkflowStepFailed` | Every failed attempt, retryable or not. `attempt` distinguishes them. |
 | `WorkflowStepRetryScheduled` | A retry was durably scheduled. Carries `attempt`, `maxAttempts`, `errorClass`, `error`, `nextRetryAt`, `delaySeconds`. |
 | `WorkflowExecutionFailed` | **Terminal failure only** — never for a scheduled retry. |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is one of `stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`. |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is a `RecoveryReason` — `stale_claim`, `step_timeout`, `retry_due`, `wait_due`, or `never_dispatched`. |
 | `WorkflowExecutionCancelled` | The execution was durably cancelled. Fires once. |
 
 ## Timeouts

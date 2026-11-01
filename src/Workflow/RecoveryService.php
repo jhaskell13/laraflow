@@ -118,7 +118,7 @@ class RecoveryService
                 // budget is its policy, which the runner enforces.
                 $candidates[] = $this->candidate(
                     $execution,
-                    WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+                    RecoveryReason::RetryDue,
                     abandonAfterAttempts: null,
                 );
             }
@@ -131,7 +131,7 @@ class RecoveryService
                 // step's own policy once a worker classifies it.
                 $candidates[] = $this->candidate(
                     $execution,
-                    WorkflowExecutionRetryScheduled::REASON_WAIT_DUE,
+                    RecoveryReason::WaitDue,
                     abandonAfterAttempts: null,
                 );
             }
@@ -148,7 +148,7 @@ class RecoveryService
             foreach ($pending as $execution) {
                 $candidates[] = $this->candidate(
                     $execution,
-                    WorkflowExecutionRetryScheduled::REASON_NEVER_DISPATCHED,
+                    RecoveryReason::NeverDispatched,
                     $abandonAfterAttempts,
                 );
             }
@@ -229,15 +229,15 @@ class RecoveryService
     /**
      * @param  StepExecution[]  $steps
      */
-    protected function staleReason(array $steps, DateTimeImmutable $now): string
+    protected function staleReason(array $steps, DateTimeImmutable $now): RecoveryReason
     {
         foreach ($steps as $step) {
             if ($step->isRunning() && $step->timeoutAt !== null && $step->timeoutAt <= $now) {
-                return WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT;
+                return RecoveryReason::StepTimeout;
             }
         }
 
-        return WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM;
+        return RecoveryReason::StaleClaim;
     }
 
     /**
@@ -249,7 +249,7 @@ class RecoveryService
      */
     protected function candidate(
         WorkflowExecution $execution,
-        string $reason,
+        RecoveryReason $reason,
         ?int $abandonAfterAttempts,
         ?array $steps = null,
     ): RecoveryCandidate {

@@ -9,12 +9,12 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
-use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\RecoveryCandidate;
+use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
 use Throwable;
 
@@ -103,7 +103,7 @@ class RecoverCommand extends Command
                 $candidate->execution->id,
                 class_basename($candidate->execution->workflow),
                 $this->coloredStatus($candidate->execution->status->value),
-                str_replace('_', ' ', $candidate->reason),
+                $candidate->reason->label(),
                 $candidate->attempts,
                 $this->formatDate($this->interruptedSince($candidate)),
                 $this->act($service, $candidate, $dryRun, $sync, $counts),
@@ -249,11 +249,9 @@ class RecoverCommand extends Command
     protected function interruptedSince(RecoveryCandidate $candidate): ?DateTimeImmutable
     {
         return match ($candidate->reason) {
-            WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
-            WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT => $candidate->execution->claimedAt,
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
-            WorkflowExecutionRetryScheduled::REASON_WAIT_DUE => $candidate->execution->nextRetryAt,
-            default => $candidate->execution->createdAt,
+            RecoveryReason::StaleClaim, RecoveryReason::StepTimeout => $candidate->execution->claimedAt,
+            RecoveryReason::RetryDue, RecoveryReason::WaitDue => $candidate->execution->nextRetryAt,
+            RecoveryReason::NeverDispatched => $candidate->execution->createdAt,
         };
     }
 

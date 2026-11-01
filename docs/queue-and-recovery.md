@@ -243,7 +243,7 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionFailed` | The execution was marked failed. **Terminal only** — never for a scheduled retry. |
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
 | `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
-| `WorkflowExecutionRetryScheduled` | Recovery selected an execution (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
+| `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is a `RecoveryReason` (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
 
 Two properties hold for all of them:
 

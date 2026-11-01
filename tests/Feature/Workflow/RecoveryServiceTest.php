@@ -21,6 +21,7 @@ use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryCandidate;
+use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
@@ -45,7 +46,7 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertSame($execution->id, $candidates[0]->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM, $candidates[0]->reason);
+        $this->assertSame(RecoveryReason::StaleClaim, $candidates[0]->reason);
         $this->assertSame(1, $candidates[0]->attempts);
         $this->assertFalse($candidates[0]->abandoned);
     }
@@ -77,7 +78,7 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertSame($execution->id, $candidates[0]->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_NEVER_DISPATCHED, $candidates[0]->reason);
+        $this->assertSame(RecoveryReason::NeverDispatched, $candidates[0]->reason);
         $this->assertSame(0, $candidates[0]->attempts);
     }
 
@@ -184,7 +185,7 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(2, $candidates);
         $this->assertSame(
-            [WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM, WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM],
+            [RecoveryReason::StaleClaim, RecoveryReason::StaleClaim],
             array_map(fn (RecoveryCandidate $candidate) => $candidate->reason, $candidates),
         );
     }
@@ -246,7 +247,7 @@ class RecoveryServiceTest extends TestCase
         [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
 
         $this->assertSame($execution->id, $candidate->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_RETRY_DUE, $candidate->reason);
+        $this->assertSame(RecoveryReason::RetryDue, $candidate->reason);
         $this->assertSame(5, $candidate->attempts);
         $this->assertFalse($candidate->abandoned, 'Abandoning a policy-live retry would strand every budget above the bound.');
         $this->assertTrue($candidate->retryable());
@@ -286,7 +287,7 @@ class RecoveryServiceTest extends TestCase
 
         [$candidate] = $this->service()->scan(300, null, 100, 3);
 
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT, $candidate->reason);
+        $this->assertSame(RecoveryReason::StepTimeout, $candidate->reason);
     }
 
     public function test_the_limit_is_shared_across_all_three_scans_in_urgency_order(): void
@@ -303,8 +304,8 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertSame(
             [
-                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
-                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
+                RecoveryReason::StaleClaim,
+                RecoveryReason::StaleClaim,
             ],
             array_map(fn (RecoveryCandidate $candidate) => $candidate->reason, $candidates),
             'Lost work outranks scheduled work under a shared limit.',
@@ -313,7 +314,7 @@ class RecoveryServiceTest extends TestCase
         $candidates = $this->service()->scan(300, null, limit: 3, abandonAfterAttempts: 3);
 
         $this->assertSame(
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+            RecoveryReason::RetryDue,
             $candidates[2]->reason,
         );
     }
@@ -339,7 +340,7 @@ class RecoveryServiceTest extends TestCase
         Event::assertDispatched(
             WorkflowExecutionRetryScheduled::class,
             fn (WorkflowExecutionRetryScheduled $event): bool => $event->executionId === $execution->id
-                && $event->reason === WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+                && $event->reason === RecoveryReason::RetryDue,
         );
     }
 
@@ -386,7 +387,7 @@ class RecoveryServiceTest extends TestCase
             WorkflowExecutionRetryScheduled::class,
             function (WorkflowExecutionRetryScheduled $event) use ($execution): bool {
                 return $event->executionId === $execution->id
-                    && $event->reason === WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM
+                    && $event->reason === RecoveryReason::StaleClaim
                     && $event->attempts === 1;
             }
         );

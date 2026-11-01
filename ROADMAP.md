@@ -246,7 +246,7 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 - The deferred audit items, each its own step, taken first because the capabilities below land on the signatures they change:
   - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
   - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).
-  - A backed `RecoveryReason` enum.
+  - ~~A backed `RecoveryReason` enum.~~ Done (step 3).
   - Required collaborators instead of nullable defaults.
   - Extract the wait and child-wait state machine from `WorkflowRunner`.
   - A `(status, created_at)` index for the pending scan.
