@@ -14,7 +14,6 @@ use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
-use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -56,9 +55,8 @@ class ClockTest extends TestCase
 
         // The repository stamps claimed_at/started_at itself, so it and
         // the runner share one clock.
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new EloquentExecutionRepository($clock),
-            container: $this->app,
             logger: new ArrayLogger,
             clock: $clock,
         );
@@ -78,9 +76,8 @@ class ClockTest extends TestCase
         $clock = new FixedClock('2026-10-23 09:00:00');
         $repository = new EloquentExecutionRepository($clock);
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: $repository,
-            container: $this->app,
             logger: new ArrayLogger,
             clock: $clock,
         );

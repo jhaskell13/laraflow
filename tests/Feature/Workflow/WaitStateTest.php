@@ -384,9 +384,8 @@ class WaitStateTest extends TestCase
 
     protected function runner(int $staleAfter = 300): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: $this->app->make(\Laraflow\Workflow\ExecutionRepository::class),
-            container: $this->app,
             logger: new \Laraflow\Tests\Support\ArrayLogger,
             options: new \Laraflow\Workflow\RunnerOptions(staleAfterSeconds: $staleAfter),
             events: $this->app->make(\Laraflow\Events\EventEmitter::class),
@@ -396,14 +395,13 @@ class WaitStateTest extends TestCase
 
     protected function crashingRunner(string $dieOn, int $call = 1, string $phase = 'before'): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: new \Laraflow\Tests\Support\CrashingExecutionRepository(
                 $this->app->make(\Laraflow\Workflow\ExecutionRepository::class),
                 $dieOn,
                 $call,
                 $phase,
             ),
-            container: $this->app,
             logger: new \Laraflow\Tests\Support\ArrayLogger,
             options: new \Laraflow\Workflow\RunnerOptions(staleAfterSeconds: 300),
         );

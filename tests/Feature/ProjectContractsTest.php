@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Laraflow\Tests\TestCase;
 use ReflectionClass;
+use ReflectionNamedType;
 use ReflectionParameter;
 use SensitiveParameter;
 
@@ -489,6 +490,71 @@ class ProjectContractsTest extends TestCase
             $shapes['stale'],
         );
         $this->assertCount(1, array_unique(array_map('serialize', $shapes)), 'The recovery scans differ in shape: '.json_encode($shapes));
+    }
+
+    /**
+     * Milestone 8 step 4: a service takes every collaborator it needs,
+     * and the service provider is the one place that supplies them. A
+     * constructor parameter typed as a class with a null default was a
+     * second, silent configuration — a runner with its own clock, an
+     * observer that emitted nothing — that disagreed with the rest of
+     * the application. The only nullable collaborator left is one whose
+     * null is a documented setting, not a missing wire.
+     */
+    public function test_services_require_their_collaborators(): void
+    {
+        $services = [
+            \Laraflow\Workflow\WorkflowRunner::class,
+            \Laraflow\Workflow\RecoveryService::class,
+            \Laraflow\Workflow\RetentionService::class,
+            \Laraflow\Workflow\OutcomeRecorder::class,
+            \Laraflow\Workflow\ParentNotifier::class,
+            \Laraflow\Workflow\ChildWorkflows::class,
+            \Laraflow\Workflow\StepResolver::class,
+            \Laraflow\Workflow\WorkflowResolver::class,
+            \Laraflow\Workflow\Repositories\EloquentExecutionRepository::class,
+            \Laraflow\Queue\WorkflowDispatcher::class,
+            \Laraflow\Queue\QueueChildDelivery::class,
+            \Laraflow\Events\EventEmitter::class,
+            \Laraflow\Support\LoggingContext::class,
+            \Laraflow\Integration\ConnectorRegistry::class,
+            \Laraflow\Integration\Http\ConnectorObserver::class,
+            \Laraflow\Integration\Http\TransportPipeline::class,
+            \Laraflow\Integration\Http\ObservingTransport::class,
+            \Laraflow\Core\LaraflowManager::class,
+        ];
+
+        // Null here is behaviour, not absence: the log context is
+        // disabled by configuration, and the emitter is silenced the
+        // same way. Both are the documented "off" object.
+        $nullMeansOff = [
+            \Laraflow\Support\LoggingContext::class => ['context'],
+            \Laraflow\Events\EventEmitter::class => ['events'],
+        ];
+
+        $optional = [];
+
+        foreach ($services as $service) {
+            $constructor = (new ReflectionClass($service))->getConstructor();
+
+            foreach ($constructor?->getParameters() ?? [] as $parameter) {
+                $type = $parameter->getType();
+
+                if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                    continue;
+                }
+
+                if (in_array($parameter->getName(), $nullMeansOff[$service] ?? [], true)) {
+                    continue;
+                }
+
+                if ($type->allowsNull() || $parameter->isDefaultValueAvailable()) {
+                    $optional[] = sprintf('%s::__construct($%s)', $service, $parameter->getName());
+                }
+            }
+        }
+
+        $this->assertSame([], $optional, 'A service constructor makes a collaborator optional.');
     }
 
     public function test_no_console_command_reaches_past_the_public_contract(): void

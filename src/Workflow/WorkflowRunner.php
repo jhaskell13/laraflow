@@ -31,7 +31,6 @@ use Laraflow\Support\Clock;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\LoggingContext;
-use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Psr\Clock\ClockInterface;
@@ -70,22 +69,23 @@ class WorkflowRunner
         protected ExecutionRepository $repository,
         Container $container,
         protected LoggerInterface $logger,
-        ?RunnerOptions $options = null,
-        protected ?EventEmitter $events = null,
-        ?ClockInterface $clock = null,
-        ?PolicyResolver $policies = null,
-        ?ErrorRedactor $redactor = null,
-        protected ?LoggingContext $logging = null,
-        protected ?ChildDelivery $childDelivery = null,
+        RunnerOptions $options,
+        protected EventEmitter $events,
+        ClockInterface $clock,
+        PolicyResolver $policies,
+        ErrorRedactor $redactor,
+        protected LoggingContext $logging,
+        protected ChildDelivery $childDelivery,
     ) {
-        $this->clock = $clock ?? new Clock;
-        $this->options = $options ?? new RunnerOptions;
-        $this->parents = new ParentNotifier($repository, $logger, $childDelivery, $this->clock);
-
-        // The bare resolver's default policy disables retries, so a
-        // runner constructed without one behaves exactly as it did
-        // before retry policy existed.
-        $this->policies = $policies ?? new PolicyResolver;
+        // Every collaborator is required: the service provider is the
+        // one place that knows the configured clock, policy, redactor,
+        // and delivery, and a runner silently built around defaults for
+        // any of them was a runner that disagreed with the rest of the
+        // application. Tests build one through TestCase::makeRunner().
+        $this->clock = $clock;
+        $this->options = $options;
+        $this->parents = new ParentNotifier($repository, $logger, $childDelivery, $clock);
+        $this->policies = $policies;
         $this->steps = new StepResolver($container);
 
         $this->outcomes = new OutcomeRecorder(
@@ -95,7 +95,7 @@ class WorkflowRunner
             maxErrorLength: $this->options->maxErrorLength,
             includeErrorMessages: $this->options->includeErrorMessages,
             clock: $this->clock,
-            redactor: $redactor ?? new PassthroughRedactor,
+            redactor: $redactor,
             maxSuggestedRetryDelaySeconds: $this->options->maxSuggestedRetryDelaySeconds,
             parents: $this->parents,
         );
@@ -170,12 +170,12 @@ class WorkflowRunner
         // so every log record written while this execution is in
         // flight — including the application's own, from inside a step
         // — carries its identity, and none written afterwards do.
-        $this->logging?->enter($execution);
+        $this->logging->enter($execution);
 
         try {
             return $this->runClaimed($execution, $workflow, $ignoreRetrySchedule);
         } finally {
-            $this->logging?->leave();
+            $this->logging->leave();
         }
     }
 
@@ -831,7 +831,7 @@ class WorkflowRunner
             if (! $child->status->isFinished() || $staleFailure) {
                 if ($child->status === ExecutionStatus::Pending || $staleFailure) {
                     try {
-                        $this->childDelivery?->deliver($child->id);
+                        $this->childDelivery->deliver($child->id);
                     } catch (Throwable $deliveryFailure) {
                         // The next heartbeat tries again; the child may
                         // also already be running on a worker. Said out
@@ -997,7 +997,7 @@ class WorkflowRunner
         // they would be attributed to the previous step, or to none
         // at all on the first one.
         $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt);
-        $this->logging?->enterStep($stepExecution);
+        $this->logging->enterStep($stepExecution);
 
         $this->event(new WorkflowStepStarted(
             ...$this->outcomes->identity($execution),
@@ -1013,7 +1013,7 @@ class WorkflowRunner
      */
     protected function event(object $event): void
     {
-        $this->events?->emit($event);
+        $this->events->emit($event);
     }
 
     /**

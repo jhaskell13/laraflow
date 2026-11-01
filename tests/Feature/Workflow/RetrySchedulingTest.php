@@ -419,14 +419,13 @@ class RetrySchedulingTest extends TestCase
         // Call sequence: saveStep #1 and #2 mark the steps running;
         // checkpoint persists step one; saveStep #3 records the retry —
         // storage dies there, exactly as a failing database would.
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new CrashingExecutionRepository(
                 new EloquentExecutionRepository($this->clock),
                 'saveStep',
                 3,
                 'before',
             ),
-            container: $this->app,
             logger: $this->logger,
             clock: $this->clock,
         );
@@ -452,9 +451,8 @@ class RetrySchedulingTest extends TestCase
     {
         // The policy under test comes from the workflow; runner and
         // repository share one fixed clock so the schedule is exact.
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: new EloquentExecutionRepository($this->clock),
-            container: $this->app,
             logger: $this->logger,
             clock: $this->clock,
         );

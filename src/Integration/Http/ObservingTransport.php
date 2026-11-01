@@ -34,14 +34,14 @@ final class ObservingTransport implements HttpTransport
         private Connection $connection,
         private ConnectorObserver $observer,
         private ClockInterface $clock,
-        private ?LoggingContext $logging = null,
+        private LoggingContext $logging,
     ) {}
 
     public function send(#[SensitiveParameter] ConnectorRequest $request, HttpOptions $options): ConnectorResponse
     {
         $startedAt = $this->clock->now();
 
-        $this->logging?->enterConnector($this->connection);
+        $this->logging->enterConnector($this->connection);
 
         try {
             $response = $this->inner->send($request, $options);
@@ -56,7 +56,7 @@ final class ObservingTransport implements HttpTransport
 
             throw $exception;
         } finally {
-            $this->logging?->leaveConnector();
+            $this->logging->leaveConnector();
         }
 
         $this->observer->sent($this->connection, $request, $response, $this->elapsed($startedAt));

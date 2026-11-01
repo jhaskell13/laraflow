@@ -6,7 +6,6 @@ namespace Laraflow\Workflow;
 
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
-use Laraflow\Support\Clock;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -28,10 +27,10 @@ class ParentNotifier
     public function __construct(
         protected ExecutionRepository $repository,
         protected LoggerInterface $logger,
-        protected ?ChildDelivery $delivery = null,
-        ?ClockInterface $clock = null,
+        protected ChildDelivery $delivery,
+        ClockInterface $clock,
     ) {
-        $this->clock = $clock ?? new Clock;
+        $this->clock = $clock;
     }
 
     public function childFinished(WorkflowExecution $child): void
@@ -73,7 +72,7 @@ class ParentNotifier
         }
 
         try {
-            $this->delivery?->deliver($child->parentExecutionId);
+            $this->delivery->deliver($child->parentExecutionId);
         } catch (Throwable $deliveryFailure) {
             // The signal is durable; laraflow:recover will deliver it.
             $this->logger->warning('Laraflow signalled a parent execution but could not dispatch it.', [

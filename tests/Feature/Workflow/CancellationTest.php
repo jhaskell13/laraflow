@@ -332,9 +332,8 @@ class CancellationTest extends TestCase
     {
         $clock = new FixedClock('2026-10-23 15:00:00');
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new EloquentExecutionRepository($clock),
-            container: $this->app,
             logger: new ArrayLogger,
             clock: $clock,
         );
@@ -367,9 +366,8 @@ class CancellationTest extends TestCase
      */
     protected function staleTolerantRunner(): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 0),
         );

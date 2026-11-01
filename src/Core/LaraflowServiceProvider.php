@@ -213,8 +213,9 @@ class LaraflowServiceProvider extends ServiceProvider
             clock: $app->make(ClockInterface::class),
             // The manager Laravel's queue defers after-commit pushes
             // through; the dispatched event is deferred through the same
-            // one. Not bound when the database component is absent.
-            transactions: $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+            // one. illuminate/database is a hard dependency, so it is
+            // always bound.
+            transactions: $app->make('db.transactions'),
         ));
 
         $this->app->singleton(RetentionPolicy::class, function (Container $app): RetentionPolicy {

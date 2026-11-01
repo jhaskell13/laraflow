@@ -536,9 +536,8 @@ class WorkflowRecoveryTest extends TestCase
 
     protected function runner(int $staleAfter = 300, int $maxErrorLength = 65535): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: $this->logger,
             options: new RunnerOptions(staleAfterSeconds: $staleAfter, maxErrorLength: $maxErrorLength),
         );
@@ -558,14 +557,13 @@ class WorkflowRecoveryTest extends TestCase
 
     protected function crashingRunner(string $dieOn, int $call = 1, string $phase = 'before'): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: new CrashingExecutionRepository(
                 $this->app->make(ExecutionRepository::class),
                 $dieOn,
                 $call,
                 $phase,
             ),
-            container: $this->app,
             logger: $this->logger,
             options: new RunnerOptions(staleAfterSeconds: 300),
         );

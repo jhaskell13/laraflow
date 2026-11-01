@@ -11,9 +11,7 @@ use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
-use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
-use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -56,16 +54,16 @@ class OutcomeRecorder
     public function __construct(
         protected ExecutionRepository $repository,
         protected LoggerInterface $logger,
-        protected ?EventEmitter $events = null,
+        protected EventEmitter $events,
+        ClockInterface $clock,
+        ErrorRedactor $redactor,
+        protected ParentNotifier $parents,
         protected int $maxErrorLength = 65535,
         protected bool $includeErrorMessages = true,
-        ?ClockInterface $clock = null,
-        ?ErrorRedactor $redactor = null,
         protected int $maxSuggestedRetryDelaySeconds = 3600,
-        protected ?ParentNotifier $parents = null,
     ) {
-        $this->clock = $clock ?? new Clock;
-        $this->redactor = $redactor ?? new PassthroughRedactor;
+        $this->clock = $clock;
+        $this->redactor = $redactor;
     }
 
     /**
@@ -201,7 +199,7 @@ class OutcomeRecorder
 
         $this->announceStepFailure($execution, $stepExecution, $stepExecution->attempts, $exception, $error, $record);
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
-        $this->parents?->childFinished($execution);
+        $this->parents->childFinished($execution);
     }
 
     /**
@@ -226,7 +224,7 @@ class OutcomeRecorder
         }
 
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
-        $this->parents?->childFinished($execution);
+        $this->parents->childFinished($execution);
     }
 
     /**
@@ -287,7 +285,7 @@ class OutcomeRecorder
 
     public function emit(object $event): void
     {
-        $this->events?->emit($event);
+        $this->events->emit($event);
     }
 
     protected function attempt(

@@ -43,11 +43,11 @@ class WorkflowDispatcher
         protected ExecutionRepository $repository,
         protected Bus $bus,
         protected Config $config,
-        protected ?EventEmitter $events = null,
-        ?ClockInterface $clock = null,
-        protected ?DatabaseTransactionsManager $transactions = null,
+        protected EventEmitter $events,
+        ClockInterface $clock,
+        protected DatabaseTransactionsManager $transactions,
     ) {
-        $this->clock = $clock ?? new Clock;
+        $this->clock = $clock;
     }
 
     /**
@@ -170,13 +170,13 @@ class WorkflowDispatcher
         // commit it fires once the job is genuinely on the queue, and on
         // rollback it never fires, exactly as the job never goes out.
         // Outside a transaction the manager runs the callback at once.
-        if ($job->afterCommit === true && $this->transactions !== null) {
-            $this->transactions->addCallback(fn () => $this->events?->emit($event));
+        if ($job->afterCommit === true) {
+            $this->transactions->addCallback(fn () => $this->events->emit($event));
 
             return;
         }
 
-        $this->events?->emit($event);
+        $this->events->emit($event);
     }
 
     protected function stringConfig(string $key): ?string

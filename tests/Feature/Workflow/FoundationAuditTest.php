@@ -117,7 +117,7 @@ class FoundationAuditTest extends TestCase
         // a transient failure there used to drive the failure path into
         // InvalidStateTransitionException and leave the execution
         // claimed. The real error must be what the step row records.
-        $repository = new class(null) extends EloquentExecutionRepository
+        $repository = new class($this->app->make(\Psr\Clock\ClockInterface::class)) extends EloquentExecutionRepository
         {
             public int $failures = 1;
 
@@ -131,9 +131,8 @@ class FoundationAuditTest extends TestCase
             }
         };
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: $repository,
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 300),
         );
@@ -245,9 +244,8 @@ class FoundationAuditTest extends TestCase
 
     public function test_a_signal_payload_is_bounded_at_signal_time(): void
     {
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 300, maxPayloadBytes: 64),
         );

@@ -44,9 +44,9 @@ class EloquentExecutionRepository implements ExecutionRepository
 
     protected ClockInterface $clock;
 
-    public function __construct(?ClockInterface $clock = null)
+    public function __construct(ClockInterface $clock)
     {
-        $this->clock = $clock ?? new Clock;
+        $this->clock = $clock;
     }
 
     /**

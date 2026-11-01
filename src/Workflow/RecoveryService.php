@@ -12,7 +12,6 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
 use Laraflow\Queue\WorkflowDispatcher;
-use Laraflow\Support\Clock;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -55,10 +54,10 @@ class RecoveryService
         protected WorkflowDispatcher $dispatcher,
         protected WorkflowRunner $runner,
         protected WorkflowResolver $resolver,
-        protected ?EventEmitter $events = null,
-        ?ClockInterface $clock = null,
+        protected EventEmitter $events,
+        ClockInterface $clock,
     ) {
-        $this->clock = $clock ?? new Clock;
+        $this->clock = $clock;
     }
 
     /**
@@ -277,7 +276,7 @@ class RecoveryService
 
     protected function emitRetryScheduled(RecoveryCandidate $candidate): void
     {
-        $this->events?->emit(new WorkflowExecutionRetryScheduled(
+        $this->events->emit(new WorkflowExecutionRetryScheduled(
             executionId: $candidate->execution->id,
             workflow: $candidate->execution->workflow,
             correlationId: $candidate->execution->correlationId,

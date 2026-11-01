@@ -12,10 +12,21 @@ use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
 use Laraflow\Core\LaraflowServiceProvider;
+use Laraflow\Events\EventEmitter;
+use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\LoggingContext;
+use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\FixtureState;
+use Laraflow\Workflow\ChildDelivery;
+use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\Policy\PolicyResolver;
+use Laraflow\Workflow\RunnerOptions;
+use Laraflow\Workflow\WorkflowRunner;
 use Orchestra\Testbench\TestCase as Orchestra;
+use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 
 abstract class TestCase extends Orchestra
 {
@@ -133,6 +144,38 @@ abstract class TestCase extends Orchestra
         );
 
         return $step;
+    }
+
+    /**
+     * A WorkflowRunner with every collaborator the service provider
+     * would supply, except the ones a test names. The runner's
+     * constructor takes nothing optional (Milestone 8): a test that
+     * wants its own clock or a crashing repository says so here, and
+     * everything else is exactly what the application would get.
+     */
+    protected function makeRunner(
+        ?ExecutionRepository $repository = null,
+        ?LoggerInterface $logger = null,
+        ?RunnerOptions $options = null,
+        ?EventEmitter $events = null,
+        ?ClockInterface $clock = null,
+        ?PolicyResolver $policies = null,
+        ?ErrorRedactor $redactor = null,
+        ?LoggingContext $logging = null,
+        ?ChildDelivery $childDelivery = null,
+    ): WorkflowRunner {
+        return new WorkflowRunner(
+            repository: $repository ?? $this->app->make(ExecutionRepository::class),
+            container: $this->app,
+            logger: $logger ?? new ArrayLogger,
+            options: $options ?? $this->app->make(RunnerOptions::class),
+            events: $events ?? $this->app->make(EventEmitter::class),
+            clock: $clock ?? $this->app->make(ClockInterface::class),
+            policies: $policies ?? $this->app->make(PolicyResolver::class),
+            redactor: $redactor ?? $this->app->make(ErrorRedactor::class),
+            logging: $logging ?? $this->app->make(LoggingContext::class),
+            childDelivery: $childDelivery ?? $this->app->make(ChildDelivery::class),
+        );
     }
 
     /**

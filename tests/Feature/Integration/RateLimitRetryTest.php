@@ -149,9 +149,8 @@ class RateLimitRetryTest extends TestCase
     {
         $logger = new ArrayLogger;
 
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: new EloquentExecutionRepository($this->clock),
-            container: $this->app,
             logger: $logger,
             options: $options,
             events: new EventEmitter($this->app->make(Dispatcher::class), $logger),
