@@ -70,7 +70,11 @@ class RecoveryService
      * @param  int  $abandonAfterAttempts  Interrupted candidates whose steps already
      *                                     reached this many attempts, or which were claimed this
      *                                     many times without reaching a step, are flagged abandoned.
-     * @param  bool  $includeDueRetries  Scan for scheduled retries that have come due.
+     * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @param  bool  $includeDueRetries  Scan for scheduled retries and due waits.
+     * @param  string|null  $tenantId  Only executions for this tenant — applied to
+     *                                 every scan, so a tenant-scoped run cannot
+     *                                 touch another tenant's work.
      * @return RecoveryCandidate[]
      */
     public function scan(
@@ -80,6 +84,7 @@ class RecoveryService
         int $abandonAfterAttempts,
         ?string $workflow = null,
         bool $includeDueRetries = true,
+        ?string $tenantId = null,
     ): array {
         $now = $this->clock->now();
         $candidates = [];
@@ -88,6 +93,7 @@ class RecoveryService
             $now->modify("-{$staleAfterSeconds} seconds"),
             $limit,
             $workflow,
+            $tenantId,
         );
 
         foreach ($stale as $execution) {
@@ -107,7 +113,7 @@ class RecoveryService
         $spent = fn (): int => count(array_filter($candidates, fn (RecoveryCandidate $c): bool => $c->retryable()));
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
-            foreach ($this->repository->dueForRetry($now, $remaining, $workflow) as $execution) {
+            foreach ($this->repository->dueForRetry($now, $remaining, $workflow, $tenantId) as $execution) {
                 // Exempt from the interruption bound: a scheduled retry's
                 // budget is its policy, which the runner enforces.
                 $candidates[] = $this->candidate(
@@ -119,7 +125,7 @@ class RecoveryService
         }
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
-            foreach ($this->repository->waitingDue($now, $remaining, $workflow) as $execution) {
+            foreach ($this->repository->waitingDue($now, $remaining, $workflow, $tenantId) as $execution) {
                 // Exempt like due retries: a wait is scheduled work, not
                 // an interruption, and a timed-out signal answers to the
                 // step's own policy once a worker classifies it.
@@ -136,6 +142,7 @@ class RecoveryService
                 $now->modify("-{$pendingAfterSeconds} seconds"),
                 $remaining,
                 $workflow,
+                $tenantId,
             );
 
             foreach ($pending as $execution) {

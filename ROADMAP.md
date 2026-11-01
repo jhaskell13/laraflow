@@ -245,7 +245,7 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 - An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.
 - The deferred audit items, each its own step, taken first because the capabilities below land on the signatures they change:
   - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
-  - One naming shape and tenant scoping for the four recovery scans.
+  - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).
   - A backed `RecoveryReason` enum.
   - Required collaborators instead of nullable defaults.
   - Extract the wait and child-wait state machine from `WorkflowRunner`.

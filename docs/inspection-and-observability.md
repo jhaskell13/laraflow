@@ -106,7 +106,7 @@ Laraflow never interprets them. It persists them to indexed columns, exposes the
 |---|---|
 | **The HTTP request that started it** | Pass the request id (your own, or `X-Request-Id`) as `correlationId`. Every log line a step writes then carries it under `laraflow.correlation_id`, and `laraflow:list --correlation=<id>` finds the execution. |
 | **The queued job that started it** | Same, with the job's uuid. If the job itself runs inside Laravel's log context, the `laraflow.*` keys are added to whatever is already there and removed afterwards. |
-| **A tenant** | Pass `tenantId`. Then `laraflow:list --tenant=`, `laraflow:summary --tenant=`, `laraflow:prune --tenant=`, and the `tenantId` filter all scope to it. Steps read `$context->tenantId()` from durable state, so a step re-run by a recovering worker sees the tenant the execution was *created for*, not whatever ambient tenant that worker happens to be in. |
+| **A tenant** | Pass `tenantId`. Then `laraflow:list --tenant=`, `laraflow:summary --tenant=`, `laraflow:recover --tenant=`, `laraflow:prune --tenant=`, and the `tenantId` filter all scope to it. Steps read `$context->tenantId()` from durable state, so a step re-run by a recovering worker sees the tenant the execution was *created for*, not whatever ambient tenant that worker happens to be in. |
 | **An external provider's records** | Forward `$context->correlationId()` — or `$context->idempotencyKey()`, which is stable per step — as the provider's request id or metadata field. When the provider's dashboard shows a charge with your correlation id on it, you can find the execution that made it. |
 | **Everything the execution itself did** | `laraflow.execution_id` is in the log context for the duration of every step, so grepping your logs for one execution id returns every line any step wrote. |
 
@@ -237,7 +237,7 @@ One caution: paging a large result set fires one `ConnectorRequestSent` per page
 ## Operational checklist
 
 - Pass a `correlationId` from wherever work originates; it is the one identifier that reaches every sink.
-- Pass a `tenantId` in multi-tenant applications — listing, summary, and retention all scope by it.
+- Pass a `tenantId` in multi-tenant applications — listing, summary, recovery, and retention all scope by it.
 - Alert on `WorkflowExecutionFailed`, not `WorkflowStepFailed`; the latter fires per attempt.
 - Build metrics from events, not from the tables: the tables are internal and will change.
 - Schedule `laraflow:summary` if you want a health check that exits non-zero when retries or waits are due, or steps are overdue.

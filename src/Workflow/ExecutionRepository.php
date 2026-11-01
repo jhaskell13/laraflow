@@ -155,13 +155,19 @@ interface ExecutionRepository
      * stay clock-free; it must use the same `claimed_at <= cutoff`
      * comparison as claim(), so the two mechanisms agree on staleness.
      *
+     * Every recovery scan — this one, pendingBefore(), dueForRetry(),
+     * and waitingDue() — has the same shape: a cutoff, a limit, and the
+     * two optional scopes, so a caller that narrows one narrows all.
+     *
      * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @param  string|null  $tenantId  Only executions for this tenant.
      * @return WorkflowExecution[] ordered by id ascending (oldest first), at most $limit.
      */
     public function stale(
         DateTimeImmutable $claimedBefore,
         int $limit = 100,
-        ?string $workflow = null
+        ?string $workflow = null,
+        ?string $tenantId = null
     ): array;
 
     /**
@@ -173,12 +179,14 @@ interface ExecutionRepository
      * opt-in (see laraflow.recovery.pending_after).
      *
      * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @param  string|null  $tenantId  Only executions for this tenant.
      * @return WorkflowExecution[] ordered by id ascending (oldest first), at most $limit.
      */
     public function pendingBefore(
         DateTimeImmutable $createdBefore,
         int $limit = 100,
-        ?string $workflow = null
+        ?string $workflow = null,
+        ?string $tenantId = null
     ): array;
 
     /**
@@ -229,6 +237,7 @@ interface ExecutionRepository
      * decides which worker proceeds.
      *
      * @param  string|null  $workflow  Only executions created from this workflow class.
+     * @param  string|null  $tenantId  Only executions for this tenant.
      * @return WorkflowExecution[] ordered by next_retry_at ascending, at most $limit.
      */
     public function waitingDue(

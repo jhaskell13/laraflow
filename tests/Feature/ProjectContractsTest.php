@@ -461,6 +461,36 @@ class ProjectContractsTest extends TestCase
         $this->assertSame([], $offenders, 'An execution or step id is not typed int.');
     }
 
+    /**
+     * Milestone 8 step 2: the four recovery scans have one shape — a
+     * cutoff, a limit, a workflow scope, a tenant scope — so whatever
+     * narrows one narrows all. Compared structurally, by position, type,
+     * and default, so a fifth scan or a widened one is caught here.
+     */
+    public function test_the_recovery_scans_share_one_signature_shape(): void
+    {
+        $contract = new ReflectionClass(\Laraflow\Workflow\ExecutionRepository::class);
+        $shapes = [];
+
+        foreach (['stale', 'pendingBefore', 'dueForRetry', 'waitingDue'] as $scan) {
+            $shapes[$scan] = array_map(
+                fn (ReflectionParameter $p): string => sprintf(
+                    '%d:%s%s',
+                    $p->getPosition(),
+                    (string) $p->getType(),
+                    $p->isDefaultValueAvailable() ? '='.var_export($p->getDefaultValue(), true) : '',
+                ),
+                $contract->getMethod($scan)->getParameters(),
+            );
+        }
+
+        $this->assertSame(
+            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL'],
+            $shapes['stale'],
+        );
+        $this->assertCount(1, array_unique(array_map('serialize', $shapes)), 'The recovery scans differ in shape: '.json_encode($shapes));
+    }
+
     public function test_no_console_command_reaches_past_the_public_contract(): void
     {
         $offenders = [];

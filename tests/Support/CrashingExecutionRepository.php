@@ -74,14 +74,14 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->attemptHistory($execution));
     }
 
-    public function stale(DateTimeImmutable $claimedBefore, int $limit = 100, ?string $workflow = null): array
+    public function stale(DateTimeImmutable $claimedBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->stale($claimedBefore, $limit, $workflow));
+        return $this->call(__FUNCTION__, fn () => $this->inner->stale($claimedBefore, $limit, $workflow, $tenantId));
     }
 
-    public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null): array
+    public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow));
+        return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow, $tenantId));
     }
 
     public function dueForRetry(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array

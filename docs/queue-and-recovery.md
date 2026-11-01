@@ -177,11 +177,14 @@ The pending scan is off by default on purpose. `pending` is not only the state o
                   (laraflow.recovery.abandon_after_attempts, 3)
 --skip-retries    Do not deliver scheduled retries that have come due
 --workflow=       Only executions created from this workflow class
+--tenant=         Only executions for this tenant id — applied to every scan
 --dry-run         Report what would happen; change nothing
 --sync            Run recovered executions in this process instead of queueing them
 ```
 
 > `--max-attempts` was renamed `--abandon-after` in Milestone 3 (and `recovery.max_attempts` to `recovery.abandon_after_attempts`), because `retry.max_attempts` now exists with a different meaning. See [the two bounds](retry-and-failure-policy.md#two-bounds-two-jobs).
+
+`--workflow` and `--tenant` narrow every scan alike — stale, pending, due retries, and due waits — so a tenant-scoped run can never touch another tenant's work. The four repository scans share one signature for the same reason (`docs/public-api.md`).
 
 `--dry-run` takes no claim, queues nothing, and writes nothing — safe to run against production to see what recovery *would* do. `--sync` is useful for one-off operator work and for applications with no queue worker running.
 

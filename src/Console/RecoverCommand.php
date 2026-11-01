@@ -48,6 +48,7 @@ class RecoverCommand extends Command
         {--abandon-after= : Report interrupted executions whose steps reached this many attempts, or that were claimed this many times without reaching a step, as abandoned (default: laraflow.recovery.abandon_after_attempts)}
         {--skip-retries : Do not deliver scheduled retries or due waits; only interrupted and lost work is recovered}
         {--workflow= : Only consider executions created from this workflow class}
+        {--tenant= : Only consider executions for this tenant id}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
         {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
 
@@ -75,16 +76,14 @@ class RecoverCommand extends Command
             return self::FAILURE;
         }
 
-        $workflow = $this->option('workflow');
-        $workflow = is_string($workflow) && $workflow !== '' ? $workflow : null;
-
         $candidates = $service->scan(
             staleAfterSeconds: $staleAfter,
             pendingAfterSeconds: $pendingAfter,
             limit: $limit,
             abandonAfterAttempts: $abandonAfter,
-            workflow: $workflow,
+            workflow: $this->scopeOption('workflow'),
             includeDueRetries: ! (bool) $this->option('skip-retries'),
+            tenantId: $this->scopeOption('tenant'),
         );
 
         if ($candidates === []) {
@@ -256,6 +255,18 @@ class RecoverCommand extends Command
             WorkflowExecutionRetryScheduled::REASON_WAIT_DUE => $candidate->execution->nextRetryAt,
             default => $candidate->execution->createdAt,
         };
+    }
+
+    /**
+     * A scope option — workflow class or tenant id — trimmed, with blank
+     * meaning unscoped, the same reading ExecutionFilter gives the
+     * listing commands' options.
+     */
+    protected function scopeOption(string $name): ?string
+    {
+        $value = $this->option($name);
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     /**
