@@ -54,7 +54,10 @@ final class IdempotencyStoreContract
         $settled = $store->begin($executionId, $stepPosition, $key, $now);
         Assert::assertNotNull($settled);
         Assert::assertSame(IdempotencyStatus::Settled, $settled->status);
-        Assert::assertSame(['charge' => 'CH-1', 'amount' => 12.5], $settled->value, 'A settled value round-trips.');
+        // assertEquals, not assertSame: MySQL's binary JSON format
+        // reorders object keys, and a store is held to the value, not
+        // to the order the engine chose to keep it in.
+        Assert::assertEquals(['charge' => 'CH-1', 'amount' => 12.5], $settled->value, 'A settled value round-trips.');
 
         $store->fail($executionId, $stepPosition, $key, 'RuntimeException', $now);
         $still = $store->begin($executionId, $stepPosition, $key, $now);
