@@ -248,7 +248,7 @@ The debt that must be gone before any API is frozen: the design findings the Mil
   - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).
   - ~~A backed `RecoveryReason` enum.~~ Done (step 3).
   - ~~Required collaborators instead of nullable defaults.~~ Done (step 4).
-  - Extract the wait and child-wait state machine from `WorkflowRunner`.
+  - ~~Extract the wait and child-wait state machine from `WorkflowRunner`.~~ Done (step 5).
   - A `(status, created_at)` index for the pending scan.
   - Per-tenant rate-limit buckets: **deferred to Milestone 10** at Milestone 8 planning. The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
 - The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.

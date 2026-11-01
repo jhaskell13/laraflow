@@ -66,7 +66,9 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
 | `Laraflow\Workflow\WorkflowResolver` | Internal | Resolves the workflow class recorded on an execution. |
 | `Laraflow\Workflow\RunnerOptions` | Internal | The configured numbers and flags `WorkflowRunner` reads (`staleAfterSeconds`, `maxErrorLength`, `includeErrorMessages`, `maxPayloadBytes`, `maxSuggestedRetryDelaySeconds`), built from config by `fromConfig()`. |
-| `Laraflow\Workflow\OutcomeRecorder` | Internal | Persists and announces how a step or execution ended — scheduled retry, step failure, execution failure — and owns the redact-then-truncate chokepoint for every error message Laraflow retains. |
+| `Laraflow\Workflow\OutcomeRecorder` | Internal | Persists and announces how a step or execution ended — completion in one checkpoint, and every failure settled one way (`settle()`: scheduled retry, recorded step failure under `Continue`, or terminal execution failure) — and owns the redact-then-truncate chokepoint for every error message Laraflow retains. |
+| `Laraflow\Workflow\WaitResolver` | Internal | The wait state machine the runner's step loop delegates to: parks an execution on a `Wait`, and when the execution is next claimed decides the parked step's fate — resumed by signal or time, timed out, parked again, or settled from a child's outcome. Semantics in [docs/advanced-workflows.md](advanced-workflows.md). |
+| `Laraflow\Workflow\WaitResolution` | Internal | What the resolver hands back to the loop: continue, carry a `Continue`-policy failure forward, or stop — and whether stopping parked the execution, so the runner honours a cancellation requested across the park. |
 | `Laraflow\Workflow\StepResolver` | Internal | Validates a workflow's step list, checks a persisted plan against the definition it is run with, and builds steps from the container. |
 | `Laraflow\Events\EventEmitter` | Internal | Applies the observational-event policy below. |
 
