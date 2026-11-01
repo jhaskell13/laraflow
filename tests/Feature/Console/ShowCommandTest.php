@@ -136,4 +136,15 @@ class ShowCommandTest extends TestCase
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('was not found', $output);
     }
+
+    public function test_a_non_integer_execution_id_is_refused_before_any_lookup(): void
+    {
+        foreach (['abc', '0', '-1', '1.5', '01', '1 2', '99999999999999999999'] as $id) {
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:show', ['execution' => $id]);
+
+            $this->assertSame(CommandStatus::FAILURE, $status, "[{$id}] was accepted.");
+            $this->assertStringContainsString('must be a positive integer execution id', $output, "[{$id}]");
+            $this->assertStringNotContainsString('was not found', $output, "[{$id}] reached the repository.");
+        }
+    }
 }

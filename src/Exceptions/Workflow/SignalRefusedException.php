@@ -12,7 +12,7 @@ namespace Laraflow\Exceptions\Workflow;
  */
 class SignalRefusedException extends WorkflowException
 {
-    public static function forSignal(int|string $executionId, string $signal): self
+    public static function forSignal(int $executionId, string $signal): self
     {
         return new self(
             "Execution [{$executionId}] is not waiting on signal [{$signal}]: "

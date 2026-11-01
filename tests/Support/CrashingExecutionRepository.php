@@ -39,12 +39,12 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->create($workflow, $input, $steps, $options));
     }
 
-    public function find(int|string $id): WorkflowExecution
+    public function find(int $id): WorkflowExecution
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->find($id));
     }
 
-    public function claim(int|string $id, string $claimToken, int $staleAfterSeconds, bool $ignoreRetrySchedule = false): WorkflowExecution
+    public function claim(int $id, string $claimToken, int $staleAfterSeconds, bool $ignoreRetrySchedule = false): WorkflowExecution
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->claim($id, $claimToken, $staleAfterSeconds, $ignoreRetrySchedule));
     }
@@ -89,7 +89,7 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId));
     }
 
-    public function recordSignal(int|string $id, string $signal, array $payload, DateTimeImmutable $at): WorkflowExecution
+    public function recordSignal(int $id, string $signal, array $payload, DateTimeImmutable $at): WorkflowExecution
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->recordSignal($id, $signal, $payload, $at));
     }
@@ -133,14 +133,14 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->deleteExecutions($ids, $statuses, $finishedBefore));
     }
 
-    public function recordDispatch(int|string $id, DateTimeImmutable $dispatchedAt, ?DateTimeImmutable $availableAt = null): void
+    public function recordDispatch(int $id, DateTimeImmutable $dispatchedAt, ?DateTimeImmutable $availableAt = null): void
     {
         $this->call(__FUNCTION__, function () use ($id, $dispatchedAt, $availableAt) {
             $this->inner->recordDispatch($id, $dispatchedAt, $availableAt);
         });
     }
 
-    public function requestCancellation(int|string $id, ?string $reason, DateTimeImmutable $at, ?DateTimeImmutable $staleBefore = null): WorkflowExecution
+    public function requestCancellation(int $id, ?string $reason, DateTimeImmutable $at, ?DateTimeImmutable $staleBefore = null): WorkflowExecution
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->requestCancellation($id, $reason, $at, $staleBefore));
     }

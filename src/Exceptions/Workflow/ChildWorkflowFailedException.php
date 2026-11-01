@@ -14,7 +14,7 @@ namespace Laraflow\Exceptions\Workflow;
  */
 class ChildWorkflowFailedException extends WorkflowException
 {
-    public static function forOutcome(string $step, int $position, int|string $childId, string $status): self
+    public static function forOutcome(string $step, int $position, int $childId, string $status): self
     {
         return new self(sprintf(
             'Step [%s] at position %d waited on child execution [%s], which ended [%s] rather than completed.',
@@ -25,7 +25,7 @@ class ChildWorkflowFailedException extends WorkflowException
         ));
     }
 
-    public static function workflowMissing(string $step, int $position, int|string $childId, string $workflow): self
+    public static function workflowMissing(string $step, int $position, int $childId, string $workflow): self
     {
         return new self(sprintf(
             'Step [%s] at position %d waited on child execution [%s], whose workflow class [%s] no longer exists or is not a workflow; nothing can run it.',
@@ -36,7 +36,7 @@ class ChildWorkflowFailedException extends WorkflowException
         ));
     }
 
-    public static function missing(string $step, int $position, int|string $childId): self
+    public static function missing(string $step, int $position, int $childId): self
     {
         return new self(sprintf(
             'Step [%s] at position %d waited on child execution [%s], which no longer exists — pruned by retention, or deleted.',

@@ -144,7 +144,7 @@ class WatchCommand extends Command
         }
 
         $progress = $repository->stepProgress(array_map(
-            fn (WorkflowExecution $e): int|string => $e->id,
+            fn (WorkflowExecution $e): int => $e->id,
             $page->executions,
         ));
 
@@ -154,7 +154,7 @@ class WatchCommand extends Command
         ));
 
         foreach ($page as $execution) {
-            $counts = $progress[(string) $execution->id] ?? ['total' => 0, 'completed' => 0];
+            $counts = $progress[$execution->id] ?? ['total' => 0, 'completed' => 0];
 
             $this->line(sprintf(
                 '  %-5s %-18s <fg=%s>%-10s</> %-6s %-8s <fg=gray>%s</>',

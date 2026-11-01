@@ -28,7 +28,7 @@ class RetentionRun
      * a string id of the same value cannot be treated as different
      * executions — the repository returns whichever the driver gives.
      *
-     * @var array<string, true>
+     * @var array<int, true>
      */
     protected array $accounted = [];
 
@@ -56,7 +56,7 @@ class RetentionRun
     public function accountFor(array $executions): void
     {
         foreach ($executions as $execution) {
-            $this->accounted[(string) $execution->id] = true;
+            $this->accounted[$execution->id] = true;
         }
     }
 
@@ -74,7 +74,7 @@ class RetentionRun
 
         return array_values(array_filter(
             $candidates,
-            fn (WorkflowExecution $execution): bool => ! isset($this->accounted[(string) $execution->id]),
+            fn (WorkflowExecution $execution): bool => ! isset($this->accounted[$execution->id]),
         ));
     }
 
@@ -102,12 +102,12 @@ class RetentionRun
      * Ids of $candidates, in writable chunks.
      *
      * @param  WorkflowExecution[]  $candidates
-     * @return list<list<int|string>>
+     * @return list<list<int>>
      */
     public function chunks(array $candidates): array
     {
         $ids = array_map(
-            fn (WorkflowExecution $execution): int|string => $execution->id,
+            fn (WorkflowExecution $execution): int => $execution->id,
             $candidates,
         );
 

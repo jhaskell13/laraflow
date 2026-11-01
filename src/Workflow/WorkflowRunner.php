@@ -153,7 +153,7 @@ class WorkflowRunner
      *                                     throws RetryNotDueException.
      */
     public function execute(
-        int|string $executionId,
+        int $executionId,
         Workflow $workflow,
         bool $ignoreRetrySchedule = false
     ): WorkflowExecution {
@@ -193,7 +193,7 @@ class WorkflowRunner
      * @throws SignalRefusedException when the execution is not waiting on this signal.
      * @throws UnserializableValueException if the payload is not JSON-serializable.
      */
-    public function signal(int|string $executionId, string $signal, array $payload = []): WorkflowExecution
+    public function signal(int $executionId, string $signal, array $payload = []): WorkflowExecution
     {
         Wait::assertApplicationSignal($signal);
 
@@ -239,7 +239,7 @@ class WorkflowRunner
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotCancellableException when the execution has completed.
      */
-    public function cancel(int|string $executionId, ?string $reason = null): WorkflowExecution
+    public function cancel(int $executionId, ?string $reason = null): WorkflowExecution
     {
         $existing = $this->repository->find($executionId);
 
@@ -288,7 +288,7 @@ class WorkflowRunner
     /**
      * Request cancellation of every unfinished child, recursively.
      */
-    protected function cancelChildren(int|string $parentId, ?string $reason): void
+    protected function cancelChildren(int $parentId, ?string $reason): void
     {
         $cursor = null;
 
@@ -856,13 +856,15 @@ class WorkflowRunner
             return WaitResolution::resumed();
         }
 
+        // The payload names the child; the wait signal is the durable
+        // link and answers for a payload that does not.
         $childId = $outcome['execution_id'] ?? null;
         $status = $outcome['status'] ?? null;
 
         $failed = ChildWorkflowFailedException::forOutcome(
             $stepExecution->step,
             $stepExecution->position,
-            is_int($childId) || is_string($childId) ? $childId : 'unknown',
+            is_int($childId) ? $childId : Wait::childIdFrom((string) $stepExecution->waitSignal),
             is_string($status) ? $status : 'unknown',
         );
 

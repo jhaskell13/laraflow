@@ -34,7 +34,7 @@ readonly class WorkflowExecutionStarted
      *                                     sat undelivered — which is what an operator wants to know.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public DateTimeImmutable $startedAt,
         public ?string $correlationId = null,

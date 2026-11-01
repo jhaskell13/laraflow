@@ -23,7 +23,7 @@ $execution->isPending(); // true — nothing has run yet
 | Method | Behaviour |
 |--------|-----------|
 | `dispatch(Workflow $workflow, array $input = [], ?string $connection = null, ?string $queue = null, ?ExecutionOptions $options = null): WorkflowExecution` | Create the execution, then queue it. Nothing runs in the calling process. Validation failures (`InvalidWorkflowDefinitionException`, `UnserializableValueException`) happen *before* anything is persisted or queued. |
-| `dispatchExecution(int\|string $id, ?string $connection = null, ?string $queue = null, ?DateTimeInterface $availableAt = null): WorkflowExecution` | Queue an execution that already exists — a failed one to retry, an interrupted one to recover, optionally delayed until `$availableAt`. Refuses a `completed` or `cancelled` execution with `ExecutionNotRunnableException`; accepts `running` on purpose (see below). |
+| `dispatchExecution(int $id, ?string $connection = null, ?string $queue = null, ?DateTimeInterface $availableAt = null): WorkflowExecution` | Queue an execution that already exists — a failed one to retry, an interrupted one to recover, optionally delayed until `$availableAt`. Refuses a `completed` or `cancelled` execution with `ExecutionNotRunnableException`; accepts `running` on purpose (see below). |
 
 `dispatchExecution()` accepts a `running` execution deliberately: that is exactly the state a dead worker leaves behind, so refusing it would make recovery impossible. Dispatching is cheap and the claim decides which worker actually proceeds — a job that arrives while a live worker holds the claim simply no-ops.
 

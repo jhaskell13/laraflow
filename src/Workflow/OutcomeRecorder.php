@@ -273,7 +273,7 @@ class OutcomeRecorder
      * carries them" structural rather than a thing each call site has
      * to remember.
      *
-     * @return array{executionId: int|string, workflow: string, correlationId: string|null, tenantId: string|null}
+     * @return array{executionId: int, workflow: string, correlationId: string|null, tenantId: string|null}
      */
     public function identity(WorkflowExecution $execution): array
     {

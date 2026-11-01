@@ -211,13 +211,13 @@ trait AppliesRetention
      * Which of $ids still satisfy the guard, read inside the caller's
      * transaction so the writes that follow act on exactly this set.
      *
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      * @param  list<ExecutionStatus>  $statuses
-     * @return list<int|string>
+     * @return list<int>
      */
     protected function stillEligible(array $ids, array $statuses, DateTimeImmutable $finishedBefore): array
     {
-        /** @var list<int|string> $eligible */
+        /** @var list<int> $eligible */
         $eligible = $this->finishedBefore($statuses, $finishedBefore)
             ->whereIn('id', $ids)
             ->pluck('id')
@@ -231,7 +231,7 @@ trait AppliesRetention
      * exists.
      *
      * @param  class-string<StepAttemptModel|StepExecutionModel>  $model
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      */
     protected function deleteOrphansOf(string $model, array $ids): void
     {

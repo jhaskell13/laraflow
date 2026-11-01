@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions\Workflow;
 
 class ClaimLostException extends WorkflowException
 {
-    public static function forId(int|string $id): self
+    public static function forId(int $id): self
     {
         return new self(
             "Lost the claim on workflow execution [{$id}]: another worker has reclaimed it. "

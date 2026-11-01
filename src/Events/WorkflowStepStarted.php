@@ -26,7 +26,7 @@ readonly class WorkflowStepStarted
      *                                 or null if none was supplied.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public string $step,
         public int $position,

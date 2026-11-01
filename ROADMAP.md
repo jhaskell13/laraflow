@@ -243,9 +243,16 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 
 - Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code.
 - An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.
-- The deferred audit items: one naming shape and tenant scoping for the four recovery scans; a backed `RecoveryReason` enum; commit to integer execution ids on the contract; extract the wait and child-wait state machine from `WorkflowRunner`; required collaborators instead of nullable defaults; a `(status, created_at)` index for the pending scan; per-tenant rate-limit buckets.
+- The deferred audit items, each its own step, taken first because the capabilities below land on the signatures they change:
+  - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
+  - One naming shape and tenant scoping for the four recovery scans.
+  - A backed `RecoveryReason` enum.
+  - Required collaborators instead of nullable defaults.
+  - Extract the wait and child-wait state machine from `WorkflowRunner`.
+  - A `(status, created_at)` index for the pending scan.
+  - Per-tenant rate-limit buckets: **deferred to Milestone 10** at Milestone 8 planning. The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
 - The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.
-- `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed.
+- `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed — and `laraflow:start {workflow}`, the command that runs an arbitrary workflow class, without which no install story can be proved with the generators alone.
 
 #### Exit criteria
 

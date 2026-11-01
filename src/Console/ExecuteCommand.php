@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionRepository;
@@ -25,6 +27,7 @@ use Throwable;
 class ExecuteCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionId;
 
     protected $signature = 'laraflow:execute
         {execution : The id of the execution to run or recover}
@@ -39,14 +42,13 @@ class ExecuteCommand extends Command
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
     ): int {
-        $id = (string) $this->argument('execution');
-
         try {
+            $id = $this->executionIdArgument();
             $execution = $repository->find($id);
             // Resolve up front in both modes: a missing workflow class
             // should fail here, not minutes later on a queue worker.
             $workflow = $resolver->resolve($execution->id, $execution->workflow);
-        } catch (WorkflowException $exception) {
+        } catch (WorkflowException|InvalidArgumentException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;

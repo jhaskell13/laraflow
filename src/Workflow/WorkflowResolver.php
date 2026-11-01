@@ -24,7 +24,7 @@ class WorkflowResolver
      * @throws WorkflowDefinitionMismatchException when the recorded class no
      *                                             longer exists, is not a workflow, or resolves to something else.
      */
-    public function resolve(int|string $executionId, string $class): Workflow
+    public function resolve(int $executionId, string $class): Workflow
     {
         if (! class_exists($class) || ! is_subclass_of($class, Workflow::class)) {
             throw new WorkflowDefinitionMismatchException(

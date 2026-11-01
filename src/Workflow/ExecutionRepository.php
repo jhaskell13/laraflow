@@ -57,7 +57,7 @@ interface ExecutionRepository
      * @throws ExecutionNotFoundException
      */
     public function find(
-        int|string $id
+        int $id
     ): WorkflowExecution;
 
     /**
@@ -78,7 +78,7 @@ interface ExecutionRepository
      * @throws ExecutionStillWaitingException when the execution is parked on a wait that is not due.
      */
     public function claim(
-        int|string $id,
+        int $id,
         string $claimToken,
         int $staleAfterSeconds,
         bool $ignoreRetrySchedule = false
@@ -129,8 +129,8 @@ interface ExecutionRepository
      * ids with no steps are absent from the result rather than present
      * as zero, so a caller can tell "no plan" from "nothing done".
      *
-     * @param  list<int|string>  $ids
-     * @return array<string, array{total: int, completed: int, skipped: int}> keyed by execution id.
+     * @param  list<int>  $ids
+     * @return array<int, array{total: int, completed: int, skipped: int}> keyed by execution id.
      */
     public function stepProgress(
         array $ids
@@ -215,7 +215,7 @@ interface ExecutionRepository
      * @throws ExecutionNotFoundException
      */
     public function recordSignal(
-        int|string $id,
+        int $id,
         string $signal,
         array $payload,
         DateTimeImmutable $at
@@ -306,7 +306,7 @@ interface ExecutionRepository
      * silently left alone rather than having its payloads removed
      * underneath a running worker.
      *
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      * @param  list<ExecutionStatus>  $statuses
      * @return int Executions actually scrubbed; fewer than count($ids) means
      *             the rest no longer qualified.
@@ -322,7 +322,7 @@ interface ExecutionRepository
      * Delete the attempt history of the given executions, under the
      * same guard as scrubPayloads().
      *
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      * @param  list<ExecutionStatus>  $statuses
      * @return array{executions: int, rows: int} Executions that qualified, and
      *                                           attempt rows removed.
@@ -342,7 +342,7 @@ interface ExecutionRepository
      * SQLite only does so when the connection asks for it, and an
      * application may not have.
      *
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      * @param  list<ExecutionStatus>  $statuses
      * @return int Executions actually deleted.
      */
@@ -368,7 +368,7 @@ interface ExecutionRepository
      * @throws ExecutionNotFoundException
      */
     public function recordDispatch(
-        int|string $id,
+        int $id,
         DateTimeImmutable $dispatchedAt,
         ?DateTimeImmutable $availableAt = null
     ): void;
@@ -398,7 +398,7 @@ interface ExecutionRepository
      * @throws ExecutionNotCancellableException when the execution has completed.
      */
     public function requestCancellation(
-        int|string $id,
+        int $id,
         ?string $reason,
         DateTimeImmutable $at,
         ?DateTimeImmutable $staleBefore = null

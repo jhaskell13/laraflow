@@ -321,6 +321,13 @@ class CancellationTest extends TestCase
             ->assertExitCode(1);
     }
 
+    public function test_the_cancel_command_refuses_a_non_integer_execution_id(): void
+    {
+        $this->command('laraflow:cancel', ['execution' => 'abc'])
+            ->expectsOutputToContain('must be a positive integer execution id')
+            ->assertExitCode(1);
+    }
+
     public function test_cancellation_timestamps_come_from_the_injected_clock(): void
     {
         $clock = new FixedClock('2026-10-23 15:00:00');

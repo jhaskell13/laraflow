@@ -20,8 +20,8 @@ use Laraflow\Support\Duration;
 readonly class StepAttempt
 {
     public function __construct(
-        public int|string $executionId,
-        public int|string $stepExecutionId,
+        public int $executionId,
+        public int $stepExecutionId,
         public int $attempt,
         public StepAttemptStatus $status,
         public ?string $error = null,

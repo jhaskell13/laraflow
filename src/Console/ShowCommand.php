@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Wait;
@@ -17,6 +19,7 @@ use Laraflow\Workflow\WorkflowExecution;
 class ShowCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionId;
 
     protected $signature = 'laraflow:show
         {execution : The id of the execution to inspect}
@@ -27,8 +30,8 @@ class ShowCommand extends Command
     public function handle(ExecutionRepository $repository): int
     {
         try {
-            $execution = $repository->find((string) $this->argument('execution'));
-        } catch (WorkflowException $exception) {
+            $execution = $repository->find($this->executionIdArgument());
+        } catch (WorkflowException|InvalidArgumentException $exception) {
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;

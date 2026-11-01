@@ -38,7 +38,7 @@ class WorkflowExecution
      * @param  array<string, mixed>  $context
      */
     public function __construct(
-        public readonly int|string $id,
+        public readonly int $id,
         public readonly string $workflow,
         public readonly array $input = [],
         public ExecutionStatus $status = ExecutionStatus::Pending,
@@ -57,8 +57,8 @@ class WorkflowExecution
         public ?string $cancelReason = null,
         public readonly ?string $correlationId = null,
         public readonly ?string $tenantId = null,
-        public readonly int|string|null $parentExecutionId = null,
-        public readonly int|string|null $parentStepExecutionId = null,
+        public readonly ?int $parentExecutionId = null,
+        public readonly ?int $parentStepExecutionId = null,
         public ?DateTimeImmutable $dispatchedAt = null,
         public ?DateTimeImmutable $availableAt = null,
         public ?DateTimeImmutable $finishedAt = null,

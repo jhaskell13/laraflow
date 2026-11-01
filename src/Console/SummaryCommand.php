@@ -207,7 +207,7 @@ class SummaryCommand extends Command
      * has few, and an unhealthy one does not need an exhaustive list to
      * know it is unhealthy.
      *
-     * @return list<array{id: int|string, step: string}>
+     * @return list<array{id: int, step: string}>
      */
     protected function overdueSteps(
         ExecutionRepository $repository,

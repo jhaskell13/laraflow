@@ -270,7 +270,7 @@ class ExecuteWorkflowJobTest extends TestCase
     // Helpers
     // ------------------------------------------------------------------
 
-    protected function work(int|string $executionId): void
+    protected function work(int $executionId): void
     {
         $this->app->call([new ExecuteWorkflowJob($executionId), 'handle']);
     }

@@ -21,7 +21,7 @@ readonly class WorkflowStepWaiting
      * @param  DateTimeImmutable|null  $timeoutAt  A signal wait's deadline; null means indefinite.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public ?string $correlationId,
         public ?string $tenantId,

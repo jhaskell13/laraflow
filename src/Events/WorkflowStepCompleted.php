@@ -29,7 +29,7 @@ readonly class WorkflowStepCompleted
      *                                or null when it had no recorded end.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public string $step,
         public int $position,

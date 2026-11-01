@@ -29,7 +29,7 @@ class WorkflowContext
      */
     public function __construct(
         protected array $data = [],
-        protected int|string|null $executionId = null,
+        protected ?int $executionId = null,
         protected ?string $correlationId = null,
         protected ?string $tenantId = null,
     ) {}
@@ -84,7 +84,7 @@ class WorkflowContext
      * The id of the execution this context belongs to, or null when the
      * context was constructed outside a runner (for example in a unit test).
      */
-    public function executionId(): int|string|null
+    public function executionId(): ?int
     {
         return $this->executionId;
     }

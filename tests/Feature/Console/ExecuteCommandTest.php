@@ -55,6 +55,16 @@ class ExecuteCommandTest extends TestCase
         $this->assertStringContainsString('was not found', $output);
     }
 
+    public function test_a_non_integer_execution_id_is_refused_in_both_modes(): void
+    {
+        foreach ([[], ['--queue' => true]] as $mode) {
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:execute', ['execution' => 'abc'] + $mode);
+
+            $this->assertSame(CommandStatus::FAILURE, $status);
+            $this->assertStringContainsString('must be a positive integer execution id', $output);
+        }
+    }
+
     public function test_a_completed_execution_is_refused(): void
     {
         $this->callCommand('laraflow:demo');

@@ -13,7 +13,7 @@ use Laraflow\Workflow\ExecutionStatus;
  */
 class ExecutionNotCancellableException extends WorkflowException
 {
-    public static function forStatus(int|string $id, ExecutionStatus $status): self
+    public static function forStatus(int $id, ExecutionStatus $status): self
     {
         return new self(
             "Workflow execution [{$id}] cannot be cancelled from status [{$status->value}]: "

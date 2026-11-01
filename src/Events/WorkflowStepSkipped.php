@@ -20,7 +20,7 @@ readonly class WorkflowStepSkipped
      * @param  int  $position  Zero-based position in the plan.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public ?string $correlationId,
         public ?string $tenantId,

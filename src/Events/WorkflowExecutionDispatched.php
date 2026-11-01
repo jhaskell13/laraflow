@@ -31,7 +31,7 @@ readonly class WorkflowExecutionDispatched
      *                                 or null if none was supplied.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public ?string $connection = null,
         public ?string $queue = null,

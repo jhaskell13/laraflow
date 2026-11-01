@@ -13,7 +13,7 @@ use DateTimeImmutable;
  */
 class ExecutionStillWaitingException extends WorkflowException
 {
-    public static function forId(int|string $id, ?DateTimeImmutable $nextEventAt): self
+    public static function forId(int $id, ?DateTimeImmutable $nextEventAt): self
     {
         $until = $nextEventAt === null
             ? 'indefinitely, until its signal arrives'

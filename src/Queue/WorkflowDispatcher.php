@@ -96,7 +96,7 @@ class WorkflowDispatcher
      * @throws ExecutionNotRunnableException when the execution is already completed.
      */
     public function dispatchExecution(
-        int|string $executionId,
+        int $executionId,
         ?string $connection = null,
         ?string $queue = null,
         ?DateTimeInterface $availableAt = null,

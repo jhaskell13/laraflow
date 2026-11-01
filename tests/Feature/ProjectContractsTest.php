@@ -413,6 +413,54 @@ class ProjectContractsTest extends TestCase
         }
     }
 
+    /**
+     * Milestone 8 step 1: execution and step ids are integers, on every
+     * signature. The persistence has issued integers since Milestone 0
+     * and the `int|string` union on the contract was a hedge nobody
+     * exercised; the Milestone 7 audit asked for a commitment and this
+     * is it. Reflection over every parameter and property in the
+     * package named like an id, so a new event or exception cannot
+     * quietly reopen the question.
+     */
+    public function test_execution_ids_are_integers_on_every_signature(): void
+    {
+        $idNames = '/^(id|executionId|childExecutionId|parentExecutionId|parentStepExecutionId|stepExecutionId|parentId|childId)$/';
+        $offenders = [];
+
+        foreach ($this->packageClasses() as $class) {
+            $reflection = new ReflectionClass($class);
+
+            // Eloquent models expose ids as untyped attributes and are
+            // internal to the repository, which casts them.
+            if ($reflection->isSubclassOf(\Illuminate\Database\Eloquent\Model::class)) {
+                continue;
+            }
+
+            foreach ($reflection->getMethods() as $method) {
+                if ($method->getDeclaringClass()->getName() !== $class) {
+                    continue;
+                }
+
+                foreach ($method->getParameters() as $parameter) {
+                    if (preg_match($idNames, $parameter->getName()) === 1
+                        && ! in_array((string) $parameter->getType(), ['int', '?int'], true)) {
+                        $offenders[] = sprintf('%s::%s($%s): %s', $class, $method->getName(), $parameter->getName(), (string) $parameter->getType());
+                    }
+                }
+            }
+
+            foreach ($reflection->getProperties() as $property) {
+                if ($property->getDeclaringClass()->getName() === $class
+                    && preg_match($idNames, $property->getName()) === 1
+                    && ! in_array((string) $property->getType(), ['int', '?int'], true)) {
+                    $offenders[] = sprintf('%s::$%s: %s', $class, $property->getName(), (string) $property->getType());
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'An execution or step id is not typed int.');
+    }
+
     public function test_no_console_command_reaches_past_the_public_contract(): void
     {
         $offenders = [];
@@ -515,6 +563,30 @@ class ProjectContractsTest extends TestCase
                 class_basename($class).' is never retried but the contract does not say so.',
             );
         }
+    }
+
+    /**
+     * Every class, interface, and enum under src/, by file.
+     *
+     * @return list<class-string>
+     */
+    protected function packageClasses(): array
+    {
+        $classes = [];
+
+        foreach (File::allFiles($this->path('src')) as $file) {
+            $class = 'Laraflow\\'.str_replace(
+                ['/', '.php'],
+                ['\\', ''],
+                mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1),
+            );
+
+            if (class_exists($class) || interface_exists($class) || enum_exists($class) || trait_exists($class)) {
+                $classes[] = $class;
+            }
+        }
+
+        return $classes;
     }
 
     /**

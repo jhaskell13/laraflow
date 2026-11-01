@@ -27,8 +27,8 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
 class StepExecution
 {
     public function __construct(
-        public readonly int|string $id,
-        public readonly int|string $executionId,
+        public readonly int $id,
+        public readonly int $executionId,
         public readonly string $step,
         public readonly int $position,
         public StepStatus $status = StepStatus::Pending,

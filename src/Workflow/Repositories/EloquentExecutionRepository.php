@@ -91,7 +91,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function find(
-        int|string $id
+        int $id
     ): WorkflowExecution {
         $model = WorkflowExecutionModel::query()->find($id);
 
@@ -103,7 +103,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function claim(
-        int|string $id,
+        int $id,
         string $claimToken,
         int $staleAfterSeconds,
         bool $ignoreRetrySchedule = false
@@ -262,7 +262,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function recordSignal(
-        int|string $id,
+        int $id,
         string $signal,
         array $payload,
         DateTimeImmutable $at
@@ -317,7 +317,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function recordDispatch(
-        int|string $id,
+        int $id,
         DateTimeImmutable $dispatchedAt,
         ?DateTimeImmutable $availableAt = null
     ): void {
@@ -338,7 +338,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     public function requestCancellation(
-        int|string $id,
+        int $id,
         ?string $reason,
         DateTimeImmutable $at,
         ?DateTimeImmutable $staleBefore = null
@@ -522,7 +522,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         ]);
     }
 
-    protected function explainFailedClaim(int|string $id): never
+    protected function explainFailedClaim(int $id): never
     {
         $current = WorkflowExecutionModel::query()->find($id);
 

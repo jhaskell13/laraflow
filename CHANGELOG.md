@@ -8,7 +8,11 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Nothing yet.
+Milestone 8, in progress: the foundations for a stability promise. **Breaking** changes are marked.
+
+### Changed
+
+- **Breaking:** execution and step ids are `int` on every signature. `ExecutionRepository` (`find`, `claim`, `recordSignal`, `recordDispatch`, `requestCancellation`, and the id lists the retention methods take), `WorkflowRunner` (`execute`, `signal`, `cancel`), `WorkflowDispatcher::dispatchExecution()`, `ExecuteWorkflowJob`, `ChildDelivery`, `Wait::forChild()`, `WorkflowResolver`, the `WorkflowExecution`/`StepExecution`/`StepAttempt` handles, `WorkflowContext::executionId()`, `ExecutionOptions`, `ExecutionFilter::$parentId`, every lifecycle event's `executionId`, and the workflow exceptions' factories all previously accepted or carried `int|string`. The persistence has used `$table->id()` since Milestone 0 and cast every id to integer since Milestone 6, so no stored value changes; the union was a hedge for an alternative persistence that never came, and the Milestone 7 audit asked for a commitment. `laraflow:show`, `laraflow:execute`, and `laraflow:cancel` now validate the argument and refuse a non-integer id with a message naming the argument, instead of reporting it "not found". `ExecutionRepository::stepProgress()` is declared as keyed by `int` — PHP had always coerced its numeric-string keys to integers, so the declared `array<string, …>` shape was the one thing that changed — and `Wait::childIdFrom()` returns `int`, reading a signal `forChild()` did not write as `0`, an id no execution can have. A test holds every id-named parameter and property in the package to `int`.
 
 ## [0.2.0] - 2026-10-28
 

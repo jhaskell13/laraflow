@@ -13,5 +13,5 @@ namespace Laraflow\Workflow;
  */
 interface ChildDelivery
 {
-    public function deliver(int|string $executionId): void;
+    public function deliver(int $executionId): void;
 }
