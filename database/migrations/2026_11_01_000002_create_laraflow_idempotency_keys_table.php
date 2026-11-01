@@ -51,8 +51,10 @@ return new class extends Migration
             // execution id, this one index also serves every read by
             // execution — the count behind the cap, the show command,
             // retention's scrub and orphan deletes — so the foreign key
-            // needs no index of its own on any engine.
-            $table->unique(['workflow_execution_id', 'step_position', 'key']);
+            // needs no index of its own on any engine. Named explicitly:
+            // the name Laravel would generate is 72 characters, and
+            // MySQL and MariaDB refuse identifiers past 64.
+            $table->unique(['workflow_execution_id', 'step_position', 'key'], 'laraflow_idempotency_keys_unique');
         });
     }
 
