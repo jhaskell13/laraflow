@@ -1,0 +1,34 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Laraflow\Workflow\SubWorkflowStep;
+use Laraflow\Workflow\Workflow;
+use Laraflow\Workflow\WorkflowContext;
+
+class {{ class }} extends SubWorkflowStep
+{
+    /**
+     * The workflow to run as a child execution. Its resting outcome
+     * becomes this step's output; a failed or cancelled child fails
+     * this step under its retry policy, and a retry resumes the same
+     * child rather than starting another.
+     */
+    public function workflow(WorkflowContext $context): Workflow
+    {
+        // return new OtherWorkflow;
+        throw new \LogicException('Return the child workflow from '.static::class.'::workflow().');
+    }
+
+    /**
+     * The child's input, built from this execution's context.
+     *
+     * @return array<string, mixed>
+     */
+    public function input(WorkflowContext $context): array
+    {
+        return [];
+    }
+}

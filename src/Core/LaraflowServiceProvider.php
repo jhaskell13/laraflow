@@ -16,6 +16,10 @@ use Laraflow\Console\CancelCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
+use Laraflow\Console\Generators\MakeConnectorCommand;
+use Laraflow\Console\Generators\MakeStepCommand;
+use Laraflow\Console\Generators\MakeWorkflowCommand;
+use Laraflow\Console\InstallCommand;
 use Laraflow\Console\ListCommand;
 use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
@@ -307,7 +311,11 @@ class LaraflowServiceProvider extends ServiceProvider
             ConnectorsCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
+            InstallCommand::class,
             ListCommand::class,
+            MakeConnectorCommand::class,
+            MakeStepCommand::class,
+            MakeWorkflowCommand::class,
             PruneCommand::class,
             RecoverCommand::class,
             ShowCommand::class,
@@ -328,6 +336,12 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../../database/migrations' => $this->app->databasePath('migrations'),
         ], 'laraflow-migrations');
+
+        // The generators read a published stub in preference to the
+        // package's, so an application can reshape what they write.
+        $this->publishes([
+            __DIR__.'/../../stubs' => $this->app->basePath('stubs/laraflow'),
+        ], 'laraflow-stubs');
     }
 
     /**

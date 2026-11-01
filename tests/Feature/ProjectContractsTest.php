@@ -158,7 +158,7 @@ class ProjectContractsTest extends TestCase
 
     public function test_every_publish_tag_the_readme_names_works(): void
     {
-        foreach (['laraflow-config', 'laraflow-migrations'] as $tag) {
+        foreach (['laraflow-config', 'laraflow-migrations', 'laraflow-stubs'] as $tag) {
             $this->assertNotEmpty(
                 \Illuminate\Support\ServiceProvider::$publishGroups[$tag] ?? [],
                 "The {$tag} publish tag is documented but publishes nothing.",

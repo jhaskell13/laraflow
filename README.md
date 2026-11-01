@@ -52,11 +52,17 @@ The package is not yet published on Packagist. Add the repository to your applic
 composer require laraflow/laraflow:^0.2.0
 ```
 
-Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.
+Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
+
+```bash
+php artisan laraflow:install
+```
+
+That publishes `config/laraflow.php`, runs the migrations, and prints what to do next. It does nothing `vendor:publish` and `migrate` would not, so the two sections below are the same thing by hand.
 
 ### Database tables
 
-Laraflow stores executions in three tables: `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` (the append-only per-attempt history). The package loads its own migrations, so you only need to run:
+Laraflow stores executions in four tables: `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts` (the append-only per-attempt history), and `laraflow_idempotency_keys` (what steps have remembered). The package loads its own migrations, so you only need to run:
 
 ```bash
 php artisan migrate
@@ -486,7 +492,7 @@ Keep credentials in your `.env` file, not in the published config.
 
 ## Your first workflow
 
-A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
+Scaffold both halves — `php artisan make:workflow SyncCustomerWorkflow` and `php artisan make:step LoadCustomer` (`--conditional` and `--sub-workflow` for the other two kinds of step) — or write them by hand. A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
 
 ```php
 <?php
