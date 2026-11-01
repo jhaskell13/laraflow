@@ -249,7 +249,7 @@ The debt that must be gone before any API is frozen: the design findings the Mil
   - ~~A backed `RecoveryReason` enum.~~ Done (step 3).
   - ~~Required collaborators instead of nullable defaults.~~ Done (step 4).
   - ~~Extract the wait and child-wait state machine from `WorkflowRunner`.~~ Done (step 5).
-  - A `(status, created_at)` index for the pending scan.
+  - ~~A `(status, created_at)` index for the pending scan.~~ Done (step 6).
   - Per-tenant rate-limit buckets: **deferred to Milestone 10** at Milestone 8 planning. The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
 - The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.
 - `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed — and `laraflow:start {workflow}`, the command that runs an arbitrary workflow class, without which no install story can be proved with the generators alone.

@@ -112,20 +112,21 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7 migrations, exercised the way an installed
+        // The Milestone 7 and 8 migrations, exercised the way an installed
         // application meets them: rows written under the frozen schema,
         // then the new migrations applied — simulated by rolling them
         // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration — four.
+        // front. One rollback step per post-freeze migration — five.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 5, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertNotContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
         $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'Steps back are migrations, not the batch.');
@@ -139,6 +140,7 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
+        $this->assertContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index is back.');
 
         // A row that predates the column has made no fruitless claims,
         // and the package reads it that way without a coalesce.
@@ -159,6 +161,18 @@ class UpgradePathTest extends TestCase
 
         $this->assertTrue(Schema::hasTable('laraflow_workflow_executions'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'priority'));
+    }
+
+    /**
+     * Every index on a table as its column list, the way the freeze
+     * test compares them: engines name indexes differently, columns
+     * are what an index is.
+     *
+     * @return list<list<string>>
+     */
+    protected function indexColumns(string $table): array
+    {
+        return array_map(fn (array $index): array => $index['columns'], Schema::getIndexes($table));
     }
 
     /**
