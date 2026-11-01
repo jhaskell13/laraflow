@@ -241,8 +241,8 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 
 #### Work
 
-- Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code.
-- An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch.
+- Workflow versioning: a persisted plan may be migrated to a new step list by an explicit, tested migration path, so a deploy that changes a workflow no longer strands its in-flight executions on the old code. Semantics fixed in `docs/workflow-versioning.md` before implementation (step 8).
+- An idempotency store: a first-class, bounded `remember(key, fn)` for steps whose side effects must not repeat, built on the existing `idempotencyKey()`, so at-least-once stops being the application's problem to solve from scratch. Semantics fixed in `docs/idempotency.md` before implementation (step 8).
 - The deferred audit items, each its own step and taken first, because the two capabilities above land on the signatures they change:
   - ~~Commit to integer execution ids on the contract.~~ Done (step 1).
   - ~~One naming shape and tenant scoping for the four recovery scans.~~ Done (step 2).
@@ -254,6 +254,8 @@ The debt that must be gone before any API is frozen: the design findings the Mil
   - Phase A closed with a three-way hostile audit — concurrency, code quality, contract alignment — of the six steps: 36 findings, one defect (the recovery limit was never shared past the stale scan, since Milestone 2), fixed with its regression test; the rest documentation accuracy, duplication, and a derived rather than listed services rule. Done (step 6a). The connector layer has no view of the executing tenant, so the fix needs an ambient execution scope, and Milestone 10 is where the tenant fairness rule gets written; the change is additive configuration, so nothing at 1.0 depends on it.
 - The engine matrix meets Laravel 12 and `prefer-lowest`, and every engine job runs the install story too.
 - `laraflow:install`, `make:workflow`, `make:step`, and `make:connector` generators, so the first workflow is scaffolded rather than typed — and `laraflow:start {workflow}`, the command that runs an arbitrary workflow class, without which no install story can be proved with the generators alone.
+
+Phase B's two capabilities had their semantics decided before any code, as Milestone 7's did: `docs/workflow-versioning.md` and `docs/idempotency.md` (step 8). The two decisions that shape everything downstream — a plan migration may rewrite only the undecided tail of a plan, because a `pending` step row has no output, no attempt history, and no context contribution; and `remember()` commits a marker *before* the work runs, so a crash leaves positive evidence that the work started and the ambiguity is raised rather than guessed.
 
 #### Exit criteria
 
