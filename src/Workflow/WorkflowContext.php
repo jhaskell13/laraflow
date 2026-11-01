@@ -59,14 +59,14 @@ class WorkflowContext
         // service: one built by hand in a test has no execution behind
         // it. Raised rather than silently running the work, which is
         // the behaviour the store exists to end.
-        if ($this->idempotency === null || $this->executionId === null || $this->stepPosition === null) {
+        if ($this->idempotency === null || $this->executionId === null || $this->stepPosition === null || $this->step === null) {
             throw IdempotencyStoreUnavailableException::forContext();
         }
 
         return $this->idempotency->remember(
             $this->executionId,
             $this->stepPosition,
-            $this->step ?? 'unknown',
+            $this->step,
             $key,
             $work,
             $reconcile,

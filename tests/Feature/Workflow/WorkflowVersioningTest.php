@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowPlanMigrated;
 use Laraflow\Exceptions\Workflow\PlanMigrationRefusedException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
+use Laraflow\Tests\Support\CrashingExecutionRepository;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepThree;
@@ -25,6 +26,7 @@ use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
+use Throwable;
 
 /**
  * The contract in docs/workflow-versioning.md, and the Milestone 8
@@ -181,7 +183,7 @@ class WorkflowVersioningTest extends TestCase
         ];
 
         $this->expectException(PlanMigrationRefusedException::class);
-        $this->expectExceptionMessageMatches('/already been decided/');
+        $this->expectExceptionMessageMatches('/part of the record/');
 
         $this->runner()->execute($execution->id, new VersionedWorkflow);
     }
@@ -264,18 +266,50 @@ class WorkflowVersioningTest extends TestCase
         $this->assertSame(3, $this->executionRow($execution)->plan_version);
     }
 
-    public function test_a_migration_that_does_not_produce_the_current_definition_fails_the_plan_check(): void
+    public function test_a_migration_that_does_not_produce_the_current_definition_is_refused_before_anything_is_written(): void
     {
-        // The migration proposes; steps() judges.
+        // The migration proposes; steps() judges — before the commit, so
+        // a wrong closure can be fixed and the next claim tries again,
+        // rather than leaving a plan no code describes.
         $execution = $this->runner()->start(new VersionedWorkflow);
 
         VersionedWorkflow::$steps = [StepOne::class, StepTwo::class, StepThree::class];
         VersionedWorkflow::$version = 2;
         VersionedWorkflow::$migrations = [
-            1 => fn (PlanDraft $plan) => $plan->append(StepOne::class),
+            1 => fn (PlanDraft $plan) => $plan->append(StepThree::class)->remove(StepOne::class),
         ];
 
-        $this->expectException(WorkflowDefinitionMismatchException::class);
+        try {
+            $this->runner()->execute($execution->id, new VersionedWorkflow);
+            $this->fail('The migrated plan is not the definition.');
+        } catch (PlanMigrationRefusedException $exception) {
+            $this->assertStringContainsString('Nothing was written', $exception->getMessage());
+        }
+
+        $row = $this->executionRow($execution);
+        $this->assertSame(1, $row->plan_version, 'A refused migration commits nothing.');
+        $this->assertSame([StepOne::class, StepTwo::class], $this->planOf($execution));
+
+        // Fix the closure; the next claim — once the refused one's claim
+        // has gone stale — carries the execution forward.
+        VersionedWorkflow::$migrations = [1 => fn (PlanDraft $plan) => $plan->append(StepThree::class)];
+        $runner = $this->makeRunner(options: new RunnerOptions(staleAfterSeconds: 0));
+        $this->assertTrue($runner->execute($execution->id, new VersionedWorkflow)->isCompleted());
+        $this->assertSame(2, $this->executionRow($execution)->plan_version);
+    }
+
+    public function test_a_migration_may_not_introduce_a_step_the_plan_already_has(): void
+    {
+        // Steps are addressed by class name, so a repeat would leave the
+        // next migration unable to say which one it meant.
+        $execution = $this->runner()->start(new VersionedWorkflow);
+
+        VersionedWorkflow::$steps = [StepOne::class, StepTwo::class, StepOne::class];
+        VersionedWorkflow::$version = 2;
+        VersionedWorkflow::$migrations = [1 => fn (PlanDraft $plan) => $plan->append(StepOne::class)];
+
+        $this->expectException(PlanMigrationRefusedException::class);
+        $this->expectExceptionMessageMatches('/would appear more than once/');
 
         $this->runner()->execute($execution->id, new VersionedWorkflow);
     }
@@ -302,7 +336,8 @@ class WorkflowVersioningTest extends TestCase
         VersionedWorkflow::$version = 2;
         // planMigrations() is author-written, so its declared type is a
         // contract rather than a guarantee.
-        VersionedWorkflow::$migrations = [1 => 'not a callable'];   // @phpstan-ignore-line
+        /** @phpstan-ignore assign.propertyType */
+        VersionedWorkflow::$migrations = [1 => 'not a callable'];
 
         $this->expectException(PlanMigrationRefusedException::class);
         $this->expectExceptionMessageMatches('/is not callable/');
@@ -355,28 +390,33 @@ class WorkflowVersioningTest extends TestCase
 
     public function test_a_successful_rewrite_does_not_clear_the_fruitless_claim_counter(): void
     {
-        // A migration that commits and *then* fails the plan check has
-        // still reached no step. If the rewrite cleared the counter,
-        // this claim would look like progress and the bound would be
-        // one claim further away than it should be.
+        // A worker that migrates and then dies before its first step
+        // write has still reached no step. If the rewrite cleared the
+        // counter, that claim would look like progress and the bound
+        // would sit one claim further away than it should.
         $execution = $this->runner()->start(new VersionedWorkflow);
 
         VersionedWorkflow::$steps = [StepOne::class, StepTwo::class, StepThree::class];
         VersionedWorkflow::$version = 2;
-        VersionedWorkflow::$migrations = [
-            1 => fn (PlanDraft $plan) => $plan->append(StepOne::class),
-        ];
+        VersionedWorkflow::$migrations = [1 => fn (PlanDraft $plan) => $plan->append(StepThree::class)];
+
+        $runner = $this->makeRunner(repository: new CrashingExecutionRepository(
+            $this->app->make(ExecutionRepository::class),
+            'saveStep',
+            1,
+            'before',
+        ));
 
         try {
-            $this->runner()->execute($execution->id, new VersionedWorkflow);
-            $this->fail('The migrated plan is not the definition.');
-        } catch (WorkflowDefinitionMismatchException) {
-            // The judge refused what the migration proposed.
+            $runner->execute($execution->id, new VersionedWorkflow);
+            $this->fail('The repository was meant to take the worker down.');
+        } catch (Throwable) {
+            // The crash, after the rewrite committed.
         }
 
         $row = $this->executionRow($execution);
 
-        $this->assertSame(2, $row->plan_version, 'The rewrite committed before the plan check ran.');
+        $this->assertSame(2, $row->plan_version, 'The rewrite committed before the crash.');
         $this->assertSame(1, $row->fruitless_claims, 'Migrating is not reaching a step.');
     }
 
@@ -429,8 +469,7 @@ class WorkflowVersioningTest extends TestCase
         $this->runner()->execute($execution->id, new VersionedWorkflow);
 
         ['output' => $after] = $this->callCommand('laraflow:show', ['execution' => (string) $execution->id]);
-        $this->assertStringContainsString('Plan version', $after);
-        $this->assertStringContainsString('2', $after);
+        $this->assertMatchesRegularExpression('/Plan version[ .]+2\b/', $after);
     }
 
     // ------------------------------------------------------------------

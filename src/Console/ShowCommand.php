@@ -202,8 +202,7 @@ class ShowCommand extends Command
         foreach ($records as $record) {
             $rows[] = [
                 $names[$record->stepPosition] ?? "position {$record->stepPosition}",
-                // The caller's key, without the scope the store adds.
-                (string) preg_replace('/^laraflow:\d+:\d+:/', '', $record->key),
+                $record->key,
                 $record->status === IdempotencyStatus::Pending
                     ? '<fg=yellow>pending (outcome unknown)</>'
                     : $this->coloredStatus($record->status->value),

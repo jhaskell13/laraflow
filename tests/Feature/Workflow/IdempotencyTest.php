@@ -11,6 +11,8 @@ use Laraflow\Exceptions\Workflow\IdempotentOutcomeUncertainException;
 use Laraflow\Exceptions\Workflow\InvalidIdempotencyKeyException;
 use Laraflow\Exceptions\Workflow\TooManyIdempotencyKeysException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Testing\IdempotencyStoreContract;
+use Laraflow\Tests\Support\CrashingIdempotencyStore;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\RememberingStep;
 use Laraflow\Tests\Support\RememberingWorkflow;
@@ -30,6 +32,7 @@ use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\WorkflowContext;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Clock\ClockInterface;
 use RuntimeException;
 use stdClass;
@@ -100,8 +103,8 @@ class IdempotencyTest extends TestCase
         $this->assertTrue($execution->isCompleted());
         $this->assertSame(2, RememberingStep::$effects, 'Two steps under the same key are two pieces of work.');
         $this->assertSame(
-            ["laraflow:{$execution->id}:0:charge", "laraflow:{$execution->id}:1:charge"],
-            array_map(fn (IdempotencyRecord $r) => $r->key, $this->store()->records($execution->id)),
+            [[0, 'charge'], [1, 'charge']],
+            array_map(fn (IdempotencyRecord $r) => [$r->stepPosition, $r->key], $this->store()->records($execution->id)),
         );
     }
 
@@ -236,7 +239,7 @@ class IdempotencyTest extends TestCase
         // it too; the unique key tells it the outcome is uncertain.
         $execution = $this->runner()->start(new RememberingWorkflow);
 
-        $existing = $this->store()->begin($execution->id, 0, "laraflow:{$execution->id}:0:charge", new DateTimeImmutable);
+        $existing = $this->store()->begin($execution->id, 0, 'charge', new DateTimeImmutable);
         $this->assertNull($existing, 'The stalled worker created the marker.');
 
         try {
@@ -297,24 +300,127 @@ class IdempotencyTest extends TestCase
         $this->assertSame(1, RememberingStep::$effects);
     }
 
-    public function test_invalid_keys_are_refused_before_anything_is_stored(): void
+    #[DataProvider('invalidKeys')]
+    public function test_invalid_keys_are_refused_before_anything_is_stored(string $key, string $message): void
     {
-        foreach (['' => 'must not be empty', "ch\narge" => 'control characters', str_repeat('k', 300) => 'limit is 255'] as $key => $message) {
-            RememberingStep::reset();
-            RememberingStep::$key = $key;
+        RememberingStep::$key = $key;
 
-            $execution = $this->runner()->start(new RememberingWorkflow);
+        $execution = $this->runner()->start(new RememberingWorkflow);
 
+        try {
+            $this->runner()->execute($execution->id, new RememberingWorkflow);
+            $this->fail('The key was accepted.');
+        } catch (InvalidIdempotencyKeyException $exception) {
+            $this->assertStringContainsString($message, $exception->getMessage());
+        }
+
+        $this->assertSame(0, $this->store()->count($execution->id), 'Nothing was stored for an invalid key.');
+        $this->assertSame(0, RememberingStep::$effects);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function invalidKeys(): array
+    {
+        return [
+            'empty' => ['', 'must not be empty'],
+            'control character' => ["ch\narge", 'control characters'],
+            'leading space' => [' charge', 'begins or ends with whitespace'],
+            'trailing space' => ['charge ', 'begins or ends with whitespace'],
+            'invalid UTF-8' => ["ch\xffarge", 'valid UTF-8'],
+            'too long' => [str_repeat('k', 256), 'limit is 255'],
+        ];
+    }
+
+    public function test_keys_the_database_cannot_tell_apart_are_refused_by_name(): void
+    {
+        // MySQL, MariaDB, and SQL Server compare strings case-insensitively
+        // by default, so 'Charge' after 'charge' violates the unique key
+        // but is not the same key. It is refused rather than treated as a
+        // replay of work it never asked for — and never, as it once did,
+        // retried until the worker ran out of stack. SQLite and
+        // PostgreSQL compare bytes, and store both.
+        RememberingStep::$extraKeys = ['Charge'];
+
+        $execution = $this->runner()->start(new RememberingWorkflow);
+
+        if (in_array($this->databaseDriver(), ['mysql', 'mariadb', 'sqlsrv'], true)) {
             try {
                 $this->runner()->execute($execution->id, new RememberingWorkflow);
-                $this->fail("Key [{$key}] was accepted.");
+                $this->fail('A collated-equal key must be refused on this engine.');
             } catch (InvalidIdempotencyKeyException $exception) {
-                $this->assertStringContainsString($message, $exception->getMessage());
+                $this->assertStringContainsString('collides with the already-recorded key [charge]', $exception->getMessage());
             }
 
-            $this->assertSame(0, $this->store()->count($execution->id), 'Nothing was stored for an invalid key.');
-            $this->assertSame(0, RememberingStep::$effects);
+            $this->assertSame(1, $this->store()->count($execution->id));
+
+            return;
         }
+
+        $this->assertTrue($this->runner()->execute($execution->id, new RememberingWorkflow)->isCompleted());
+        $this->assertSame(2, $this->store()->count($execution->id), 'Byte-comparing engines hold both keys.');
+    }
+
+    public function test_a_throwing_reconciler_leaves_the_record_pending_and_fails_the_step_with_its_error(): void
+    {
+        $execution = $this->runAndDieAtTheValueWrite();
+
+        RememberingStep::$reconcile = function (): never {
+            throw new RuntimeException('the provider is down');
+        };
+
+        try {
+            $this->runner()->execute($execution->id, new RememberingWorkflow);
+            $this->fail('The reconciler\'s exception must fail the step.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('the provider is down', $exception->getMessage());
+        }
+
+        $this->assertSame(IdempotencyStatus::Pending, $this->record($execution)->status, 'The next attempt asks again.');
+        $this->assertSame(1, RememberingStep::$effects);
+    }
+
+    public function test_a_worker_dying_right_after_the_marker_committed_is_the_same_unknown_outcome(): void
+    {
+        // The other edge of the window: the marker is durable, the work
+        // has not begun — and from the record alone that is
+        // indistinguishable from a crash after the side effect, which
+        // is exactly why it must be raised rather than re-run.
+        $execution = $this->runAndDie('begin', 'after');
+
+        $this->assertSame(0, RememberingStep::$effects);
+        $this->assertSame(IdempotencyStatus::Pending, $this->record($execution)->status);
+
+        $this->expectException(IdempotentOutcomeUncertainException::class);
+
+        $this->runner()->execute($execution->id, new RememberingWorkflow);
+    }
+
+    public function test_release_never_removes_another_attempts_live_marker(): void
+    {
+        // Two attempts both found a failed record. The first released it
+        // and began again; the second's release must not delete that
+        // pending marker, or both would run the work.
+        $execution = $this->runner()->start(new RememberingWorkflow);
+        $store = $this->store();
+        $now = new DateTimeImmutable;
+
+        $this->assertNull($store->begin($execution->id, 0, 'charge', $now));
+        $store->fail($execution->id, 0, 'charge', RuntimeException::class, $now);
+
+        $this->assertTrue($store->release($execution->id, 0, 'charge'), 'The first attempt releases the failed record.');
+        $this->assertNull($store->begin($execution->id, 0, 'charge', $now), 'And begins again: its marker is pending.');
+
+        $this->assertFalse($store->release($execution->id, 0, 'charge'), 'The second attempt\'s release finds no failed record.');
+        $this->assertSame(IdempotencyStatus::Pending, $this->record($execution)->status, 'The live marker is untouched.');
+    }
+
+    public function test_the_shipped_store_holds_the_published_contract(): void
+    {
+        $execution = $this->runner()->start(new RememberingWorkflow);
+
+        (new IdempotencyStoreContract)->assertHeldBy($this->store(), $execution->id);
     }
 
     public function test_an_unserializable_value_fails_the_step_and_leaves_the_record_pending(): void
@@ -439,44 +545,21 @@ class IdempotencyTest extends TestCase
      */
     protected function runAndDieAtTheValueWrite(): WorkflowExecution
     {
-        $dying = new class($this->store()) implements IdempotencyStore
-        {
-            public function __construct(private IdempotencyStore $inner) {}
+        return $this->runAndDie('settle', 'before');
+    }
 
-            public function begin(int $executionId, int $stepPosition, string $key, DateTimeImmutable $at): ?IdempotencyRecord
-            {
-                return $this->inner->begin($executionId, $stepPosition, $key, $at);
-            }
-
-            public function settle(int $executionId, string $key, mixed $value, DateTimeImmutable $at): void
-            {
-                throw new RuntimeException('worker lost between the side effect and the value write');
-            }
-
-            public function fail(int $executionId, string $key, string $errorClass, DateTimeImmutable $at): void
-            {
-                $this->inner->fail($executionId, $key, $errorClass, $at);
-            }
-
-            public function release(int $executionId, string $key): void
-            {
-                $this->inner->release($executionId, $key);
-            }
-
-            public function count(int $executionId): int
-            {
-                return $this->inner->count($executionId);
-            }
-
-            public function records(int $executionId): array
-            {
-                return $this->inner->records($executionId);
-            }
-        };
-
+    /**
+     * Run the workflow under a store that dies at $method, in $phase.
+     */
+    protected function runAndDie(string $method, string $phase): WorkflowExecution
+    {
         $options = $this->app->make(RunnerOptions::class);
         $runner = $this->makeRunner(
-            idempotency: new IdempotencyResolver($dying, $this->app->make(ClockInterface::class), $options),
+            idempotency: new IdempotencyResolver(
+                new CrashingIdempotencyStore($this->store(), $method, $phase),
+                $this->app->make(ClockInterface::class),
+                $options,
+            ),
         );
 
         $execution = $runner->start(new RememberingWorkflow);

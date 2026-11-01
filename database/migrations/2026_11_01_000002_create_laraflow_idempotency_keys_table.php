@@ -32,9 +32,9 @@ return new class extends Migration
 
             $table->unsignedInteger('step_position');
 
-            // The fully scoped key: laraflow:{execution}:{position}:{key}.
-            // 255 so the composite below fits every engine's key limit
-            // with the same arithmetic the other string columns use.
+            // The key as the step wrote it. 255 so the unique index
+            // below fits every engine's key limit with the same
+            // arithmetic the other string columns use.
             $table->string('key');
 
             // pending | settled | failed
@@ -46,12 +46,13 @@ return new class extends Migration
             $table->timestamp('settled_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['workflow_execution_id', 'key']);
-
-            // Explicit for the same reason as the attempts table: not
-            // every engine indexes a foreign key on its own, and both
-            // the per-execution read and retention's scans use it.
-            $table->index('workflow_execution_id');
+            // Scoped to the step by the index, not by the string: two
+            // steps may both remember 'charge'. Leading with the
+            // execution id, this one index also serves every read by
+            // execution — the count behind the cap, the show command,
+            // retention's scrub and orphan deletes — so the foreign key
+            // needs no index of its own on any engine.
+            $table->unique(['workflow_execution_id', 'step_position', 'key']);
         });
     }
 

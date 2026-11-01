@@ -20,9 +20,11 @@ use Psr\Log\LoggerInterface;
  * bounded by the fruitless-claims counter rather than by a mechanism
  * of its own. The rewrite itself is one claim-guarded transaction.
  *
- * This class proposes; StepResolver::assertMatches() judges. A
- * migration whose output is not the workflow's current step list fails
- * the ordinary plan check afterwards, naming both lists.
+ * This class proposes; the definition judges — and it judges *before*
+ * anything is written. A migration whose output is not the workflow's
+ * current step list is refused with nothing committed, so a wrong
+ * closure can be fixed and the next claim tries again, rather than
+ * leaving a plan no code describes and an event that announced it.
  *
  * Semantics: docs/workflow-versioning.md.
  */
@@ -42,7 +44,8 @@ final class PlanMigrator
      * @param  StepExecution[]  $stepExecutions  The persisted plan, in position order.
      * @return StepExecution[]
      *
-     * @throws PlanMigrationRefusedException when no declared path exists, or one reaches into the record.
+     * @throws PlanMigrationRefusedException when no declared path exists, one reaches into the record,
+     *                                       or the result is not the current definition.
      */
     public function migrate(
         WorkflowExecution $execution,
@@ -52,15 +55,12 @@ final class PlanMigrator
         $from = $execution->planVersion;
         $to = $workflow->version();
 
-        if ($from === $to) {
-            return $stepExecutions;
-        }
-
-        // A record ahead of the code is a rollback, not a migration.
-        // Carrying it backwards would mean inventing a plan no author
-        // declared, so it joins every other way durable state and code
-        // can disagree: refused, by the plan check below.
-        if ($from > $to) {
+        // Equal: nothing to do. Ahead of the code — a rollback — is not
+        // migrated backwards: that would mean inventing a plan no
+        // author declared. The ordinary plan check that follows
+        // refuses it unless the plan happens to be identical, in which
+        // case there is nothing to refuse.
+        if ($from >= $to) {
             return $stepExecutions;
         }
 
@@ -71,14 +71,17 @@ final class PlanMigrator
             $this->hop($workflow, $migrations, $version, $to)($draft);
         }
 
-        $tail = array_slice($draft->steps(), $draft->frozenBefore());
-
-        // The migration's output is validated exactly as a plan is at
-        // start(): non-empty, every entry an existing Step class. An
-        // author's array is user input wherever it arrives from.
+        // The judge, before the commit. The migration's output is held
+        // to the same rules as a plan at start() — non-empty, every
+        // entry an existing Step class — and then to the definition
+        // itself. Either refusal writes nothing.
         $this->steps->validatePlan($workflow::class, $draft->steps());
 
-        $migrated = $this->repository->rewritePlan($execution, $draft->frozenBefore(), $tail, $to);
+        if ($draft->steps() !== $workflow->steps()) {
+            throw PlanMigrationRefusedException::doesNotProduceDefinition($workflow::class, $draft->steps(), $workflow->steps());
+        }
+
+        $migrated = $this->repository->rewritePlan($execution, $draft->frozenBefore(), $draft->tail(), $to);
 
         $this->outcomes->emit(new WorkflowPlanMigrated(
             ...$this->outcomes->identity($execution),
@@ -92,6 +95,7 @@ final class PlanMigrator
             'workflow' => $workflow::class,
             'from_version' => $from,
             'to_version' => $to,
+            'operations' => $draft->operations(),
             'steps' => count($migrated),
         ]);
 

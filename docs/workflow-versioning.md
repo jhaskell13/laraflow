@@ -45,25 +45,25 @@ class FulfilOrder extends Workflow
 
 `version(): int` defaults to `1`, so every existing workflow is version 1 and nothing changes for an application that never overrides it. The value is recorded as `plan_version` on the executions row at `start()`, alongside the plan it describes.
 
-`planMigrations(): array<int, Closure(PlanDraft): void>` is **keyed by the version being migrated *from***, each entry moving the plan one version forward. Closures rather than classes: a migration is three lines that belong beside the step list they explain, and `PlanDraft` makes them unit-testable without a container, a database, or an execution.
+`planMigrations(): array<int, callable(PlanDraft): mixed>` is **keyed by the version being migrated *from***, each entry moving the plan one version forward. Closures rather than classes: a migration is three lines that belong beside the step list they explain, and `PlanDraft` makes them unit-testable without a container, a database, or an execution.
 
 ## When a migration runs
 
-On `execute()`, after the claim and the plan read, before anything is marked running:
+On `execute()`, after the claim and the plan read, before the first step write:
 
 | `plan_version` vs `version()` | Behaviour |
 |---|---|
 | Equal | Nothing happens. The existing plan check applies unchanged. |
 | Persisted **lower** | The declared migrations are chained from the persisted version to the current one, then the plan check runs against the result. |
-| Persisted **higher** | `WorkflowDefinitionMismatchException`. The code is older than the record — a rollback — and migrating backwards would mean inventing a plan nobody declared. |
+| Persisted **higher** | Nothing is migrated: the code is older than the record — a rollback — and migrating backwards would mean inventing a plan nobody declared. The ordinary plan check then refuses the execution with `WorkflowDefinitionMismatchException`, unless the older code's plan happens to be identical, in which case there is nothing to refuse and it runs with `plan_version` left where it was. |
 
-**Chained, one hop at a time.** An execution at version 1 meeting code at version 4 runs the migrations keyed `1`, `2`, and `3`, in that order, each against the output of the last. A missing hop is refused by name (`no plan migration from version 2 to 3`) rather than skipped, because a skipped hop produces a plan no author ever described.
+**Chained, one hop at a time.** An execution at version 1 meeting code at version 4 runs the migrations keyed `1`, `2`, and `3`, in that order, each against the output of the last. A missing hop is refused by name (`there is no plan migration from version 2 to 3`) rather than skipped, because a skipped hop produces a plan no author ever described.
 
 **Lazily, never eagerly.** There is no deploy hook, and rewriting every in-flight execution at boot would be an unbounded write at the worst possible moment. Each execution migrates itself the next time it is claimed, and pays only for itself.
 
 **Under the claim, in one transaction.** The rewrite of the step rows and the bump of `plan_version` commit together, guarded by the claim token like every other durable write. A worker that loses the claim mid-migration writes nothing. A migration closure that throws leaves the execution claimed with no step write, which is precisely the fault the `fruitless_claims` counter already bounds: after `recovery.abandon_after_attempts` such claims the execution is reported as abandoned rather than re-dispatched forever ([execution-lifecycle.md](execution-lifecycle.md#claiming-and-concurrency)).
 
-**The plan check still runs afterwards.** A migration is not trusted to be correct. Its output goes through the same validation a plan gets at `start()` — non-empty, every entry an existing class implementing `Step` — and then through the ordinary `assertMatches()` against `steps()`. A migration that produces something other than the current definition fails as a mismatch, naming both lists. The migration is a proposal; the definition is the judge.
+**The definition judges before anything is written.** A migration is not trusted to be correct. Its output goes through the same validation a plan gets at `start()` — non-empty, every entry an existing class implementing `Step` — and is then compared to `steps()` itself. A migration that produces something other than the current definition is refused with `PlanMigrationRefusedException`, naming both lists, and **nothing is committed**: the execution stays on its old plan and version, so the author fixes the closure and the next claim tries again. (The alternative — commit, announce, then refuse — would leave a plan no code describes, and `plan_version` saying the migration had happened.) The migration is a proposal; the definition is the judge. The ordinary plan check still runs afterwards, now as a formality.
 
 ## What a migration may change
 
@@ -79,11 +79,11 @@ This single rule is what makes the whole mechanism safe, and it rests on an inva
 | `remove(Step::class)` | The step is in the tail. |
 | `replace(Old::class, New::class)` | `Old` is in the tail. |
 
-Anything else is refused with `PlanMigrationRefusedException`, naming the step and the status that froze it. Refusals are deliberate dead ends, not errors to work around: an execution that already charged a card cannot be told it never planned to.
+Anything else is refused with `PlanMigrationRefusedException`, naming the step and the status that froze it — or, for a `pending` row that sits before a decided one (which `FailurePolicy::Continue` can leave behind), the decided row that froze it. Refusals are deliberate dead ends, not errors to work around: an execution that already charged a card cannot be told it never planned to. One consequence worth saying plainly: the step most likely to need a hot fix in flight — the one currently `retrying` or `failed` — is decided, and cannot be replaced by a migration. The remedy there is to fix the class in place; the record keeps its name.
 
 The consequence worth stating plainly: **an execution far enough along cannot receive a change aimed at steps it has passed.** It finishes under the plan it has. That is the correct outcome, and it is why the migration path is for *in-flight* work rather than retroactive correction.
 
-`PlanDraft` operates on step classes rather than positions, because positions shift as the draft changes and a migration written against them would be read differently depending on what ran. A step class appearing more than once in a plan is refused at draft time — the operations would be ambiguous.
+`PlanDraft` operates on step classes rather than positions, because positions shift as the draft changes and a migration written against them would be read differently depending on what ran. Addressing by class is what makes a repeat ambiguous, so a plan that repeats a step class cannot be migrated at all, and no operation may introduce a repeat — both are refused with `PlanMigrationRefusedException`. A workflow whose `steps()` legitimately repeats a class (the runtime allows it) therefore cannot use plan migrations. For a migration's own tests, `PlanDraft::of($workflow, $steps, $frozenBefore)` builds a draft from a plain list, with no container, database, or execution.
 
 ## Persistence
 
@@ -91,13 +91,13 @@ One additive migration adds `plan_version` to `laraflow_workflow_executions`: an
 
 The rewrite deletes the tail's step rows and reinserts them at their new positions rather than updating positions in place, because `(workflow_execution_id, position)` is unique and an in-place renumber collides with itself halfway through on every engine. Deleting them is safe for the reason above: a `pending` row has no attempts to orphan and no output to lose.
 
-**There is no plan-migration history table.** `plan_version` says which plan an execution is on; the `WorkflowPlanMigrated` event and the log record say when it moved and why; the authoritative account of what each hop did is the `planMigrations()` array in the code, which is version-controlled and reviewable. A fourth table recording "step X was inserted at 14:02" would duplicate that and grow without bound. The trade-off is that an operator reconstructing a migration's effect reads the code at that version rather than the database — which is the same place they would read to understand the plan itself.
+**There is no plan-migration history table.** `plan_version` says which plan an execution is on; the `WorkflowPlanMigrated` event says when it moved, and the log record says what every operation did; the authoritative account of what each hop means is the `planMigrations()` array in the code, which is version-controlled and reviewable. Another table recording "step X was inserted at 14:02" would duplicate that and grow without bound. The trade-off is that an operator reconstructing a migration's effect reads the code at that version rather than the database — which is the same place they would read to understand the plan itself.
 
 ## Observability
 
-- **`WorkflowPlanMigrated`** (public, `readonly`), fired after the commit: identifiers, workflow class, `fromVersion`, `toVersion`, and the resulting step count. Step class names are metadata and may appear; no payload, input, or context ever does.
-- **`laraflow:show`** prints the execution's plan version, and marks the plan as migrated when `plan_version` exceeds the version its oldest step row was written under.
-- A migration writes one log record at info level naming the execution, both versions, and the operations applied.
+- **`WorkflowPlanMigrated`** (public, `readonly`), fired after the commit: identifiers, workflow class, `fromVersion`, `toVersion`, and the resulting step count. No payload, input, or context ever appears.
+- **`laraflow:show`** prints the execution's plan version once it is above 1 — every execution of an unversioned workflow is version 1, and that line would be noise.
+- A migration writes one log record at info level naming the execution, both versions, every operation applied (`insert RecordTaxLiability after ChargePayment`), and the resulting step count.
 
 ## Interactions
 

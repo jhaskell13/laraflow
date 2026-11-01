@@ -197,7 +197,7 @@ A connector may repeat one wire request *inside* a single step attempt — for a
 | Holds the worker | Yes — measured in milliseconds | No — durable `retrying` state, worker released |
 | Retries | 429, 500, 502, 503, 504, and no-response failures | Whatever the step's policy says |
 | Honours `Retry-After` | Up to `max_retry_after` seconds (5); a longer one **returns the response** | Yes, via the exception's suggested delay, up to `retry.max_suggested_delay` |
-| Repeats a non-idempotent request | Only on 429 (never processed), or when the caller marked it `asIdempotent()` | Always — the step runs again; use `idempotencyKey()` |
+| Repeats a non-idempotent request | Only on 429 (never processed), or when the caller marked it `asIdempotent()` | Always — the step runs again; wrap the call in `remember()` ([idempotency.md](idempotency.md)) |
 
 Rate limiting has a proactive side too: a connection's `rate_limit` (`max` per `per` seconds) is a ceiling Laraflow holds itself to, counted in the cache so every worker shares it. A wait up to `max_wait` seconds is served in-process; a longer one fails the request with `ThrottledException` *before anything reaches the provider*, and that exception suggests the wait — so with a step policy the execution simply comes back when a slot is due. Without one it fails, which is the honest outcome: a throttle without a retry turns bursts into failures, and the documentation says so rather than the worker sleeping through them.
 
@@ -303,4 +303,4 @@ Every key tolerates a blank environment variable (`LARAFLOW_RETRY_MAX_ATTEMPTS=`
 - If retry budgets exceed `recovery.abandon_after_attempts`, raise the latter.
 - Alert on `WorkflowExecutionFailed`, not `WorkflowStepFailed` — the latter fires per attempt by design.
 - Set `laraflow.retention.prune_attempts_after_days` and schedule `laraflow:prune`; with retries enabled the history table grows without it ([retention.md](retention.md)).
-- Use `$context->idempotencyKey()` for external calls: retries make repeated side effects **more** likely, not less.
+- Wrap external calls in `$context->remember()` ([idempotency.md](idempotency.md)): retries make repeated side effects **more** likely, not less.

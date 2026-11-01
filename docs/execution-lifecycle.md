@@ -64,7 +64,7 @@ The full step plan is persisted at `start()`, before anything runs. Consequences
 - Recovery never needs the workflow definition to know *what was supposed to happen* — only to supply the code to run it.
 - `execute()` validates that the supplied workflow matches the persisted plan — same workflow class, same step classes, same order — and throws `WorkflowDefinitionMismatchException` otherwise. Durable state is never silently reinterpreted by changed code. A step class that no longer exists fails the same way, as a persisted step failure.
 
-A workflow that declares a `version()` and a matching plan migration carries its in-flight executions forward on their next claim, rewriting only the steps they have not reached; one that does not is refused exactly as above. The contract is [workflow-versioning.md](workflow-versioning.md).
+A workflow that declares a `version()` and a matching plan migration carries its in-flight executions forward on their next claim, rewriting only the steps after the last one already decided; one that does not is refused exactly as above. The contract is [workflow-versioning.md](workflow-versioning.md).
 
 ## Claiming and concurrency
 

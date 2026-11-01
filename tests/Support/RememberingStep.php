@@ -24,7 +24,7 @@ class RememberingStep implements Step
 
     public static string $key = 'charge';
 
-    /** The work's return value; counts are appended so each effect is distinguishable. */
+    /** The work's return value. */
     public static mixed $value = 'CH-1';
 
     /** Thrown by the work on its next run, then cleared. */
@@ -35,9 +35,6 @@ class RememberingStep implements Step
 
     /** The reconciler handed to remember(), if any. */
     public static ?Closure $reconcile = null;
-
-    /** Runs between the marker and the value: where a worker dies. */
-    public static ?Closure $insideWork = null;
 
     /** What the step got back from remember() on its last run. */
     public static mixed $remembered = null;
@@ -59,7 +56,6 @@ class RememberingStep implements Step
         static::$workThrows = null;
         static::$failAfterWorkTimes = 0;
         static::$reconcile = null;
-        static::$insideWork = null;
         static::$remembered = null;
         static::$extraKeys = [];
     }
@@ -77,10 +73,6 @@ class RememberingStep implements Step
             }
 
             static::$effects++;
-
-            if (static::$insideWork !== null) {
-                (static::$insideWork)();
-            }
 
             return static::$value;
         }, static::$reconcile);

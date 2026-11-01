@@ -33,8 +33,7 @@ class FixtureState
         MutableWorkflow::$steps = [];
         VersionedWorkflow::reset();
         RememberingStep::reset();
-        RememberingWorkflow::$policy = null;
-        RememberingWorkflow::$steps = [RememberingStep::class];
+        RememberingWorkflow::reset();
         ConditionalGate::$open = true;
         ConditionalGate::$runs = 0;
         ConditionalGate::$throw = null;

@@ -129,7 +129,7 @@ Every supported queue backend delivers at least once. Duplicates are safe here b
 
 All four are **no-ops, not failures**: they are logged and the job completes, so duplicate delivery never pollutes `failed_jobs`. This requires no cache lock and no `ShouldBeUnique`; the database claim is the only authority.
 
-What duplicates do *not* change: the at-least-once contract still applies to a step interrupted between performing a side effect and checkpointing it. Use `$context->idempotencyKey()` for external calls that must not repeat.
+What duplicates do *not* change: the at-least-once contract still applies to a step interrupted between performing a side effect and checkpointing it. Wrap external calls that must not repeat in `$context->remember()` ([idempotency.md](idempotency.md)), or use `$context->idempotencyKey()` for a provider's own idempotency scheme, for calls that must not repeat.
 
 ### What does fail the job
 
@@ -244,6 +244,7 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
 | `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
 | `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is a `RecoveryReason` (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
+| `WorkflowPlanMigrated` | A declared plan migration carried the execution to a newer plan version, and the rewrite committed (`fromVersion`, `toVersion`, step count). |
 
 Two properties hold for all of them:
 
@@ -283,7 +284,7 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 });
 ```
 
-## Known limits (recorded at the Milestone 6 audit)
+## Limits closed since the Milestone 6 audit
 
 The audit recorded that `WorkflowExecutionDispatched` could fire before the transaction its push waited for had committed. Closed in Milestone 7: the event is now deferred through the same mechanism as the push (see [`after_commit`](#after_commit)), so every lifecycle event fires after its durable write.
 
@@ -294,4 +295,4 @@ The audit recorded that `WorkflowExecutionDispatched` could fire before the tran
 - Keep `queue.timeout` below `execution.stale_after`.
 - Alert on a non-zero exit from `laraflow:recover` — it means work was abandoned or a recovery action failed.
 - Watch `failed_jobs` for step failures and definition mismatches; `laraflow:list --status=failed` shows the same from Laraflow's side.
-- Before deleting a workflow class, drain executions referencing it. There is no workflow-version migration mechanism yet.
+- Before deleting a workflow class, drain executions referencing it; a *changed* step list, by contrast, can carry its in-flight executions forward through a declared plan migration ([workflow-versioning.md](workflow-versioning.md)).

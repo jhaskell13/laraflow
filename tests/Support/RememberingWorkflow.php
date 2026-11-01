@@ -14,6 +14,12 @@ class RememberingWorkflow extends Workflow
     /** @var list<class-string<\Laraflow\Workflow\Step>> */
     public static array $steps = [RememberingStep::class];
 
+    public static function reset(): void
+    {
+        static::$policy = null;
+        static::$steps = [RememberingStep::class];
+    }
+
     public function steps(): array
     {
         return static::$steps;

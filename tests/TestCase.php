@@ -83,6 +83,7 @@ abstract class TestCase extends Orchestra
             'laraflow_workflow_executions',
             'laraflow_step_executions',
             'laraflow_step_attempts',
+            'laraflow_idempotency_keys',
             'jobs',
             'failed_jobs',
         ];

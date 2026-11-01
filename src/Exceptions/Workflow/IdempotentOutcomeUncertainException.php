@@ -29,4 +29,21 @@ class IdempotentOutcomeUncertainException extends WorkflowException
             $startedAt->format('Y-m-d H:i:s'),
         ));
     }
+
+    /**
+     * Concurrent attempts kept moving the record between this attempt's
+     * reads, so its state could not be established. Only live
+     * contention on one key reaches this, and it is reported as what it
+     * is rather than as a replay or a fresh start.
+     */
+    public static function contended(string $step, int $position, string $key): self
+    {
+        return new self(sprintf(
+            'Step [%s] at position %d could not establish the state of idempotent work [%s]: concurrent attempts kept '
+            .'changing it. The side effect may or may not have taken place. Resolve it manually.',
+            $step,
+            $position,
+            $key,
+        ));
+    }
 }
