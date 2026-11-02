@@ -29,6 +29,10 @@ Milestone 6 is complete (October 2026). CI proves the declared matrix — PHP 8.
 
 Milestone 7 is complete (October 2026), in two phases. Phase A closed all five hardening items deferred from the Milestone 6 audit: every step-row write is claim-guarded; a fault between claim and first step is bounded by the `fruitless_claims` counter rather than re-dispatched forever; `WorkflowExecutionDispatched` fires after the commit its push waits for; `ConnectorRequestSent.successful` is the connector's verdict rather than the HTTP status's; and header names merge case-insensitively at every layer. Phase B shipped three capabilities whose semantics were fixed in `docs/advanced-workflows.md` *before* implementation: conditional steps (a durable, attempt-free `skipped` state, replayed from the record), delays and wait states (a wait is the step's outcome boundary — resuming completes the step; signals carry payloads into the context; timeouts are ordinary step failures under the step's own policy), and sub-workflow composition (a wait on a reserved signal plus two linkage columns, with a parent-step retry resuming the same child and a `stale_after` heartbeat that makes the pairing self-healing). Three additive migrations rode the post-freeze upgrade harness. The phase closed with a three-way hostile audit — concurrency, code quality, contract alignment — that produced 48 findings and fixed 17 real defects, the worst being healthy heartbeats counted toward abandonment, a stale child-failure payload charged twice, and durable skips recorded against a non-final context under `FailurePolicy::Continue`. Fan-out/fan-in, compensation, and tenant throttling were deliberately deferred. The milestone — and the MVP — closed with a full-project audit back to the Milestone 0 foundations: seven parallel hostile reviews (concurrency, connectors and secrets, documentation alignment, code standards, test quality, schema and performance, and a security review) produced 190 findings; 41 code defects were fixed with regression tests, the worst a scalar step output that had crashed the checkpoint since Milestone 1, a reserved-signal guard that failed on case-insensitive engines, and two retention scans whose cost grew with history. The suite stands at 949 tests. Released as **0.2.0**.
 
+Milestone 8 is complete (November 2026), in three phases, and released as **0.3.0**. Phase A closed the six design findings the Milestone 7 audit deferred: integer execution ids on every signature, one shape and one tenant scope for the four recovery scans, a backed `RecoveryReason`, required collaborators in place of nullable defaults, the wait state machine extracted into `WaitResolver`, and a `(status, created_at)` index for the pending scan. Phase B shipped the two foundational gaps the MVP had named but not closed, their semantics fixed in `docs/workflow-versioning.md` and `docs/idempotency.md` before any code: workflow versioning, so a deploy that changes a workflow carries its in-flight executions forward through a declared migration rather than stranding them — rewriting only the undecided tail of a plan, because a `pending` row is the one row that is not a record of something that happened; and a first-class idempotency store, where `remember()` commits its marker *before* the work runs, so a crash inside the window leaves positive evidence the work began and the next attempt is told the outcome is uncertain rather than silently repeating a charge or silently skipping one. Phase C made the package installable as a story rather than a README: `laraflow:install`, `make:workflow`, `make:step`, `make:connector`, and `laraflow:start`, which runs any workflow class and without which no install walk could be proved with the generators alone. CI grew to match — every engine now runs both ends of the dependency axis and ends with the install walk against itself, so the third exit criterion is held by a machine on MySQL, MariaDB, PostgreSQL, and SQL Server alike.
+
+Each phase closed with the same three-way hostile audit — concurrency, code quality, contract alignment. Phase A found one defect (the recovery limit was never shared past the stale scan, since Milestone 2). Phase B found 54 findings and two criticals: the idempotency store could recurse until the worker died on the three engines that compare strings case-insensitively, and failed on PostgreSQL inside any transaction. Phase C found four: a sync queue connection ran the job inside the dispatch call while the command said "queued, start a worker"; `laraflow:execute` reported a parked execution as completed, having never learned the wait state Milestone 7 added; whether the job ran or the push failed was decided from configuration rather than from the record, so a broker outage was reported as a step failure with every step still pending; and a runtime refusal was reported as a step failure that needed recovering. It also found two CI assertions that could not fail and two generator stubs that the package's own code style immediately rewrote. The suite stands at 1052 tests.
+
 The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
 
 ## Product principles
@@ -235,7 +239,7 @@ Each feature needs explicit persistence, versioning, recovery, and observability
 
 **What 1.0 means.** A developer installs Laraflow with one Composer command and has a durable workflow running against their own database in minutes. The capabilities are ones real products need and real competitors ship — durable waits and approvals, composition, parallelism, compensation, schedules — built on recovery semantics that are documented, tested on every supported engine, and have survived production. The package solves orchestration, not API wrapping: connectors are an extension point, not the product. Documentation is complete and versioned, the project follows open-source practice end to end (conduct, contribution, security, support, release cadence), and the public API carries a stability promise backed by deprecation tooling. Every milestone below ends with the same discipline the first seven used: semantics written before code, contracts enforced by tests, a hostile audit before the record is written.
 
-### Milestone 8 — Foundations for a stability promise
+### Milestone 8 — Foundations for a stability promise ✅
 
 The debt that must be gone before any API is frozen: the design findings the Milestone 7 closing audit deferred, and the two foundational gaps the MVP named but did not close.
 
@@ -258,23 +262,43 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 
 Phase B's two capabilities had their semantics decided before any code, as Milestone 7's did: `docs/workflow-versioning.md` and `docs/idempotency.md` (step 8). The two decisions that shape everything downstream — a plan migration may rewrite only the undecided tail of a plan, because a `pending` step row has no output, no attempt history, and no context contribution; and `remember()` commits a marker *before* the work runs, so a crash leaves positive evidence that the work started and the ambiguity is raised rather than guessed.
 
-#### Where Milestone 8 stands (paused 1 November 2026, after step 11)
+#### How it closed
 
-Phases A and B are complete and audited; Phase C has one step done. **The next session begins here — step 0 is to finish Milestone 8 before any Milestone 8.5 (dashboard) or Milestone 9 work starts.** Remaining, in order, as planned at the start of the milestone:
+Sixteen steps between 1 and 2 November 2026, in the order planned at the start of the milestone: Phase A's six deferred findings first, because the two capabilities land on the signatures they change; the two contracts written before their code; then the capabilities, the generators, `laraflow:start`, and CI.
 
-- ~~**Step 12 — `laraflow:start {workflow} {--input=} {--queue}`.** Runs an arbitrary workflow class, with JSON input, inline or dispatched; refuses a class that is not a `Workflow` by name. The primitive the install walk needs to use the generators alone, and the same service the dashboard's start button will call in Milestone 10.~~ Done (2 November 2026), with `--correlation=` and `--tenant=` besides, since the identifiers exist and the dashboard's start button will want them.
-- ~~**Step 13 — CI.** Decided at planning: full coverage over CI weight. Every engine job (MySQL 8.0, MariaDB 10.6, PostgreSQL 13, SQL Server 2019) gains a Laravel 12 + `prefer-lowest` cell on PHP 8.2 alongside today's Laravel 13 cell, and the install walk moves into each engine job as its final stage, rewritten to use `laraflow:install`, the `make:*` generators, and `laraflow:start` rather than `laraflow:demo` — that is the third exit criterion.~~ Done (2 November 2026). The walk is one composite action the SQLite install job runs too, so the SQLite coverage stayed rather than moved; rehearsed end to end locally against a fresh Laravel 13 application before the commit. Building it found the install command's "run twice" warning false — fixed with its test.
-- **Step 14 — the Phase C audit**, three hostile reviews as Phases A and B had (concurrency, code quality, contract alignment) over steps 11–13; every real finding fixed with a regression test.
-- **Step 15 — what CI found**, as its own commit if the matrix finds anything, which it has every time new code first met the engines.
-- **Step 16 — closure.** README, `CHANGELOG.md` converted to **0.3.0** with its *Breaking* section (Milestone 8 changed Public signatures), the Milestone 8 record written into this roadmap in the form the earlier milestones use, Milestone 8.5 (the inspection dashboard) inserted before Milestone 9, `laraflow/dashboard` removed from Milestone 11's optional-packages list, workflow authoring recorded as post-1.0, and the first exit criterion checked by grepping the contract documents for *known limit* and *deferred*.
+- **Steps 1–6, Phase A**, each deferred finding its own step, closed by the audit in step 6a.
+- **Steps 8–10, Phase B**, semantics first (step 8), then workflow versioning (step 9) and the idempotency store (step 10), closed by the audit in step 10a and two engine findings CI returned in 10b and 10c.
+- **Steps 11–13, Phase C.** The generators (11), `laraflow:start` (12), and the CI matrix and install walk (13), with one engine finding in 13a — MySQL keeps JSON object keys in its own order, the same lesson as 10c.
+- **Step 14, the Phase C audit.** Four defects, all in the console's reporting of what became of a run, plus two vacuous CI assertions and two stubs that failed the package's own lint. Each fixed with the test that would have caught it; the lint test was confirmed to fail on a broken stub before it was kept, and the strengthened CI assertions were rehearsed against a deliberately failed execution.
+- **Step 16, closure.** This record, `CHANGELOG.md` converted to 0.3.0 with an explicit *Breaking* section, and the first exit criterion checked by grepping every contract document for *known limit* and *deferred*: no such section survives in any of them, and every remaining use of the words is ordinary prose describing a runtime state or the `after_commit` mechanism.
 
-Two engine-only fixes from the Phase B audit — the PostgreSQL savepoint in `EloquentIdempotencyStore::begin()` and the collation-collision refusal — are confirmed by CI since; nothing from Phase B is outstanding.
+Step 15 — *what CI found* — was consumed in place by 13a rather than as a separate step; the matrix was run and green before the audit began, which is why the audit's CI findings are assertions that could not fail rather than engines that disagreed.
+
+Two engine-only fixes from the Phase B audit — the PostgreSQL savepoint in `EloquentIdempotencyStore::begin()` and the collation-collision refusal — are confirmed by CI since.
 
 #### Exit criteria
 
-- No *known limit* or *deferred* section remains in any contract document.
-- An in-flight execution survives a workflow definition change through the documented migration path, on every engine.
-- The install job proves zero-to-persisted-execution with the generators alone.
+- ~~No *known limit* or *deferred* section remains in any contract document.~~ Met: checked at step 16 by grep across `docs/` and the README; nothing remains but the README's *Current limitations*, which states shipped behaviour rather than deferred work.
+- ~~An in-flight execution survives a workflow definition change through the documented migration path, on every engine.~~ Met: `tests/Feature/Workflow/WorkflowVersioningTest.php`, which runs on all five engines in CI.
+- ~~The install job proves zero-to-persisted-execution with the generators alone.~~ Met: `.github/actions/install-walk`, run on SQLite at both supported pairings and at the end of every engine job.
+
+### Milestone 8.5 — The inspection dashboard
+
+The first thing anyone asks for after "does it recover" is "show me". The package already answers it from the console — `laraflow:list`, `laraflow:show`, `laraflow:summary` — and every one of those runs on the public `ExecutionRepository` contract alone, with a test that keeps them there. A dashboard is that same surface rendered in a browser, and taking it now rather than at Milestone 11 means the operator view exists before parallelism and schedules make the records harder to read by hand.
+
+#### Work
+
+- An opt-in, first-party UI inside this package rather than a separate one: a route group an application mounts where it likes, behind its own middleware, off unless mounted. A separate `laraflow/dashboard` package was the Milestone 11 plan; it is moved here and folded in, because the thing that makes a dashboard safe — reading only the public contract — is the same thing that makes a separate package unnecessary.
+- Views over what the records already carry: executions filtered the way `laraflow:list` filters them, one execution in full with its steps, attempts, remembered work, wait, and plan version, and the counts and attention list `laraflow:summary` computes.
+- The operator actions the console already exposes, each going through the same service: execute, cancel, signal, and start — `laraflow:start`'s service is the start button, which is why it took correlation and tenant identifiers at Milestone 8.
+- Authorisation as the application's decision, with a gate the package defines and the application answers; nothing mounted by default, and no action reachable that the console does not already offer.
+- No new query surface. If a view needs something `ExecutionRepository` cannot answer, the contract gains it deliberately, with its index — the Milestone 4 rule.
+
+#### Exit criteria
+
+- Every number and row the dashboard shows is obtainable from the public contract, enforced by the test that already holds the console to it.
+- The dashboard is absent from an application that has not mounted it: no routes, no assets, no queries.
+- An operator can take an execution from failed to recovered without leaving the browser, and the record afterwards is indistinguishable from the console's.
 
 ### Milestone 9 — Parallelism and compensation
 
@@ -310,7 +334,7 @@ The two capabilities deferred from Milestone 7, each specified in `docs/advanced
 
 #### Work
 
-- Optional packages, not dependencies: `laraflow/dashboard` (an inspection UI over the public repository contract), and metrics bridges for Prometheus, StatsD, and Laravel Pulse built on the lifecycle events.
+- Optional packages, not dependencies: metrics bridges for Prometheus, StatsD, and Laravel Pulse built on the lifecycle events. (The inspection UI moved into the package itself at Milestone 8.5, where mounting it is the application's decision and reading only the public contract is enforced by test.)
 - A versioned documentation site generated from `docs/`, with the contracts as its spine, a guided tutorial, and an upgrade guide per minor.
 - Connector ecosystem: a `laraflow/connector-skeleton` template, the published contract test as its gate, and a curated list of community connectors — the bundled two stay examples, not a catalog.
 - Open-source practice complete: code of conduct, issue and pull-request templates, discussions, a maintainers file and decision record, a published release cadence and support window, and signed releases.
@@ -349,15 +373,16 @@ The two capabilities deferred from Milestone 7, each specified in `docs/advanced
 10. ~~Release automation and the schema freeze.~~ Done.
 11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete and the MVP is released as 0.2.0.
 12. The deferred audit items first, then workflow versioning and the idempotency store, then the generators and the install story (Milestone 8).
-13. Fan-out/fan-in, then compensation — semantics first (Milestone 9).
-14. Schedules, signed triggers, tenant throttling (Milestone 10).
-15. Dashboard and metrics packages, the documentation site, the connector ecosystem (Milestone 11).
-16. Soak, external review, the API freeze, 1.0 (Milestone 12).
+13. The inspection dashboard, over the contract the console already proves (Milestone 8.5).
+14. Fan-out/fan-in, then compensation — semantics first (Milestone 9).
+15. Schedules, signed triggers, tenant throttling (Milestone 10).
+16. Metrics bridges, the documentation site, the connector ecosystem (Milestone 11).
+17. Soak, external review, the API freeze, 1.0 (Milestone 12).
 
 ## Out of scope through 1.0
 
 - Claiming exactly-once execution for arbitrary side effects; the idempotency store makes at-least-once safe, it does not make it exactly-once.
-- A built-in visual workflow designer or hosted control plane; the dashboard inspects, it does not author.
+- A built-in visual workflow designer or hosted control plane; the dashboard of Milestone 8.5 inspects, it does not author. **Authoring is a post-1.0 question, not a dropped one**: a workflow is a PHP class with a persisted, validated plan, and anything that writes one has to answer to the same plan validation and versioning rules as the generators do. That is a design problem worth taking once the execution contracts are frozen and have survived production, not before.
 - Supporting every Laravel version/database/queue backend without CI evidence.
 - A large first-party catalog of connectors; the ecosystem and the contract test are the catalog.
 - Arbitrary graph execution beyond fan-out/fan-in; the plan stays a persisted, validated structure.
