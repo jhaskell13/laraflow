@@ -33,6 +33,9 @@ final readonly class Wait
     /** The reserved signal a sub-workflow parent parks on, followed by the child's id. */
     public const CHILD_PREFIX = self::RESERVED_PREFIX.'child.';
 
+    /** The reserved signal a fan-out parks on, followed by its own step row's id. */
+    public const JOIN_PREFIX = self::RESERVED_PREFIX.'join.';
+
     /** The `wait_signal` column is a string(255); a longer name could not be matched back. */
     public const MAX_SIGNAL_LENGTH = 255;
 
@@ -107,6 +110,38 @@ final readonly class Wait
     public static function isChildSignal(?string $signal): bool
     {
         return $signal !== null && str_starts_with($signal, self::CHILD_PREFIX);
+    }
+
+    /**
+     * @internal The fan-out machinery's park on its join: named by the
+     * step row, since the members are found by it rather than listed.
+     */
+    public static function forJoin(int $stepExecutionId): self
+    {
+        return new self(self::JOIN_PREFIX.$stepExecutionId, null, null);
+    }
+
+    /** Whether a stored signal name is a fan-out's park on its join. */
+    public static function isJoinSignal(?string $signal): bool
+    {
+        return $signal !== null && str_starts_with($signal, self::JOIN_PREFIX);
+    }
+
+    /**
+     * The step row id a join signal names; 0 for anything forJoin()
+     * did not write, as childIdFrom() reads a malformed child signal.
+     */
+    public static function joinStepIdFrom(string $signal): int
+    {
+        $id = substr($signal, strlen(self::JOIN_PREFIX));
+
+        return ctype_digit($id) && (string) (int) $id === $id ? (int) $id : 0;
+    }
+
+    /** Whether a stored signal is one the package parks on itself — a child's or a join's. */
+    public static function isMachinerySignal(?string $signal): bool
+    {
+        return self::isChildSignal($signal) || self::isJoinSignal($signal);
     }
 
     /**

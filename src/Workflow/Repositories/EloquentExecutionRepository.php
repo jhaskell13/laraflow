@@ -527,9 +527,17 @@ class EloquentExecutionRepository implements ExecutionRepository
 
     protected function writeStep(StepExecution $step): void
     {
+        // A step's input is written once, by the machinery that
+        // declares it (a fan-out's member list), and never erased. The
+        // runner holds its own handle for the same row, and its
+        // checkpoint of that handle — whose input is null — must not
+        // clobber what the machinery wrote under the same claim a
+        // moment earlier; so null here means "leave it", not "clear it".
+        $input = $step->input === null ? [] : ['input' => $this->asJson($step->input)];
+
         StepExecutionModel::query()
             ->whereKey($step->id)
-            ->update([
+            ->update($input + [
                 'status' => $step->status->value,
                 'attempts' => $step->attempts,
                 'output' => $this->asJson($step->output),

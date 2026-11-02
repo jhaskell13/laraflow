@@ -1,0 +1,174 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Laraflow\Workflow;
+
+use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\FanOutFailedException;
+use Psr\Log\LoggerInterface;
+use Throwable;
+
+/**
+ * @internal The members of one fan-out step, and what their state
+ * means for it. The step's machinery asks on creation and on retry,
+ * the resolver asks on every heartbeat, and the notifier asks when a
+ * member finishes; one class answers all three so they cannot disagree
+ * about when a group is done or what to do with a member that is not.
+ *
+ * Counts first, rows only when a decision needs them: progress is one
+ * indexed aggregate, and the member rows are read only to re-deliver
+ * the few that need it, to tell a fresh failure from a stale one, or
+ * to list the ids a completed group's summary carries.
+ */
+final class FanOutGroup
+{
+    /** How many members that did not complete a failure names. */
+    private const NAMED_IN_FAILURE = 5;
+
+    public function __construct(
+        private readonly ExecutionRepository $repository,
+        private readonly WorkflowExecution $parent,
+        private readonly StepExecution $stepRow,
+    ) {}
+
+    public function progress(): ChildProgress
+    {
+        return $this->repository->childProgress($this->stepRow->id);
+    }
+
+    /**
+     * The members in these states — every one when null — linked to
+     * this step. Found through the parent filter, which the parent
+     * index serves, and narrowed to the step in PHP: a workflow may fan
+     * out at several positions.
+     *
+     * @param  list<ExecutionStatus>|null  $statuses
+     * @return list<WorkflowExecution>
+     */
+    public function members(?array $statuses = null): array
+    {
+        $members = [];
+        $cursor = null;
+
+        do {
+            $page = $this->repository->list(
+                new ExecutionFilter(status: $statuses, parentId: $this->parent->id, oldestFirst: true),
+                ExecutionRepository::MAX_PAGE_SIZE,
+                $cursor,
+            );
+
+            foreach ($page->executions as $candidate) {
+                if ($candidate->parentStepExecutionId === $this->stepRow->id) {
+                    $members[] = $candidate;
+                }
+            }
+
+            $cursor = $page->nextCursor;
+        } while ($cursor !== null);
+
+        return $members;
+    }
+
+    /**
+     * The step's outcome, if the group has one: a summary when every
+     * member completed, the failure when every member has rested and
+     * not every one completed — or null when the group is still going
+     * and the step should park.
+     *
+     * A member that reads `failed` from *before* this attempt of the
+     * step started was charged to the policy already; the attempt's
+     * purpose is to resume it, so until it rests again it is still
+     * going. Cancelled is final either way: it cannot be resumed, and
+     * the group reports the same outcome on every retry.
+     *
+     * @return array{total: int, completed: int, members: list<int>}|null
+     *
+     * @throws FanOutFailedException
+     */
+    public function outcome(ChildProgress $progress): ?array
+    {
+        if (! $progress->allFinished()) {
+            return null;
+        }
+
+        if ($progress->allCompleted()) {
+            return [
+                'total' => $progress->total(),
+                'completed' => $progress->completed(),
+                'members' => array_map(fn (WorkflowExecution $member): int => $member->id, $this->members()),
+            ];
+        }
+
+        if ($progress->failed() > 0 && $this->staleFailures() !== []) {
+            return null;
+        }
+
+        $notCompleted = array_slice(array_map(
+            fn (WorkflowExecution $member): int => $member->id,
+            $this->members([ExecutionStatus::Failed, ExecutionStatus::Cancelled]),
+        ), 0, self::NAMED_IN_FAILURE);
+
+        throw FanOutFailedException::forOutcome($this->stepRow->step, $this->stepRow->position, $progress, $notCompleted);
+    }
+
+    /**
+     * Hand the members that need a worker back to delivery: a pending
+     * one lost its dispatch, and a stale failure is one this attempt
+     * exists to resume. Running, retrying, and waiting members are left
+     * to their own machinery, recovery's bounds included — re-delivering
+     * them here would bypass the abandonment bound. A fresh failure is
+     * left alone too: it is this attempt's answer, not its work.
+     *
+     * @return int How many were handed over.
+     */
+    public function redeliver(ChildDelivery $delivery, LoggerInterface $logger): int
+    {
+        $due = array_merge(
+            $this->members([ExecutionStatus::Pending]),
+            $this->staleFailures(),
+        );
+
+        $delivered = 0;
+
+        foreach ($due as $member) {
+            try {
+                $delivery->deliver($member->id);
+                $delivered++;
+            } catch (ExecutionNotRunnableException) {
+                // Finished, or claimed, between the read and the push.
+            } catch (Throwable $failure) {
+                // The next heartbeat tries again; the member may also
+                // already be running on a worker. Said out loud, or a
+                // dead queue becomes an invisible loop.
+                $logger->warning('Laraflow could not re-deliver a fan-out member from its parent.', [
+                    'parent_execution_id' => $this->parent->id,
+                    'member_execution_id' => $member->id,
+                    'exception' => $failure::class.': '.$failure->getMessage(),
+                ]);
+            }
+        }
+
+        return $delivered;
+    }
+
+    /**
+     * Failed members whose failure predates this attempt of the step —
+     * resumed by it, not charged to it.
+     *
+     * @return list<WorkflowExecution>
+     */
+    private function staleFailures(): array
+    {
+        $since = $this->stepRow->startedAt;
+
+        if ($since === null) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->members([ExecutionStatus::Failed]),
+            fn (WorkflowExecution $member): bool => $member->finishedAt !== null && $member->finishedAt < $since,
+        ));
+    }
+}

@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Laraflow\Events\WorkflowStepWaiting;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Exceptions\Workflow\FanOutFailedException;
 use Laraflow\Exceptions\Workflow\WaitTimedOutException;
 use Laraflow\Support\DurableValue;
 use Laraflow\Workflow\Policy\FailurePolicy;
@@ -71,11 +72,12 @@ final class WaitResolver
         $execution->context = $context->all();
         $this->repository->checkpoint($execution, $stepExecution);
 
-        // A child wait heartbeats on stale_after rather than parking
-        // indefinitely: when the claim comes due the parent consults the
-        // child's record directly, which heals a signal lost to the
-        // park race and a child whose dispatch never survived.
-        $nextEventAt = Wait::isChildSignal($wait->signal)
+        // A child wait — one child's, or a fan-out's join — heartbeats
+        // on stale_after rather than parking indefinitely: when the
+        // claim comes due the parent consults the record directly, which
+        // heals a signal lost to the park race and a member whose
+        // dispatch never survived.
+        $nextEventAt = Wait::isMachinerySignal($wait->signal)
             ? $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S"))
             : ($resumeAt ?? $timeoutAt);
 
@@ -106,6 +108,10 @@ final class WaitResolver
     ): StepResolution {
         if (Wait::isChildSignal($stepExecution->waitSignal)) {
             return $this->resolveChildWait($execution, $stepExecution, $context, $policy, $failurePolicy, $now);
+        }
+
+        if (Wait::isJoinSignal($stepExecution->waitSignal)) {
+            return $this->resolveJoinWait($execution, $stepExecution, $context, $policy, $failurePolicy, $now);
         }
 
         $signalled = $stepExecution->waitSignal !== null && $stepExecution->output !== null;
@@ -253,6 +259,59 @@ final class WaitResolver
         );
 
         return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, $failed);
+    }
+
+    /**
+     * A fan-out parked on its join. The record is consulted directly
+     * every time — one indexed aggregate — rather than the signal's
+     * payload trusted: the last member to finish signals the join, but a
+     * member resumed by a retry still reads `failed` until it rests
+     * again, and the heartbeat may come due before any signal does. A
+     * group still going has its lost dispatches and resumable failures
+     * handed back to delivery and parks again; a group that is done is
+     * the step's outcome, happy or not.
+     */
+    private function resolveJoinWait(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        StepPolicy $policy,
+        FailurePolicy $failurePolicy,
+        DateTimeImmutable $now,
+    ): StepResolution {
+        $signal = (string) $stepExecution->waitSignal;
+
+        // Only forJoin() writes a join signal, and it writes this row's
+        // own id. Anything else is damage, and the failure should say so.
+        if (Wait::joinStepIdFrom($signal) !== $stepExecution->id) {
+            return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, FanOutFailedException::malformedSignal($stepExecution->step, $stepExecution->position, $signal));
+        }
+
+        $group = new FanOutGroup($this->repository, $execution, $stepExecution);
+        $progress = $group->progress();
+
+        if ($progress->total() === 0) {
+            // Members were declared and created, or the step would not
+            // be parked; none remaining means retention took them, or
+            // the rows were altered. Nothing can finish an empty group.
+            return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, FanOutFailedException::noMembers($stepExecution->step, $stepExecution->position, $signal));
+        }
+
+        try {
+            $outcome = $group->outcome($progress);
+        } catch (FanOutFailedException $failed) {
+            return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, $failed);
+        }
+
+        if ($outcome === null) {
+            $group->redeliver($this->childDelivery, $this->logger);
+
+            return $this->parkAgain($execution, $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S")));
+        }
+
+        $this->outcomes->completeStep($execution, $stepExecution, $context, $outcome);
+
+        return StepResolution::resumed();
     }
 
     /**

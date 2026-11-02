@@ -6,7 +6,6 @@ namespace Laraflow\Workflow;
 
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
-use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use LogicException;
@@ -55,7 +54,7 @@ class ChildWorkflows
         $created = false;
 
         if ($child === null) {
-            $this->assertDepth($parent, $step);
+            Nesting::assertRoom($this->repository, $parent, $step::class, $this->maxDepth);
             $created = true;
 
             $child = $this->runner()->start(
@@ -144,36 +143,6 @@ class ChildWorkflows
         } while ($cursor !== null);
 
         return null;
-    }
-
-    /**
-     * Refuse a child that would nest past laraflow.workflows.max_depth,
-     * counted by walking the parent links — bounded by the limit itself,
-     * so a cycle in the links cannot loop this walk either.
-     */
-    protected function assertDepth(WorkflowExecution $parent, SubWorkflowStep $step): void
-    {
-        $max = max(1, $this->maxDepth);
-        $depth = 1;
-        $current = $parent;
-
-        while ($current->parentExecutionId !== null && $depth <= $max) {
-            $depth++;
-
-            try {
-                $current = $this->repository->find($current->parentExecutionId);
-            } catch (ExecutionNotFoundException) {
-                // An ancestor pruned by retention: the documented
-                // trade-off of linking without foreign keys. The chain
-                // above it cannot be deeper than what retention already
-                // finished, so the walk stops here.
-                break;
-            }
-        }
-
-        if ($depth + 1 > $max) {
-            throw WorkflowDepthExceededException::forDepth($step::class, $depth + 1, $max);
-        }
     }
 
     /**
