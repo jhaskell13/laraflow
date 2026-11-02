@@ -29,7 +29,9 @@
     --lf-blue: #1d4ed8;    --lf-blue-bg: #dbeafe;
     --lf-grey: #4b5563;    --lf-grey-bg: #e5e7eb;
 
-    --lf-radius: 6px;
+    --lf-radius: 7px;
+    --lf-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --lf-shadow-lift: 0 2px 4px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.08);
     --lf-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --lf-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -44,6 +46,8 @@
         --lf-accent: #fb923c;
         --lf-accent-soft: #2a1a10;
         --lf-code-bg: #1f232c;
+        --lf-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --lf-shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
 
         --lf-green: #4ade80;   --lf-green-bg: #0f2a1a;
         --lf-red: #f87171;     --lf-red-bg: #2e1414;
@@ -806,4 +810,350 @@ details[open] > .lf-actions__summary {
     background: transparent;
     border: 0;
     padding: 0;
+}
+
+/* ======================================================================
+ * Polish
+ *
+ * Refinement of what is above rather than a second theme: the same
+ * palette and the same shapes, with the edges taken off — focus made
+ * visible everywhere, surfaces lifted off the background, motion that
+ * states have changed, and the live-filter affordances. Every rule
+ * here is additive; removing this block leaves a working dashboard.
+ * ====================================================================== */
+
+/* ---- Focus, everywhere, for everyone ---------------------------------- */
+
+.lf a:focus-visible,
+.lf button:focus-visible,
+.lf summary:focus-visible,
+.lf [tabindex]:focus-visible {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.lf-check input:focus-visible,
+.lf-field input:focus-visible,
+.lf-field textarea:focus-visible {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+}
+
+/* A keyboard operator lands on a table row and can see where. */
+.lf-table tbody tr:focus-within td {
+    background: var(--lf-accent-soft);
+}
+
+/* ---- Surfaces --------------------------------------------------------- */
+
+.lf-table-wrap,
+.lf-card,
+.lf-filters,
+.lf-count-card,
+.lf-notice {
+    box-shadow: var(--lf-shadow);
+}
+
+.lf-card .lf-table-wrap {
+    box-shadow: none;
+}
+
+.lf-count-card,
+.lf-button,
+.lf-live,
+.lf-nav__link,
+.lf-table tbody tr td {
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.lf-count-card:hover {
+    box-shadow: var(--lf-shadow-lift);
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-count-card,
+    .lf-button,
+    .lf-live,
+    .lf-nav__link,
+    .lf-table tbody tr td {
+        transition: none;
+    }
+
+    .lf-count-card:hover {
+        transform: none;
+    }
+}
+
+/* ---- Header ----------------------------------------------------------- */
+
+.lf-header {
+    box-shadow: var(--lf-shadow);
+}
+
+.lf-brand__mark {
+    /* Three stacked marks read as a plan: steps in order. */
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    box-shadow: 5px 5px 0 -1px var(--lf-accent), 10px 10px 0 -2px var(--lf-accent);
+    transform: none;
+    margin-right: 12px;
+}
+
+/* ---- Tables ----------------------------------------------------------- */
+
+/* A long list keeps its headings while it is scrolled. */
+.lf-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.lf-table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--lf-code-bg) 45%, transparent);
+}
+
+.lf-table tbody tr:hover td {
+    background: var(--lf-code-bg);
+}
+
+/* The id is the row's handle: make it look like one. */
+a.lf-id {
+    color: var(--lf-accent);
+}
+
+a.lf-id::before {
+    content: "#";
+    opacity: 0.5;
+}
+
+.lf-workflow {
+    color: var(--lf-text);
+}
+
+.lf-table a.lf-workflow:hover {
+    color: var(--lf-accent);
+}
+
+/* ---- Live filtering --------------------------------------------------- */
+
+/* The button is the no-script path; with script the form is live. */
+.lf-js .lf-no-js {
+    display: none;
+}
+
+.lf-filters__busy {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--lf-border);
+    border-top-color: var(--lf-accent);
+    opacity: 0;
+    align-self: center;
+}
+
+.lf-js.is-loading .lf-filters__busy {
+    opacity: 1;
+    animation: lf-spin 650ms linear infinite;
+}
+
+@keyframes lf-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* The page is being replaced: say so without hiding it. */
+.lf-js.is-loading .lf-table-wrap,
+.lf-js.is-loading .lf-counts {
+    opacity: 0.55;
+    transition: opacity 120ms ease 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-js.is-loading .lf-filters__busy {
+        animation: none;
+        border-top-color: var(--lf-border);
+        background: var(--lf-accent);
+    }
+
+    .lf-js.is-loading .lf-table-wrap,
+    .lf-js.is-loading .lf-counts {
+        transition: none;
+    }
+}
+
+.lf-filters__statuses {
+    gap: 0.35rem 0.5rem;
+}
+
+/* Each status is a target in its own right, not a word beside a box. */
+.lf-check {
+    padding: 0.15rem 0.5rem 0.15rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    user-select: none;
+}
+
+.lf-filters__statuses .lf-check:hover {
+    border-color: var(--lf-border);
+    background: var(--lf-code-bg);
+}
+
+.lf-filters__statuses .lf-check:has(input:checked) {
+    border-color: var(--lf-accent);
+    background: var(--lf-accent-soft);
+}
+
+.lf-filters__statuses .lf-check .lf-status {
+    opacity: 0.55;
+}
+
+.lf-filters__statuses .lf-check:has(input:checked) .lf-status {
+    opacity: 1;
+}
+
+/* ---- Notices and flashes ---------------------------------------------- */
+
+.lf-notice {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.lf-notice strong {
+    flex: 0 0 auto;
+}
+
+.lf-flash {
+    animation: lf-rise 180ms ease-out;
+}
+
+@keyframes lf-rise {
+    from { opacity: 0; transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-flash { animation: none; }
+}
+
+/* ---- Detail page ------------------------------------------------------ */
+
+.lf-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.lf-title .lf-id {
+    color: var(--lf-muted);
+    font-weight: 600;
+}
+
+.lf-crumbs a:hover {
+    color: var(--lf-accent);
+}
+
+.lf-dl dt {
+    font-size: 0.85rem;
+}
+
+.lf-card__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lf-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--lf-radius);
+}
+
+.lf-list li:hover {
+    background: var(--lf-code-bg);
+}
+
+/* ---- Empty states ------------------------------------------------------ */
+
+.lf-empty {
+    box-shadow: none;
+    color: var(--lf-muted);
+}
+
+.lf-empty .lf-code {
+    display: inline-block;
+    text-align: left;
+    max-width: 100%;
+}
+
+/* ---- Pagination -------------------------------------------------------- */
+
+.lf-pagination {
+    padding-bottom: 0.5rem;
+}
+
+.lf-pagination__group:empty {
+    display: none;
+}
+
+/* ---- Small screens ------------------------------------------------------ */
+
+@media (max-width: 720px) {
+    .lf-title {
+        font-size: 1.2rem;
+    }
+
+    .lf-counts {
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    }
+
+    .lf-count-card__value {
+        font-size: 1.25rem;
+    }
+
+    .lf-dl {
+        grid-template-columns: 1fr;
+        gap: 0 0;
+    }
+
+    .lf-dl dt {
+        margin-top: 0.5rem;
+    }
+
+    .lf-filters__fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- Print --------------------------------------------------------------
+ * An execution's record is a thing operators paste into an incident
+ * write-up. Give them the record and none of the furniture.
+ * ------------------------------------------------------------------------ */
+
+@media print {
+    .lf-header,
+    .lf-footer,
+    .lf-filters,
+    .lf-actions,
+    .lf-start,
+    .lf-pagination {
+        display: none !important;
+    }
+
+    .lf-card,
+    .lf-table-wrap {
+        box-shadow: none;
+        border-color: #ccc;
+        break-inside: avoid;
+    }
+
+    .lf-json {
+        max-height: none;
+        white-space: pre-wrap;
+    }
 }

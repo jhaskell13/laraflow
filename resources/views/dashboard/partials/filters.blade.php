@@ -55,10 +55,13 @@
             <input type="text" name="until" value="{{ $values['until'] ?? '' }}" placeholder="exclusive">
         </label>
         <div class="lf-filters__actions">
-            <button type="submit" class="lf-button lf-button--primary">Filter</button>
+            {{-- With script the form filters as it is typed, so the
+                 button is the path for a browser without it. --}}
+            <button type="submit" class="lf-button lf-button--primary lf-no-js">Filter</button>
             @unless ($filters->isEmpty())
-                <a class="lf-button" href="{{ $action }}">Clear</a>
+                <a class="lf-button" href="{{ $action }}" data-lf-page>Clear</a>
             @endunless
+            <span class="lf-filters__busy" aria-hidden="true"></span>
         </div>
     </div>
 

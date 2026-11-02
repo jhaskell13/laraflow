@@ -83,6 +83,33 @@ class AssetTest extends TestCase
         $this->get('/laraflow/assets/dashboard.js')->assertForbidden();
     }
 
+    public function test_the_filter_form_works_without_script_and_is_live_with_it(): void
+    {
+        Dashboard::auth(fn (): bool => true);
+        Dashboard::routes();
+
+        $response = $this->get('/laraflow/executions');
+
+        // Without script: an ordinary GET form with a button, whose
+        // action is the page itself, so filtering is a navigation.
+        $response->assertOk();
+        $response->assertSee('<form class="lf-filters" method="get" action="http://localhost/laraflow/executions">', false);
+        $response->assertSee('<button type="submit" class="lf-button lf-button--primary lf-no-js">Filter</button>', false);
+
+        // With script: the button is hidden by the stylesheet rather
+        // than removed from the page, so the form keeps working if the
+        // script fails to load.
+        $css = (string) $this->get('/laraflow/assets/dashboard.css')->getContent();
+        $this->assertStringContainsString('.lf-js .lf-no-js', $css);
+
+        $js = (string) $this->get('/laraflow/assets/dashboard.js')->getContent();
+        $this->assertStringContainsString("classList.add('lf-js')", $js);
+        $this->assertStringContainsString('lf-filters', $js);
+        // Swapped in place rather than navigated: that is what keeps
+        // the caret where the operator left it.
+        $this->assertStringContainsString('pushState', $js);
+    }
+
     public function test_the_refresh_interval_is_the_pages_to_declare_and_configuration_turns_it_off(): void
     {
         Dashboard::auth(fn (): bool => true);

@@ -100,6 +100,8 @@ The overview's "what needs attention" is the same computation `laraflow:summary`
 
 ### Filtering
 
+The filter form filters as it is typed. With script, a change loads the filtered page **in place** — the same fetch-and-swap the refresh uses, with the address pushed onto history so *back* works — rather than navigating, because a navigation would take the field out from under the operator mid-word and lose the caret. Text fields are debounced; a checkbox is a decision and applies at once. Without script the form is an ordinary `GET` with a *Filter* button, which the stylesheet hides when script is running rather than the page omitting it, so the form still works if the script fails to load. Paging and *Clear* load in place too, keeping scroll position and open disclosures.
+
 The executions page filters by exactly what `ExecutionFilter` offers — status, workflow, correlation id, tenant id, and a creation window — because those are the criteria the schema serves from an index, and an unindexed filter on a high-volume table is how observability tooling takes an application down ([inspection-and-observability.md](inspection-and-observability.md), *Filtering*). The filter form's workflow field is free text, as `laraflow:list --workflow=` is: the contract has no method that lists distinct workflow classes, and one would be a scan over the table. The field suggests the workflows visible on the current page. If that proves insufficient, the method is added to `ExecutionRepository` as a public change with its own index justification, not slipped in for the dashboard.
 
 ### Pagination
@@ -144,5 +146,5 @@ Every page refreshes itself on an interval — `laraflow.dashboard.refresh` seco
 - `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
 - `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state.
 - `tests/Feature/Dashboard/ReadOnlyTest.php` — the action routes absent and the forms unrendered.
-- `tests/Feature/Dashboard/AssetTest.php` — one stylesheet and one script, served by the package behind the check, with validators; the page links nothing else and carries nothing inline; the refresh interval is the page's to declare and configuration turns it off.
+- `tests/Feature/Dashboard/AssetTest.php` — one stylesheet and one script, served by the package behind the check, with validators; the page links nothing else and carries nothing inline; the filter form is a working `GET` form without script and live with it; the refresh interval is the page's to declare and configuration turns it off.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

@@ -99,13 +99,13 @@
         <nav class="lf-pagination" aria-label="Pages">
             <div class="lf-pagination__group">
                 @if (! $trail->isFirstPage())
-                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query()) }}">« First</a>
-                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->previous()) }}" rel="prev">‹ Previous</a>
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query()) }}" data-lf-page>« First</a>
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->previous()) }}" rel="prev" data-lf-page>‹ Previous</a>
                 @endif
             </div>
             <div class="lf-pagination__group">
                 @if ($page->hasMore())
-                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->next((string) $page->nextCursor)) }}" rel="next">Next ›</a>
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->next((string) $page->nextCursor)) }}" rel="next" data-lf-page>Next ›</a>
                 @else
                     <span class="lf-muted">End of list</span>
                 @endif
