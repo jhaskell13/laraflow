@@ -640,7 +640,17 @@ class ProjectContractsTest extends TestCase
     {
         $offenders = [];
 
-        foreach (File::allFiles($this->path('src/Console')) as $file) {
+        // The dashboard is the console's surface with a different
+        // renderer (docs/dashboard.md), so it is held to the same rule,
+        // templates included: a view that reached for a model would be
+        // the shortcut this test exists to forbid.
+        $files = array_merge(
+            File::allFiles($this->path('src/Console')),
+            File::allFiles($this->path('src/Dashboard')),
+            File::allFiles($this->path('resources/views')),
+        );
+
+        foreach ($files as $file) {
             $source = (string) file_get_contents($file->getRealPath());
 
             // The Milestone 4 promise: anything the console can show,
@@ -654,7 +664,7 @@ class ProjectContractsTest extends TestCase
             }
         }
 
-        $this->assertSame([], $offenders, 'A console command queries the internal Eloquent models.');
+        $this->assertSame([], $offenders, 'A console command or dashboard page queries the internal Eloquent models.');
     }
 
     /**

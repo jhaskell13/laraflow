@@ -1,0 +1,360 @@
+/*
+ * The Laraflow dashboard's one stylesheet.
+ *
+ * Hand-written and committed: no build step, no node, no CDN, so
+ * installing the dashboard adds nothing to an application's toolchain
+ * and the pages work behind a firewall (docs/dashboard.md). Served by
+ * the package at {path}/assets/dashboard.css, behind the same
+ * authorization check as every page.
+ *
+ * Every class is prefixed `lf-` so nothing here collides with an
+ * application's own styles if the two are ever on one page.
+ */
+
+:root {
+    --lf-bg: #f6f7f9;
+    --lf-surface: #ffffff;
+    --lf-border: #e3e6ea;
+    --lf-text: #1d2129;
+    --lf-muted: #6b7280;
+    --lf-accent: #c2410c;
+    --lf-accent-soft: #fff1ea;
+    --lf-code-bg: #f1f3f5;
+
+    --lf-green: #15803d;   --lf-green-bg: #dcfce7;
+    --lf-red: #b91c1c;     --lf-red-bg: #fee2e2;
+    --lf-yellow: #a16207;  --lf-yellow-bg: #fef9c3;
+    --lf-cyan: #0e7490;    --lf-cyan-bg: #cffafe;
+    --lf-magenta: #9d174d; --lf-magenta-bg: #fce7f3;
+    --lf-blue: #1d4ed8;    --lf-blue-bg: #dbeafe;
+    --lf-grey: #4b5563;    --lf-grey-bg: #e5e7eb;
+
+    --lf-radius: 6px;
+    --lf-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --lf-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --lf-bg: #0f1115;
+        --lf-surface: #171a21;
+        --lf-border: #2a2f3a;
+        --lf-text: #e6e8ec;
+        --lf-muted: #9aa3b2;
+        --lf-accent: #fb923c;
+        --lf-accent-soft: #2a1a10;
+        --lf-code-bg: #1f232c;
+
+        --lf-green: #4ade80;   --lf-green-bg: #0f2a1a;
+        --lf-red: #f87171;     --lf-red-bg: #2e1414;
+        --lf-yellow: #facc15;  --lf-yellow-bg: #2b2410;
+        --lf-cyan: #22d3ee;    --lf-cyan-bg: #0e2a30;
+        --lf-magenta: #f472b6; --lf-magenta-bg: #2e1222;
+        --lf-blue: #60a5fa;    --lf-blue-bg: #121f38;
+        --lf-grey: #cbd5e1;    --lf-grey-bg: #262b35;
+    }
+}
+
+/* ---- Base ------------------------------------------------------------ */
+
+.lf,
+.lf * {
+    box-sizing: border-box;
+}
+
+.lf {
+    margin: 0;
+    background: var(--lf-bg);
+    color: var(--lf-text);
+    font-family: var(--lf-font);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.lf a {
+    color: var(--lf-accent);
+    text-decoration: none;
+}
+
+.lf a:hover {
+    text-decoration: underline;
+}
+
+.lf code,
+.lf pre,
+.lf-mono {
+    font-family: var(--lf-mono);
+    font-size: 0.92em;
+}
+
+.lf code {
+    background: var(--lf-code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+}
+
+.lf-code {
+    background: var(--lf-code-bg);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+}
+
+.lf-muted {
+    color: var(--lf-muted);
+}
+
+/* ---- Header ---------------------------------------------------------- */
+
+.lf-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--lf-surface);
+    border-bottom: 1px solid var(--lf-border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.lf-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+    color: var(--lf-text);
+}
+
+.lf-brand:hover {
+    text-decoration: none;
+}
+
+.lf-brand__mark {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--lf-accent);
+    transform: rotate(45deg);
+}
+
+.lf-nav {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.lf-nav__link {
+    padding: 0.35rem 0.7rem;
+    border-radius: var(--lf-radius);
+    color: var(--lf-muted);
+    font-weight: 500;
+}
+
+.lf-nav__link:hover {
+    background: var(--lf-code-bg);
+    text-decoration: none;
+}
+
+.lf-nav__link.is-active {
+    color: var(--lf-accent);
+    background: var(--lf-accent-soft);
+}
+
+.lf-header__clock {
+    margin-left: auto;
+    color: var(--lf-muted);
+    font-family: var(--lf-mono);
+    font-size: 0.85rem;
+}
+
+/* ---- Layout ---------------------------------------------------------- */
+
+.lf-main {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+.lf-footer {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 2rem;
+    color: var(--lf-muted);
+    font-size: 0.85rem;
+}
+
+.lf-page-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.lf-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 650;
+}
+
+.lf-page-head .lf-muted {
+    margin: 0;
+}
+
+.lf-empty {
+    background: var(--lf-surface);
+    border: 1px dashed var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 2rem;
+    text-align: center;
+}
+
+.lf-empty p {
+    margin: 0.25rem 0;
+}
+
+/* ---- Table ----------------------------------------------------------- */
+
+.lf-table-wrap {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    overflow-x: auto;
+}
+
+.lf-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.lf-table th,
+.lf-table td {
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    border-bottom: 1px solid var(--lf-border);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.lf-table th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+    background: var(--lf-bg);
+}
+
+.lf-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.lf-table tbody tr:hover td {
+    background: var(--lf-code-bg);
+}
+
+.lf-num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+}
+
+.lf-id {
+    font-family: var(--lf-mono);
+    font-weight: 600;
+}
+
+.lf-workflow {
+    font-weight: 500;
+}
+
+.lf-tag {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--lf-border);
+    color: var(--lf-muted);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.lf-progress {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Status badges ---------------------------------------------------- */
+
+.lf-status {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--lf-grey);
+    background: var(--lf-grey-bg);
+}
+
+.lf-status--completed { color: var(--lf-green);   background: var(--lf-green-bg); }
+.lf-status--failed    { color: var(--lf-red);     background: var(--lf-red-bg); }
+.lf-status--running   { color: var(--lf-yellow);  background: var(--lf-yellow-bg); }
+.lf-status--retrying  { color: var(--lf-cyan);    background: var(--lf-cyan-bg); }
+.lf-status--waiting   { color: var(--lf-cyan);    background: var(--lf-cyan-bg); }
+.lf-status--cancelled { color: var(--lf-magenta); background: var(--lf-magenta-bg); }
+.lf-status--skipped   { color: var(--lf-blue);    background: var(--lf-blue-bg); }
+.lf-status--pending   { color: var(--lf-grey);    background: var(--lf-grey-bg); }
+
+/* ---- Pagination and buttons ---------------------------------------- */
+
+.lf-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.lf-pagination > :only-child {
+    margin-left: auto;
+}
+
+.lf-button {
+    display: inline-block;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-surface);
+    color: var(--lf-text);
+    font-weight: 500;
+}
+
+.lf-button:hover {
+    border-color: var(--lf-accent);
+    color: var(--lf-accent);
+    text-decoration: none;
+}
+
+/* ---- Small screens ---------------------------------------------------- */
+
+@media (max-width: 720px) {
+    .lf-header {
+        padding: 0.6rem 1rem;
+        gap: 1rem;
+    }
+
+    .lf-header__clock {
+        display: none;
+    }
+
+    .lf-main,
+    .lf-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}

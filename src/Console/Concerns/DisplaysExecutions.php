@@ -7,6 +7,7 @@ namespace Laraflow\Console\Concerns;
 use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Date;
+use Laraflow\Support\Formats;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
@@ -45,10 +46,7 @@ trait DisplaysExecutions
         if (($durationMs = $execution->durationMs()) !== null) {
             // End to end, including any time spent failed or waiting
             // out a backoff — see docs/inspection-and-observability.md.
-            $this->components->twoColumnDetail(
-                '<fg=gray>Duration</>',
-                $durationMs < 1000 ? "{$durationMs} ms" : sprintf('%.1f s', $durationMs / 1000),
-            );
+            $this->components->twoColumnDetail('<fg=gray>Duration</>', Formats::duration($durationMs));
         }
 
         if ($execution->correlationId !== null) {
@@ -223,15 +221,7 @@ trait DisplaysExecutions
 
     protected function formatSeconds(?int $seconds): string
     {
-        if ($seconds === null) {
-            return '—';
-        }
-
-        return match (true) {
-            $seconds < 60 => "{$seconds} s",
-            $seconds < 3600 => sprintf('%d min %d s', intdiv($seconds, 60), $seconds % 60),
-            default => sprintf('%d h %d min', intdiv($seconds, 3600), intdiv($seconds % 3600, 60)),
-        };
+        return Formats::seconds($seconds);
     }
 
     /**
@@ -286,23 +276,16 @@ trait DisplaysExecutions
         return config("queue.connections.{$connection}.driver") === 'sync';
     }
 
+    // The three formatters below are the console's names for the shared
+    // definitions in Formats, which the dashboard renders through too.
+
     protected function formatDate(?DateTimeInterface $date): string
     {
-        return $date?->format('Y-m-d H:i:s') ?? '—';
+        return Formats::date($date);
     }
 
     protected function formatValue(mixed $value, int $limit): string
     {
-        if ($value === null) {
-            return '—';
-        }
-
-        $json = json_encode($value, JSON_UNESCAPED_SLASHES);
-
-        if ($json === false) {
-            return '(unrenderable)';
-        }
-
-        return mb_strlen($json) > $limit ? mb_substr($json, 0, $limit - 1).'…' : $json;
+        return Formats::value($value, $limit);
     }
 }

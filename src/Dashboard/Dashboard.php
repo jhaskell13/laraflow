@@ -12,6 +12,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Facade;
+use Laraflow\Dashboard\Controllers\AssetController;
 use Laraflow\Dashboard\Controllers\ExecutionController;
 use LogicException;
 
@@ -71,6 +72,7 @@ final class Dashboard
         ], function (Router $router): void {
             $router->get('/', [ExecutionController::class, 'home'])->name('dashboard');
             $router->get('executions', [ExecutionController::class, 'index'])->name('executions');
+            $router->get('assets/dashboard.css', [AssetController::class, 'stylesheet'])->name('assets.stylesheet');
         });
 
         // Laravel refreshes the name and action lookups once, after the

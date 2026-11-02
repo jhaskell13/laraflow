@@ -262,6 +262,7 @@ class LaraflowServiceProvider extends ServiceProvider
     {
         $this->registerPublishing();
         $this->registerMigrations();
+        $this->registerViews();
         $this->registerCommands();
         $this->registerConnectors();
         $this->registerLifecycleLogging();
@@ -299,6 +300,24 @@ class LaraflowServiceProvider extends ServiceProvider
         }
 
         $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+    }
+
+    /**
+     * The dashboard's views, under the `laraflow` namespace.
+     *
+     * Only when a view factory is bound: illuminate/view is suggested,
+     * not required, and a container without it keeps working — the
+     * dashboard refuses at its mount with the package to install.
+     * Registering a namespace costs nothing; no view is compiled until
+     * one is rendered, and none is unless the dashboard is mounted.
+     */
+    protected function registerViews(): void
+    {
+        if (! $this->app->bound('view')) {
+            return;
+        }
+
+        $this->loadViewsFrom(__DIR__.'/../../resources/views', 'laraflow');
     }
 
     protected function registerCommands(): void
