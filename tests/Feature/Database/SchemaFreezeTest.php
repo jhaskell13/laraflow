@@ -69,6 +69,7 @@ class SchemaFreezeTest extends TestCase
             ['created_at'],
             ['id'],
             ['parent_execution_id'],
+            ['parent_step_execution_id'],
             ['payloads_scrubbed_at', 'status', 'finished_at'],
             ['status', 'claimed_at'],
             ['status', 'created_at'],
@@ -115,6 +116,7 @@ class SchemaFreezeTest extends TestCase
         '2026_11_01_000000_add_pending_scan_index_to_laraflow_workflow_executions.php' => '41c51997344b3a10298f98e417b230414b700a665c5d40f92d8d99995e8f66e9',
         '2026_11_01_000001_add_plan_version_to_laraflow_workflow_executions.php' => '5f328f52e8e2a79400e4af240b6d2ffd95cd71879981aa5a3a13c376b7ebc13b',
         '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => 'e46ed7c81eae3ab357d97f509ab5832deb859caa5322373180c0b8463372df15',
+        '2026_11_02_000000_add_join_index_to_laraflow_workflow_executions.php' => '4350920429f896d783ad80b8f8327a847940de5e4731e04a7edd38f3d2ca788a',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void

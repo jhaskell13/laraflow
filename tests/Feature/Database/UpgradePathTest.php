@@ -112,19 +112,21 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7 and 8 migrations, exercised the way an installed
-        // application meets them: rows written under the frozen schema,
-        // then the new migrations applied — simulated by rolling them
-        // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration — seven.
+        // The Milestone 7, 8, and 9 migrations, exercised the way an
+        // installed application meets them: rows written under the
+        // frozen schema, then the new migrations applied — simulated by
+        // rolling them back first, since the harness installs every
+        // migration up front. One rollback step per post-freeze
+        // migration — eight.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 8, '--force' => true])->assertSuccessful();
 
+        $this->assertNotContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
         $this->assertFalse(Schema::hasTable('laraflow_idempotency_keys'));
@@ -145,6 +147,7 @@ class UpgradePathTest extends TestCase
         $this->assertContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index is back.');
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
         $this->assertTrue(Schema::hasTable('laraflow_idempotency_keys'));
+        $this->assertContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index is back.');
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so

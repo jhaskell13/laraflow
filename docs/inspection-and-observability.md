@@ -19,10 +19,11 @@ Everything stated here is exercised by `tests/Feature/Workflow/ExecutionQueryTes
 | `attempts($step)` | One step's attempt history | One query |
 | `attemptHistory($execution)` | Every step's attempt history, ordered by step position then attempt | One query |
 | `stepProgress(array $ids)` | `[id => ['total' => n, 'completed' => n, 'skipped' => n]]` for many executions | One query |
+| `childProgress($parentStepExecutionId)` | A `ChildProgress`: the children of one parent *step*, counted by status — what a fan-out's join decides on | One query |
 | `list(ExecutionFilter, $limit, $cursor)` | One page of executions | One query, plus one more to learn whether another page exists |
 | `count(ExecutionFilter)` | How many match | One query |
 
-The two batched reads exist so that showing a list never costs a query per row. `stepProgress()` omits executions that have no steps rather than returning zeros, so a caller can tell "no plan" from "nothing done yet".
+The batched reads exist so that showing a list never costs a query per row, and so that a join over a thousand members never costs a read per member. `stepProgress()` omits executions that have no steps rather than returning zeros, so a caller can tell "no plan" from "nothing done yet".
 
 ### Filtering
 

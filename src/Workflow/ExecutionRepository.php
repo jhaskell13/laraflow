@@ -166,6 +166,25 @@ interface ExecutionRepository
     ): array;
 
     /**
+     * How the children of one parent step are doing — a count per
+     * status — in one query, served by the index on
+     * parent_step_execution_id.
+     *
+     * A fan-out's join asks this on every heartbeat, and a group may be
+     * a thousand wide; reading the members to count them would make
+     * the heartbeat cost what it exists to avoid. Children are found by
+     * the parent *step*, not the parent execution: a workflow may fan
+     * out at several positions, and each join must see only its own.
+     *
+     * Returns an empty progress — total zero — for a step with no
+     * children, rather than throwing: "none yet" is an ordinary state
+     * of a step that is about to create them.
+     */
+    public function childProgress(
+        int $parentStepExecutionId
+    ): ChildProgress;
+
+    /**
      * Attempt history for every step of one execution in a single
      * query, ordered by step position then attempt number. The same rows
      * attempts() returns per step, without one query per step.

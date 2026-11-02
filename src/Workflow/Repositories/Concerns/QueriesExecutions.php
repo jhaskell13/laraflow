@@ -6,6 +6,7 @@ namespace Laraflow\Workflow\Repositories\Concerns;
 
 use Illuminate\Database\Eloquent\Builder;
 use InvalidArgumentException;
+use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionPage;
 use Laraflow\Workflow\ExecutionStatus;
@@ -109,6 +110,25 @@ trait QueriesExecutions
         }
 
         return $progress;
+    }
+
+    public function childProgress(
+        int $parentStepExecutionId
+    ): ChildProgress {
+        /** @var \Illuminate\Support\Collection<int, object{status: string, total: int}> $rows */
+        $rows = WorkflowExecutionModel::query()
+            ->selectRaw('status, count(*) as total')
+            ->where('parent_step_execution_id', $parentStepExecutionId)
+            ->groupBy('status')
+            ->get();
+
+        $counts = [];
+
+        foreach ($rows as $row) {
+            $counts[(string) $row->status] = (int) $row->total;
+        }
+
+        return new ChildProgress($parentStepExecutionId, $counts);
     }
 
     public function attemptHistory(
