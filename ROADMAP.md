@@ -33,6 +33,8 @@ Milestone 8 is complete (November 2026), in three phases, and released as **0.3.
 
 Each phase closed with the same three-way hostile audit — concurrency, code quality, contract alignment. Phase A found one defect (the recovery limit was never shared past the stale scan, since Milestone 2). Phase B found 54 findings and two criticals: the idempotency store could recurse until the worker died on the three engines that compare strings case-insensitively, and failed on PostgreSQL inside any transaction. Phase C found four: a sync queue connection ran the job inside the dispatch call while the command said "queued, start a worker"; `laraflow:execute` reported a parked execution as completed, having never learned the wait state Milestone 7 added; whether the job ran or the push failed was decided from configuration rather than from the record, so a broker outage was reported as a step failure with every step still pending; and a runtime refusal was reported as a step failure that needed recovering. It also found two CI assertions that could not fail and two generator stubs that the package's own code style immediately rewrote. The suite stands at 1052 tests.
 
+Milestone 8.5 is complete (November 2026) and released as **0.4.0**: the inspection dashboard, which is the console's surface rendered in a browser and held there by the same test that forbids a command to reach past the public contract. Three pages — an overview of counts and what needs attention, a filterable list, and one execution in full with its steps, attempts, waits, lineage, and remembered keys — plus four actions that are the browser forms of `laraflow:execute`, `laraflow:cancel`, `WorkflowRunner::signal()`, and `laraflow:start`, each through the service the command calls. It is off until an application calls `Dashboard::routes()` and denied until `Dashboard::auth()` or a `viewLaraflow` gate says who may; mounted in production without a rule it denies everyone, which CI proves against a real application over real HTTP alongside the claim that an unmounted application has no routes at all. There is no build step anywhere: one hand-written stylesheet and one script, served by the package, with filters that apply as they are typed and pages that refresh themselves, and every page a full server render without them. The milestone also pulled five shared definitions out of the console — formatting, filter parsing, workflow-name resolution, JSON-object parsing, and what a finished run amounts to — plus the attention scan behind `laraflow:summary`, so the terminal and the browser cannot disagree. Its closing audit produced findings in every category it looked at and fixed six real defects, the worst two in the script: restoring focus after a live filter renamed one status filter to another, and a flag set on every action left the refresh dead for good after a back-navigation. The suite stands at 1115 tests.
+
 The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
 
 ## Product principles
@@ -282,23 +284,37 @@ Two engine-only fixes from the Phase B audit — the PostgreSQL savepoint in `El
 - ~~An in-flight execution survives a workflow definition change through the documented migration path, on every engine.~~ Met: `tests/Feature/Workflow/WorkflowVersioningTest.php`, which runs on all five engines in CI.
 - ~~The install job proves zero-to-persisted-execution with the generators alone.~~ Met: `.github/actions/install-walk`, run on SQLite at both supported pairings and at the end of every engine job.
 
-### Milestone 8.5 — The inspection dashboard
+### Milestone 8.5 — The inspection dashboard ✅
 
 The first thing anyone asks for after "does it recover" is "show me". The package already answers it from the console — `laraflow:list`, `laraflow:show`, `laraflow:summary` — and every one of those runs on the public `ExecutionRepository` contract alone, with a test that keeps them there. A dashboard is that same surface rendered in a browser, and taking it now rather than at Milestone 11 means the operator view exists before parallelism and schedules make the records harder to read by hand.
 
 #### Work
 
-- An opt-in, first-party UI inside this package rather than a separate one: a route group an application mounts where it likes, behind its own middleware, off unless mounted. A separate `laraflow/dashboard` package was the Milestone 11 plan; it is moved here and folded in, because the thing that makes a dashboard safe — reading only the public contract — is the same thing that makes a separate package unnecessary.
-- Views over what the records already carry: executions filtered the way `laraflow:list` filters them, one execution in full with its steps, attempts, remembered work, wait, and plan version, and the counts and attention list `laraflow:summary` computes.
-- The operator actions the console already exposes, each going through the same service: execute, cancel, signal, and start — `laraflow:start`'s service is the start button, which is why it took correlation and tenant identifiers at Milestone 8.
-- Authorisation as the application's decision, with a gate the package defines and the application answers; nothing mounted by default, and no action reachable that the console does not already offer.
-- No new query surface. If a view needs something `ExecutionRepository` cannot answer, the contract gains it deliberately, with its index — the Milestone 4 rule.
+- ~~An opt-in, first-party UI inside this package rather than a separate one: a route group an application mounts where it likes, behind its own middleware, off unless mounted.~~ Done (step 2). A separate `laraflow/dashboard` package was the Milestone 11 plan; folding it in was right for the reason given — the thing that makes a dashboard safe, reading only the public contract, is the same thing that makes a separate package unnecessary.
+- ~~Views over what the records already carry: executions filtered the way `laraflow:list` filters them, one execution in full with its steps, attempts, remembered work, wait, and plan version, and the counts and attention list `laraflow:summary` computes.~~ Done (steps 3–6). The attention scan was extracted from the command so both compute it once.
+- ~~The operator actions the console already exposes, each going through the same service: execute, cancel, signal, and start — `laraflow:start`'s service is the start button, which is why it took correlation and tenant identifiers at Milestone 8.~~ Done (step 7).
+- ~~Authorisation as the application's decision, with a gate the package defines and the application answers; nothing mounted by default, and no action reachable that the console does not already offer.~~ Done (step 2), and the audit added the converse: an action route refuses a request with no session, since a bare mount outside a group that supplies one leaves nothing checking where a `POST` came from.
+- ~~No new query surface. If a view needs something `ExecutionRepository` cannot answer, the contract gains it deliberately, with its index — the Milestone 4 rule.~~ Held throughout. The one thing a page wanted and the contract could not answer — a list of distinct workflow classes for the filter — was answered with free text and a page-scoped suggestion list rather than a new scan, and the question is recorded in `docs/dashboard.md` instead.
+
+#### How it closed
+
+Eleven steps across 2 November 2026, contract first as every milestone since the seventh has been.
+
+- **Step 1 — the contract.** `docs/dashboard.md` before a line of code: off unless mounted, denied unless allowed, nothing the console cannot do, redaction carried over, every page working without script, no build step, inspection rather than authoring.
+- **Steps 2–3 — the foundations.** The mount, the authorization rule and its middleware, the `suggest` entries and the guard that names them; then the layout, the committed stylesheet, the asset route, and the executions list.
+- **Steps 4–6 — the views.** Filters and the cursor trail, one execution in full, and the overview with `AttentionScan` extracted from `laraflow:summary`.
+- **Step 7 — the actions**, and **step 8 — refresh and confirmation**, the second of which brought the script the live filters later built on.
+- **Step 9 — CI**, four stages proving absence and denial against a real application.
+- **Step 10 — the audit.** Three hostile reviews: security, code quality, contract alignment. XSS and authorization bypass were clean; six real defects were not, and each was fixed with the test that would have caught it. The two worst were in the script and were proven fixed by driving the served page and the served script through a real DOM rather than by reading them.
+- **Step 11 — closure.** This record, the README section the dashboard had been missing, `CHANGELOG.md` as 0.4.0, and the cross-references from the observability, queue, advanced-workflow, and compatibility documents that a reader arriving there would have needed.
+
+Styling polish and live filtering were taken between steps 8 and 9 at the user's request; the live filter loads in place rather than navigating, because a navigation would take the field out from under an operator mid-word.
 
 #### Exit criteria
 
-- Every number and row the dashboard shows is obtainable from the public contract, enforced by the test that already holds the console to it.
-- The dashboard is absent from an application that has not mounted it: no routes, no assets, no queries.
-- An operator can take an execution from failed to recovered without leaving the browser, and the record afterwards is indistinguishable from the console's.
+- ~~Every number and row the dashboard shows is obtainable from the public contract, enforced by the test that already holds the console to it.~~ Met: `ProjectContractsTest::test_no_console_command_reaches_past_the_public_contract` now reads `src/Dashboard`, `src/Support`, and `resources/views` as it reads `src/Console`.
+- ~~The dashboard is absent from an application that has not mounted it: no routes, no assets, no queries.~~ Met: `tests/Feature/Dashboard/MountingTest.php`, and against a real application in `.github/actions/install-walk`.
+- ~~An operator can take an execution from failed to recovered without leaving the browser, and the record afterwards is indistinguishable from the console's.~~ Met: `tests/Feature/Dashboard/ActionsTest.php`, which drives the real runner and asserts the persisted record.
 
 ### Milestone 9 — Parallelism and compensation
 
@@ -373,7 +389,7 @@ The two capabilities deferred from Milestone 7, each specified in `docs/advanced
 10. ~~Release automation and the schema freeze.~~ Done.
 11. ~~Close the Milestone 6 audit debt, then conditions, waits, and sub-workflows — semantics first, capability second, audit last.~~ Done. Milestone 7 is complete and the MVP is released as 0.2.0.
 12. The deferred audit items first, then workflow versioning and the idempotency store, then the generators and the install story (Milestone 8).
-13. The inspection dashboard, over the contract the console already proves (Milestone 8.5).
+13. ~~The inspection dashboard, over the contract the console already proves (Milestone 8.5).~~ Done.
 14. Fan-out/fan-in, then compensation — semantics first (Milestone 9).
 15. Schedules, signed triggers, tenant throttling (Milestone 10).
 16. Metrics bridges, the documentation site, the connector ecosystem (Milestone 11).

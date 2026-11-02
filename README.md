@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), or run another workflow as a child ([docs/advanced-workflows.md](docs/advanced-workflows.md)). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching, fan-out/fan-in, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md)). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), or run another workflow as a child ([docs/advanced-workflows.md](docs/advanced-workflows.md)). Executions are inspected and operated from the console or from an opt-in [dashboard](#the-dashboard). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching, fan-out/fan-in, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md)). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -21,6 +21,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
+- [The dashboard](#the-dashboard)
 - [Your first connector](#your-first-connector)
 - [Current limitations](#current-limitations)
 - [Design principles](#design-principles)
@@ -50,7 +51,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.3.0
+composer require laraflow/laraflow:^0.4.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
@@ -1103,7 +1104,7 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 8; what comes next lives in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 8.5; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
@@ -1125,7 +1126,42 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 
 **Keep workflows in application code.** Workflows should be versionable, reviewable, and testable with the rest of a Laravel application. No hosted service or visual designer is required to understand what an integration does.
 
-**Grow from a reliable core.** Linear workflows and reliable recovery come before complex branching, large connector catalogs, or a dashboard.
+**Grow from a reliable core.** Linear workflows and reliable recovery come before complex branching and large connector catalogs. The inspection dashboard came only once the query contract it reads through had been proven by five milestones of console commands.
+
+## The dashboard
+
+Everything the console shows, in a browser: a filterable list of executions, one execution in full with its steps, attempts, waits, and remembered keys, and an overview with counts by status and what needs attention. It reads the same public `ExecutionRepository` the commands read — a test holds it there — so it can show nothing your own application could not.
+
+It is **off until you mount it**, and **denied until you say who may**:
+
+```php
+// routes/web.php
+use Laraflow\Dashboard\Dashboard;
+
+Dashboard::routes();                 // answers at /laraflow
+
+// AppServiceProvider::boot()
+Dashboard::auth(fn ($request) => $request->user()?->can('operate-workflows') ?? false);
+```
+
+Without `routes()` there are no routes, no assets, and nothing in `route:list`. Without `auth()` the only thing allowed is the `local` environment, or a `viewLaraflow` gate you define — so a dashboard mounted in production without a rule denies everyone, which is the failure that gets noticed rather than the one that leaks.
+
+An operator can also act: execute or recover a failed execution, cancel one, signal a waiting step, and start a workflow — each the browser form of the console command, through the same service, behind your own middleware's CSRF protection. Mount it `read_only` and those routes are never registered at all.
+
+```php
+// config/laraflow.php
+'dashboard' => [
+    'path' => env('LARAFLOW_DASHBOARD_PATH', 'laraflow'),
+    'middleware' => ['web'],
+    'read_only' => env('LARAFLOW_DASHBOARD_READ_ONLY', false),
+    'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
+    'refresh' => env('LARAFLOW_DASHBOARD_REFRESH', 10),
+],
+```
+
+There is **no build step**: one hand-written stylesheet and one script, both served by the package, nothing published, no `npm`, no CDN. Filters apply as you type and pages refresh themselves; with JavaScript off, every page is a full render and the filter form is an ordinary one with a button. The dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`, which the package *suggests* rather than requires — any Laravel application has all three, and the mount says so by name if it does not.
+
+The contract, including what the dashboard deliberately does not do, is [docs/dashboard.md](docs/dashboard.md).
 
 ## Compatibility and support
 
