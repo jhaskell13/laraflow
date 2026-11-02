@@ -291,6 +291,8 @@ The audit recorded that `WorkflowExecutionDispatched` could fire before the tran
 ## Operational checklist
 
 - Run workers for the queue you configured: `php artisan queue:work --queue=workflows`.
+- The opt-in dashboard ([dashboard.md](dashboard.md)) shows the same scans from a browser and offers the same recovery as a button; it is a view onto this document, not a second mechanism.
+
 - Schedule `laraflow:recover` with `withoutOverlapping()`. It is not only a repair tool — it is the contractual delivery path for due retries, due waits, recorded signals, and sub-workflow heartbeats; wait-based workflows need it even with retries disabled.
 - Keep `queue.timeout` below `execution.stale_after`.
 - Alert on a non-zero exit from `laraflow:recover` — it means work was abandoned or a recovery action failed.

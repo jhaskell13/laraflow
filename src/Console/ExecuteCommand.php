@@ -10,6 +10,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
@@ -69,11 +70,14 @@ class ExecuteCommand extends Command
 
                 return self::FAILURE;
             } catch (Throwable $exception) {
-                // A sync queue connection runs the job inside the dispatch
-                // call, so a step failure surfaces here instead of on a
-                // worker. Any other driver throwing here is the push
-                // itself failing — a different subsystem, said plainly.
-                if (! $this->queueDriverIsSync()) {
+                // Did the job run, or did the push fail? Judged from the
+                // record, never from the configured driver, which cannot
+                // answer it — a broker refusing a connection under a
+                // nominally sync connection would otherwise be reported
+                // as a step failure with every step untouched. The
+                // success path below has asked this way since Phase C;
+                // this path was missed by that change.
+                if (! Outcome::ranInline($execution, $repository->find($id))) {
                     $this->components->error('The execution could not be queued: '.$exception->getMessage());
 
                     return self::FAILURE;
@@ -98,7 +102,7 @@ class ExecuteCommand extends Command
             $before = $execution;
             $execution = $repository->find($id);
 
-            if ($execution->status !== $before->status || $execution->finishedAt != $before->finishedAt) {
+            if (Outcome::ranInline($before, $execution)) {
                 $this->components->info(
                     'The queue connection ran the job in this process (sync driver).'
                 );

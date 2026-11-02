@@ -10,6 +10,20 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 Nothing yet.
 
+## [0.4.0] - 2026-11-02
+
+Milestone 8.5: the inspection dashboard — the console's surface rendered in a browser, off until an application mounts it and denied until it says who may. Additive and opt-in: an application that does not mount it is unchanged, and nothing it needs is a new requirement.
+
+### Added
+
+- **The inspection dashboard — the console's surface, rendered in a browser.** Off unless an application mounts it with `Laraflow\Dashboard\Dashboard::routes()`; denied unless allowed, by `Dashboard::auth()`, a `viewLaraflow` gate, or — with neither — the `local` environment alone. Three pages, each the browser form of a console command and each reading the public `ExecutionRepository` and `IdempotencyStore` and nothing else, held there by the same test that holds the console: the **overview** (`laraflow:summary` — counts by status, and what needs attention), the **executions list** (`laraflow:list` — filterable by exactly the criteria `ExecutionFilter` indexes, paginated forward on the repository's keyset cursor with a trail of visited cursors for *previous*), and **one execution in full** (`laraflow:show --attempts` — the record, its steps, every attempt, what it is waiting on, its parent or children, and the keys it remembered, never their values). One hand-written stylesheet and one hand-written script served by the package, same-origin and nothing inline: no build step, no node, no CDN, and every page works without script. With it, the filter form filters as it is typed — loading the filtered page in place and pushing it onto history, so the caret stays where the operator left it and *back* works — pages refresh themselves on `laraflow.dashboard.refresh` seconds, pausing while the tab is hidden or an operator is typing and keeping open disclosures open, with a *Live* control to pause; and the action forms ask for confirmation. Without it the filter form is an ordinary `GET` form with a button, and every page is a full server render. Four actions, each the browser form of a console command through the same service: execute or recover (in the request, or on the queue), cancel with a reason, signal a waiting step with a payload and optionally dispatch it, and start a workflow by name with input and identifiers — every one a `POST` behind the application's CSRF protection and the same authorization check, ending on the execution's page with the outcome said the way the console says it. `laraflow.dashboard.read_only` mounts a dashboard with the action routes absent rather than hidden; `path`, `middleware`, `per_page`, and `refresh` configure the rest, and all five have no effect until `Dashboard::routes()` is called. The dependencies — `illuminate/routing`, `illuminate/view`, `illuminate/session` — are *suggested*, not required, and the mount refuses with their names when they are absent. Contract: `docs/dashboard.md`.
+
+- **CI proves the dashboard's two load-bearing claims against a real application.** Four stages at the end of the install walk — which already builds a `laravel/laravel` skeleton and runs a generated workflow through it, on every supported engine: unmounted, nothing named `laraflow.*` is in `route:list` and the path is a `404`; mounted, the dashboard lists the executions the walk made, renders one in full, and serves its own stylesheet and script; with `APP_ENV=production` and no rule, every page and both assets answer `403`; with a rule, the operator it names gets in and nobody else does.
+
+### Changed
+
+- **What needs attention is computed once.** `laraflow:summary`'s scan for due retries, due waits, running steps past their deadline, and the oldest unfinished execution is extracted into `Laraflow\Workflow\AttentionScan` (internal), which the command and the dashboard's overview both call, so the two cannot disagree about what is wrong; a test runs both against the same records. The console's date, duration, and value formatting likewise moves to `Laraflow\Support\Formats`, its status and time parsing to `Laraflow\Support\FilterInput`, `laraflow:start`'s name resolution and JSON parsing to `Laraflow\Support\WorkflowName` and `Laraflow\Support\JsonObject`, and the sentence every running command ends with to `Laraflow\Support\Outcome` — each shared with the dashboard for the same reason. The console's output and option semantics are unchanged.
+
 ## [0.3.0] - 2026-11-02
 
 Milestone 8: the foundations for a stability promise — the design debt the Milestone 7 audit deferred, workflow versioning, a first-class idempotency store, the install and generator commands, and a CI matrix that proves all of it on every supported engine.
@@ -467,7 +481,8 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jhaskell13/laraflow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jhaskell13/laraflow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jhaskell13/laraflow/releases/tag/v0.1.0

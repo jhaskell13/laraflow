@@ -44,5 +44,9 @@
              the playground, but the suite's default must be sync — the
              tests that want a real queue configure one themselves. -->
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- Same reason again: the skeleton sets APP_URL=http://localhost:8000
+             for `testbench serve`, and the dashboard tests assert on the
+             links the pages render. -->
+        <env name="APP_URL" value="http://localhost"/>
     </php>
 </phpunit>

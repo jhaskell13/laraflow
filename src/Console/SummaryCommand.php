@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace Laraflow\Console;
 
-use DateTimeImmutable;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
+use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
-use Laraflow\Workflow\StepExecution;
-use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -43,7 +41,7 @@ class SummaryCommand extends Command
 
     protected $description = 'Summarise workflow executions by status, and surface work needing attention';
 
-    public function handle(ExecutionRepository $repository, ClockInterface $clock): int
+    public function handle(ExecutionRepository $repository, AttentionScan $scan, ClockInterface $clock): int
     {
         try {
             $filter = $this->filterFromOptions();
@@ -67,7 +65,7 @@ class SummaryCommand extends Command
 
         $this->displayCounts($repository, $filter, $total);
 
-        return $this->displayAttention($repository, $filter, $clock);
+        return $this->displayAttention($scan, $filter, $clock);
     }
 
     /**
@@ -99,167 +97,69 @@ class SummaryCommand extends Command
     }
 
     /**
-     * The four conditions worth an operator's attention. Exits non-zero
-     * when any is present, so this command can be used as a health
-     * check by a scheduler or a deploy gate.
+     * The four conditions worth an operator's attention, found by the
+     * same scan the dashboard's overview runs. Exits non-zero when any
+     * is present, so this command can be used as a health check by a
+     * scheduler or a deploy gate.
      */
     protected function displayAttention(
-        ExecutionRepository $repository,
+        AttentionScan $scan,
         ExecutionFilter $filter,
         ClockInterface $clock,
     ): int {
-        $now = $clock->now();
-        $attention = false;
+        $report = $scan->scan($filter, $clock->now());
 
-        // Scoped like every other number on this screen. An unscoped
-        // scan here would report another tenant's retries under a
-        // --tenant filter, and fail the health check because of them.
-        // Every scoped workflow, not only the first: a health check that
-        // reported A's retries while B's were overdue would exit 0 on a
-        // real problem.
-        $due = $this->acrossWorkflows($filter, fn (?string $workflow): array => $repository->dueForRetry(
-            $now,
-            ExecutionRepository::MAX_PAGE_SIZE,
-            $workflow,
-            $filter->tenantId,
-        ));
-
-        if ($due !== []) {
-            $attention = true;
-            $oldest = $due[0];
+        if ($report->dueRetries !== []) {
+            $oldest = $report->dueRetries[0];
 
             $this->components->warn(sprintf(
                 '%d retr%s due now; the most overdue is execution [%s], due %s. Deliver them with: laraflow:recover',
-                count($due),
-                count($due) === 1 ? 'y is' : 'ies are',
+                count($report->dueRetries),
+                count($report->dueRetries) === 1 ? 'y is' : 'ies are',
                 $oldest->id,
                 $this->formatDate($oldest->nextRetryAt),
             ));
         }
 
-        $dueWaits = $this->acrossWorkflows($filter, fn (?string $workflow): array => $repository->waitingDue(
-            $now,
-            ExecutionRepository::MAX_PAGE_SIZE,
-            $workflow,
-            $filter->tenantId,
-        ));
-
-        if ($dueWaits !== []) {
-            $attention = true;
-            $oldest = $dueWaits[0];
+        if ($report->dueWaits !== []) {
+            $oldest = $report->dueWaits[0];
 
             $this->components->warn(sprintf(
                 '%d wait%s due for delivery; the most overdue is execution [%s], due %s. Deliver them with: laraflow:recover',
-                count($dueWaits),
-                count($dueWaits) === 1 ? ' is' : 's are',
+                count($report->dueWaits),
+                count($report->dueWaits) === 1 ? ' is' : 's are',
                 $oldest->id,
                 $this->formatDate($oldest->nextRetryAt),
             ));
         }
 
-        $overdue = $this->overdueSteps($repository, $filter, $now);
-
-        if ($overdue !== []) {
-            $attention = true;
-
+        if ($report->overdueSteps !== []) {
             $this->components->warn(sprintf(
                 '%d execution(s) have a running step past its deadline: %s. '
                 .'Laraflow does not interrupt running PHP; these are bounded by your queue worker timeout.',
-                count($overdue),
+                count($report->overdueSteps),
                 implode(', ', array_map(
-                    fn (array $row): string => "[{$row['id']}] ".class_basename($row['step']),
-                    array_slice($overdue, 0, 5),
+                    fn (array $row): string => "[{$row['execution']->id}] ".class_basename($row['step']->step),
+                    array_slice($report->overdueSteps, 0, 5),
                 )),
             ));
         }
 
-        $unfinished = $repository->list(
-            $filter
-                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting])
-                ->withOldestFirst(),
-            limit: 1,
-        );
-
-        if (! $unfinished->isEmpty()) {
-            $execution = $unfinished->executions[0];
-
+        if ($report->oldestUnfinished !== null) {
             $this->components->info(sprintf(
                 'Oldest unfinished execution: [%s] %s, created %s.',
-                $execution->id,
-                class_basename($execution->workflow),
-                $this->formatDate($execution->createdAt),
+                $report->oldestUnfinished->id,
+                class_basename($report->oldestUnfinished->workflow),
+                $this->formatDate($report->oldestUnfinished->createdAt),
             ));
         }
 
-        if (! $attention) {
+        if (! $report->needsAttention()) {
             $this->components->info('Nothing needs attention: no retries or waits due and no step past its deadline.');
         }
 
         $this->newLine();
 
-        return $attention ? self::FAILURE : self::SUCCESS;
-    }
-
-    /**
-     * Running executions whose current step has passed its deadline.
-     *
-     * Bounded by one page of running executions: a healthy installation
-     * has few, and an unhealthy one does not need an exhaustive list to
-     * know it is unhealthy.
-     *
-     * @return list<array{id: int, step: string}>
-     */
-    protected function overdueSteps(
-        ExecutionRepository $repository,
-        ExecutionFilter $filter,
-        DateTimeImmutable $now,
-    ): array {
-        $running = $repository->list(
-            $filter->withStatus(ExecutionStatus::Running),
-            limit: ExecutionRepository::MAX_PAGE_SIZE,
-        );
-
-        $overdue = [];
-
-        foreach ($running as $execution) {
-            foreach ($repository->steps($execution) as $step) {
-                if ($this->isOverdue($step, $now)) {
-                    $overdue[] = ['id' => $execution->id, 'step' => $step->step];
-
-                    break;
-                }
-            }
-        }
-
-        return $overdue;
-    }
-
-    protected function isOverdue(StepExecution $step, DateTimeImmutable $now): bool
-    {
-        return $step->isRunning()
-            && $step->timeoutAt !== null
-            && $step->timeoutAt <= $now;
-    }
-
-    /**
-     * Run a per-workflow scan once per scoped workflow (or once,
-     * unscoped), merged most-overdue first.
-     *
-     * @param  callable(?string): array<WorkflowExecution>  $scan
-     * @return list<WorkflowExecution>
-     */
-    protected function acrossWorkflows(ExecutionFilter $filter, callable $scan): array
-    {
-        $results = [];
-
-        foreach ($filter->workflows ?? [null] as $workflow) {
-            foreach ($scan($workflow) as $execution) {
-                $results[] = $execution;
-            }
-        }
-
-        usort($results, fn (WorkflowExecution $a, WorkflowExecution $b): int => ($a->nextRetryAt?->getTimestamp() ?? 0) <=> ($b->nextRetryAt?->getTimestamp() ?? 0));
-
-        return $results;
+        return $report->needsAttention() ? self::FAILURE : self::SUCCESS;
     }
 }

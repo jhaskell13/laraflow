@@ -44,6 +44,7 @@ use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
 use Laraflow\Support\SystemSleeper;
+use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
@@ -243,6 +244,10 @@ class LaraflowServiceProvider extends ServiceProvider
             return RetentionPolicy::fromArray(is_array($retention) ? $retention : []);
         });
 
+        $this->app->singleton(AttentionScan::class, fn (Container $app): AttentionScan => new AttentionScan(
+            repository: $app->make(ExecutionRepository::class),
+        ));
+
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),
             clock: $app->make(ClockInterface::class),
@@ -262,6 +267,7 @@ class LaraflowServiceProvider extends ServiceProvider
     {
         $this->registerPublishing();
         $this->registerMigrations();
+        $this->registerViews();
         $this->registerCommands();
         $this->registerConnectors();
         $this->registerLifecycleLogging();
@@ -299,6 +305,24 @@ class LaraflowServiceProvider extends ServiceProvider
         }
 
         $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+    }
+
+    /**
+     * The dashboard's views, under the `laraflow` namespace.
+     *
+     * Only when a view factory is bound: illuminate/view is suggested,
+     * not required, and a container without it keeps working — the
+     * dashboard refuses at its mount with the package to install.
+     * Registering a namespace costs nothing; no view is compiled until
+     * one is rendered, and none is unless the dashboard is mounted.
+     */
+    protected function registerViews(): void
+    {
+        if (! $this->app->bound('view')) {
+            return;
+        }
+
+        $this->loadViewsFrom(__DIR__.'/../../resources/views', 'laraflow');
     }
 
     protected function registerCommands(): void

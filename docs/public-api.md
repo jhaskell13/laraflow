@@ -68,6 +68,11 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 | `Laraflow\Workflow\RetentionPolicy` | Public | How long finished executions are kept and in what form: `scrubAfterDays`, `pruneAttemptsAfterDays`, `deleteAfterDays`, `deleteFailedAfterDays`, plus `limit`/`chunk`. Every bound is null by default. Validated at construction; `warnings()` reports valid-but-probably-wrong combinations. |
 | `Laraflow\Workflow\RetentionTier` | Public | Enum: `scrub_payloads`, `prune_attempts`, `delete`. |
 | `Laraflow\Workflow\RetentionService` | Internal | Engine behind `laraflow:prune`. Use the command. |
+| `Laraflow\Dashboard\Dashboard` | Experimental | The inspection dashboard's mount point: `routes()` registers it, `auth()` decides who may use it. Nothing is registered unless an application calls `routes()`. Needs `illuminate/routing` and `illuminate/view` — checked at the mount — and `illuminate/session` for the action forms' CSRF protection; the package suggests all three rather than requiring them. Contract: [docs/dashboard.md](dashboard.md). |
+| `Laraflow\Dashboard\Authorize` | Internal | The middleware that applies `Dashboard::check()` to every mounted route. |
+| `Laraflow\Dashboard\RequiresSession` | Internal | On the action routes alone: refuses a state-changing request that has no session, and therefore nothing checking where it came from. |
+| `Laraflow\Support\Formats`, `Laraflow\Support\FilterInput`, `Laraflow\Support\WorkflowName`, `Laraflow\Support\JsonObject`, `Laraflow\Support\Outcome` | Internal | What the console and the dashboard share so they cannot disagree: how a date, duration, or value renders; how a status or time typed by a person is read; how a workflow name resolves; what a JSON object must be; what a finished run amounts to. |
+| `Laraflow\Workflow\AttentionScan`, `Laraflow\Workflow\AttentionReport` | Internal | What needs an operator — retries and waits due, running steps past their deadline, the oldest unfinished execution — computed once for `laraflow:summary` and the dashboard's overview, so the two cannot disagree. Use the command or the page. |
 | `Laraflow\Workflow\RetentionRun` | Internal | State carried between a retention run's tiers: policy, clock instant, scope, accumulating report, and the executions the delete tier accounted for. |
 | `Laraflow\Workflow\RetentionReport` | Internal | Counts returned by one retention run. |
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |
@@ -232,6 +237,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`, `max_suggested_delay` — default 3600, the cap on a `SuggestsRetryDelay`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |
 | `config/laraflow.php` key `workflows.max_depth` (default 8) | Public | How deep sub-workflows may nest, counted from the root; exceeded nesting is refused at child creation with `WorkflowDepthExceededException`. |
+| `config/laraflow.php` keys `dashboard.*` (`path`, `middleware`, `read_only`, `per_page`, `refresh`) | Experimental | The defaults `Dashboard::routes()` mounts with; none of them has any effect until it is called. See [docs/dashboard.md](dashboard.md). |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 
 ## Console commands

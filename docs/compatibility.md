@@ -16,6 +16,8 @@ This policy states which platform versions Laraflow supports, what "supported" m
 
 Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
 
+**Suggested, not required.** The inspection dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`; `composer.json` lists all three under `suggest`. Every `laravel/framework` application already has them, so nothing changes for an ordinary install, and a container that only runs workflows keeps its footprint. Mounting the dashboard without them refuses by name rather than failing on the first request. They carry the same version constraints as the rest of the `illuminate/*` set.
+
 **Laravel 11 and below, and PHP 8.1 and below, are not supported and will not be added.** This follows the drop policy below rather than taste:
 
 - Laravel 10 (February 2023) and Laravel 11 (March 2024) are both past the end of their bug-fix windows, and Laravel 10 requires only PHP 8.1. Supporting a major that upstream no longer fixes would mean carrying compatibility shims for a platform whose own bugs will never be repaired.

@@ -13,6 +13,9 @@ workbench:
   # no business being installable into an application.
   discovers:
     commands: true
+    # Discovers workbench/routes/web.php, which mounts the inspection
+    # dashboard for `vendor/bin/testbench serve`.
+    web: true
 
 env:
   - DB_CONNECTION=sqlite

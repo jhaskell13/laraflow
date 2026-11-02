@@ -640,7 +640,20 @@ class ProjectContractsTest extends TestCase
     {
         $offenders = [];
 
-        foreach (File::allFiles($this->path('src/Console')) as $file) {
+        // The dashboard is the console's surface with a different
+        // renderer (docs/dashboard.md), so it is held to the same rule,
+        // templates included: a view that reached for a model would be
+        // the shortcut this test exists to forbid.
+        $files = array_merge(
+            File::allFiles($this->path('src/Console')),
+            File::allFiles($this->path('src/Dashboard')),
+            // Extracted in Milestone 8.5 to be shared by both, which
+            // makes them the obvious place for a shortcut to hide.
+            File::allFiles($this->path('src/Support')),
+            File::allFiles($this->path('resources/views')),
+        );
+
+        foreach ($files as $file) {
             $source = (string) file_get_contents($file->getRealPath());
 
             // The Milestone 4 promise: anything the console can show,
@@ -654,7 +667,7 @@ class ProjectContractsTest extends TestCase
             }
         }
 
-        $this->assertSame([], $offenders, 'A console command queries the internal Eloquent models.');
+        $this->assertSame([], $offenders, 'A console command or dashboard page queries the internal Eloquent models.');
     }
 
     /**
@@ -840,9 +853,19 @@ class ProjectContractsTest extends TestCase
         $doc = (string) file_get_contents($this->path('docs/public-api.md'));
 
         foreach (explode("\n", $doc) as $line) {
-            if (preg_match('/^\|\s*`(Laraflow\\\\[A-Za-z0-9\\\\]+)`.*\|\s*(Public|Experimental|Internal)\s*\|/', $line, $match)) {
+            if (preg_match('/^\|(.*?)\|\s*(Public|Experimental|Internal)\s*\|/', $line, $match) !== 1) {
+                continue;
+            }
+
+            // Every class the first cell names, not just the first of
+            // them: a row listing several classes under one level used
+            // to have only its first checked, which let a class that
+            // was Internal in the document and unmarked in the code
+            // ship (Milestone 8.5 audit).
+            preg_match_all('/`(Laraflow\\\\[A-Za-z0-9\\\\]+)`/', $match[1], $classes);
+
+            foreach ($classes[1] as $class) {
                 /** @var class-string $class */
-                $class = $match[1];
                 $rows[$class] = $match[2];
             }
         }

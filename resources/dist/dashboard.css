@@ -1,0 +1,1161 @@
+/*
+ * The Laraflow dashboard's one stylesheet.
+ *
+ * Hand-written and committed: no build step, no node, no CDN, so
+ * installing the dashboard adds nothing to an application's toolchain
+ * and the pages work behind a firewall (docs/dashboard.md). Served by
+ * the package at {path}/assets/dashboard.css, behind the same
+ * authorization check as every page.
+ *
+ * Every class is prefixed `lf-` so nothing here collides with an
+ * application's own styles if the two are ever on one page.
+ */
+
+:root {
+    --lf-bg: #f6f7f9;
+    --lf-surface: #ffffff;
+    --lf-border: #e3e6ea;
+    --lf-text: #1d2129;
+    --lf-muted: #6b7280;
+    --lf-accent: #c2410c;
+    --lf-accent-soft: #fff1ea;
+    --lf-code-bg: #f1f3f5;
+
+    --lf-green: #15803d;   --lf-green-bg: #dcfce7;
+    --lf-red: #b91c1c;     --lf-red-bg: #fee2e2;
+    --lf-yellow: #a16207;  --lf-yellow-bg: #fef9c3;
+    --lf-cyan: #0e7490;    --lf-cyan-bg: #cffafe;
+    --lf-magenta: #9d174d; --lf-magenta-bg: #fce7f3;
+    --lf-blue: #1d4ed8;    --lf-blue-bg: #dbeafe;
+    --lf-grey: #4b5563;    --lf-grey-bg: #e5e7eb;
+
+    --lf-radius: 7px;
+    --lf-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --lf-shadow-lift: 0 2px 4px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.08);
+    --lf-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --lf-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --lf-bg: #0f1115;
+        --lf-surface: #171a21;
+        --lf-border: #2a2f3a;
+        --lf-text: #e6e8ec;
+        --lf-muted: #9aa3b2;
+        --lf-accent: #fb923c;
+        --lf-accent-soft: #2a1a10;
+        --lf-code-bg: #1f232c;
+        --lf-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --lf-shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
+
+        --lf-green: #4ade80;   --lf-green-bg: #0f2a1a;
+        --lf-red: #f87171;     --lf-red-bg: #2e1414;
+        --lf-yellow: #facc15;  --lf-yellow-bg: #2b2410;
+        --lf-cyan: #22d3ee;    --lf-cyan-bg: #0e2a30;
+        --lf-magenta: #f472b6; --lf-magenta-bg: #2e1222;
+        --lf-blue: #60a5fa;    --lf-blue-bg: #121f38;
+        --lf-grey: #cbd5e1;    --lf-grey-bg: #262b35;
+    }
+}
+
+/* ---- Base ------------------------------------------------------------ */
+
+.lf,
+.lf * {
+    box-sizing: border-box;
+}
+
+.lf {
+    margin: 0;
+    background: var(--lf-bg);
+    color: var(--lf-text);
+    font-family: var(--lf-font);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.lf a {
+    color: var(--lf-accent);
+    text-decoration: none;
+}
+
+.lf a:hover {
+    text-decoration: underline;
+}
+
+.lf code,
+.lf pre,
+.lf-mono {
+    font-family: var(--lf-mono);
+    font-size: 0.92em;
+}
+
+.lf code {
+    background: var(--lf-code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+}
+
+.lf-code {
+    background: var(--lf-code-bg);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+}
+
+.lf-muted {
+    color: var(--lf-muted);
+}
+
+/* ---- Header ---------------------------------------------------------- */
+
+.lf-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    background: var(--lf-surface);
+    border-bottom: 1px solid var(--lf-border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.lf-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.01em;
+    color: var(--lf-text);
+}
+
+.lf-brand:hover {
+    text-decoration: none;
+}
+
+/* Three stacked marks read as a plan: steps in order. */
+.lf-brand__mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--lf-accent);
+    box-shadow: 5px 5px 0 -1px var(--lf-accent), 10px 10px 0 -2px var(--lf-accent);
+    margin-right: 12px;
+}
+
+.lf-nav {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.lf-nav__link {
+    padding: 0.35rem 0.7rem;
+    border-radius: var(--lf-radius);
+    color: var(--lf-muted);
+    font-weight: 500;
+}
+
+.lf-nav__link:hover {
+    background: var(--lf-code-bg);
+    text-decoration: none;
+}
+
+.lf-nav__link.is-active {
+    color: var(--lf-accent);
+    background: var(--lf-accent-soft);
+}
+
+.lf-header__right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.lf-header__clock {
+    color: var(--lf-muted);
+    font-family: var(--lf-mono);
+    font-size: 0.85rem;
+}
+
+.lf-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: 999px;
+    background: var(--lf-surface);
+    color: var(--lf-muted);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.lf-live::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--lf-grey);
+}
+
+.lf-live.is-on {
+    color: var(--lf-green);
+    border-color: var(--lf-green);
+}
+
+.lf-live.is-on::before {
+    background: var(--lf-green);
+    animation: lf-pulse 2s ease-in-out infinite;
+}
+
+@keyframes lf-pulse {
+    50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-live.is-on::before { animation: none; }
+}
+
+/* ---- Layout ---------------------------------------------------------- */
+
+.lf-main {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+.lf-footer {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 2rem;
+    color: var(--lf-muted);
+    font-size: 0.85rem;
+}
+
+.lf-page-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.lf-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 650;
+}
+
+.lf-page-head .lf-muted {
+    margin: 0;
+}
+
+.lf-empty {
+    background: var(--lf-surface);
+    border: 1px dashed var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 2rem;
+    text-align: center;
+}
+
+.lf-empty p {
+    margin: 0.25rem 0;
+}
+
+/* ---- Table ----------------------------------------------------------- */
+
+.lf-table-wrap {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    overflow-x: auto;
+}
+
+.lf-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.lf-table th,
+.lf-table td {
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    border-bottom: 1px solid var(--lf-border);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.lf-table th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+    background: var(--lf-bg);
+}
+
+.lf-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.lf-table tbody tr:hover td {
+    background: var(--lf-code-bg);
+}
+
+.lf-num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+}
+
+.lf-id {
+    font-family: var(--lf-mono);
+    font-weight: 600;
+}
+
+.lf-workflow {
+    font-weight: 500;
+}
+
+.lf-tag {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--lf-border);
+    color: var(--lf-muted);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.lf-progress {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Status badges ---------------------------------------------------- */
+
+.lf-status {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--lf-grey);
+    background: var(--lf-grey-bg);
+}
+
+.lf-status--completed { color: var(--lf-green);   background: var(--lf-green-bg); }
+.lf-status--failed    { color: var(--lf-red);     background: var(--lf-red-bg); }
+.lf-status--running   { color: var(--lf-yellow);  background: var(--lf-yellow-bg); }
+.lf-status--retrying  { color: var(--lf-cyan);    background: var(--lf-cyan-bg); }
+.lf-status--waiting   { color: var(--lf-cyan);    background: var(--lf-cyan-bg); }
+.lf-status--cancelled { color: var(--lf-magenta); background: var(--lf-magenta-bg); }
+.lf-status--skipped   { color: var(--lf-blue);    background: var(--lf-blue-bg); }
+.lf-status--pending   { color: var(--lf-grey);    background: var(--lf-grey-bg); }
+
+/* ---- Pagination and buttons ---------------------------------------- */
+
+.lf-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.lf-pagination > :only-child {
+    margin-left: auto;
+}
+
+.lf-button {
+    display: inline-block;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-surface);
+    color: var(--lf-text);
+    font-weight: 500;
+}
+
+.lf-button:hover {
+    border-color: var(--lf-accent);
+    color: var(--lf-accent);
+    text-decoration: none;
+}
+
+/* ---- Small screens ---------------------------------------------------- */
+
+@media (max-width: 720px) {
+    .lf-header {
+        padding: 0.6rem 1rem;
+        gap: 1rem;
+    }
+
+    .lf-header__clock {
+        display: none;
+    }
+
+    .lf-header__right {
+        gap: 0.5rem;
+    }
+
+    .lf-main,
+    .lf-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
+
+/* ---- Filters --------------------------------------------------------- */
+
+.lf-filters {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.lf-filters__label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+    margin-bottom: 0.3rem;
+}
+
+.lf-filters__statuses {
+    border: 0;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    align-items: center;
+}
+
+.lf-filters__statuses legend {
+    float: left;
+    width: 100%;
+}
+
+.lf-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+
+.lf-filters__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    align-items: end;
+}
+
+.lf-field input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-bg);
+    color: var(--lf-text);
+    font: inherit;
+}
+
+.lf-field input:focus {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+    border-color: transparent;
+}
+
+.lf-filters__actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.lf-button--primary {
+    background: var(--lf-accent);
+    border-color: var(--lf-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+}
+
+.lf-button--primary:hover {
+    color: #fff;
+    filter: brightness(1.08);
+}
+
+.lf-problems {
+    margin: 0.75rem 0 0;
+    padding: 0.6rem 0.9rem 0.6rem 1.8rem;
+    border-radius: var(--lf-radius);
+    background: var(--lf-red-bg);
+    color: var(--lf-red);
+}
+
+.lf-pagination__group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* ---- Detail page ----------------------------------------------------- */
+
+.lf-crumbs {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--lf-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.lf-title .lf-status {
+    vertical-align: middle;
+    margin-left: 0.25rem;
+}
+
+.lf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+}
+
+.lf-card {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+    min-width: 0;
+}
+
+.lf-card .lf-table-wrap {
+    border: 0;
+    border-radius: 0;
+    margin: 0 -1.1rem -1rem;
+    width: calc(100% + 2.2rem);
+}
+
+.lf-card .lf-table th:first-child,
+.lf-card .lf-table td:first-child {
+    padding-left: 1.1rem;
+}
+
+.lf-card__title {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 650;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+}
+
+.lf-count {
+    font-weight: 400;
+    margin-left: 0.25rem;
+}
+
+.lf-dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.35rem 1rem;
+    margin: 0;
+}
+
+.lf-dl dt {
+    color: var(--lf-muted);
+}
+
+.lf-dl dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.lf-error {
+    color: var(--lf-red);
+}
+
+.lf-warn {
+    color: var(--lf-yellow);
+}
+
+.lf-cell-wrap {
+    white-space: normal !important;
+    max-width: 28rem;
+    overflow-wrap: anywhere;
+}
+
+.lf-details summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.lf-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.lf-details summary::before {
+    content: "▸ ";
+    color: var(--lf-muted);
+}
+
+.lf-details[open] summary::before {
+    content: "▾ ";
+}
+
+.lf-details .lf-json {
+    margin-top: 0.5rem;
+}
+
+.lf-json {
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre;
+}
+
+.lf-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.lf-tag--warn {
+    color: var(--lf-yellow);
+    border-color: var(--lf-yellow);
+}
+
+.lf-tag--ok {
+    color: var(--lf-green);
+    border-color: var(--lf-green);
+}
+
+/* ---- Notices ---------------------------------------------------------- */
+
+.lf-notice {
+    padding: 0.7rem 1rem;
+    border-radius: var(--lf-radius);
+    border: 1px solid var(--lf-border);
+    margin-bottom: 0.75rem;
+    background: var(--lf-surface);
+}
+
+.lf-notice--info  { border-left: 4px solid var(--lf-cyan); }
+.lf-notice--warn  { border-left: 4px solid var(--lf-yellow); }
+.lf-notice--error { border-left: 4px solid var(--lf-red); }
+
+/* ---- Overview --------------------------------------------------------- */
+
+.lf-counts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.lf-count-card {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.8rem 1rem;
+    border-radius: var(--lf-radius);
+    border: 1px solid var(--lf-border);
+    border-top-width: 4px;
+    background: var(--lf-surface);
+    color: var(--lf-text);
+}
+
+.lf-count-card:hover {
+    text-decoration: none;
+    border-color: var(--lf-accent);
+}
+
+.lf-count-card__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.lf-count-card__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+}
+
+.lf-count-card__share {
+    font-size: 0.78rem;
+    color: var(--lf-muted);
+}
+
+.lf-count-card--completed { border-top-color: var(--lf-green); }
+.lf-count-card--failed    { border-top-color: var(--lf-red); }
+.lf-count-card--running   { border-top-color: var(--lf-yellow); }
+.lf-count-card--retrying  { border-top-color: var(--lf-cyan); }
+.lf-count-card--waiting   { border-top-color: var(--lf-cyan); }
+.lf-count-card--cancelled { border-top-color: var(--lf-magenta); }
+.lf-count-card--pending   { border-top-color: var(--lf-grey); }
+
+/* Attempt outcomes share the step palette; the two extra kinds. */
+.lf-status--timed_out   { color: var(--lf-red);    background: var(--lf-red-bg); }
+.lf-status--interrupted { color: var(--lf-yellow); background: var(--lf-yellow-bg); }
+
+/* ---- Actions ---------------------------------------------------------- */
+
+/* The summary of any disclosure: the actions card, the start form,
+   and the input and context payloads. */
+.lf-disclosure {
+    cursor: pointer;
+    list-style: none;
+    margin: 0;
+}
+
+.lf-disclosure::-webkit-details-marker {
+    display: none;
+}
+
+.lf-disclosure::before {
+    content: "▸ ";
+}
+
+details[open] > .lf-disclosure::before {
+    content: "▾ ";
+}
+
+details[open] > .lf-disclosure {
+    margin-bottom: 0.75rem;
+}
+
+.lf-actions__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.lf-action {
+    display: grid;
+    gap: 0.6rem;
+    align-content: start;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-bg);
+}
+
+.lf-action__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 650;
+}
+
+.lf-action__help {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.lf-action .lf-button {
+    justify-self: start;
+}
+
+.lf-field textarea {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-surface);
+    color: var(--lf-text);
+    font: inherit;
+    font-family: var(--lf-mono);
+    font-size: 0.85rem;
+    resize: vertical;
+}
+
+.lf-field textarea:focus {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+    border-color: transparent;
+}
+
+.lf-field--wide {
+    grid-column: 1 / -1;
+}
+
+.lf-button--danger {
+    border-color: var(--lf-red);
+    color: var(--lf-red);
+    cursor: pointer;
+    font: inherit;
+}
+
+.lf-button--danger:hover {
+    background: var(--lf-red-bg);
+    color: var(--lf-red);
+}
+
+.lf-flash {
+    margin-bottom: 1rem;
+}
+
+.lf-start__form {
+    background: transparent;
+    border: 0;
+    padding: 0;
+}
+
+/* ======================================================================
+ * Polish
+ *
+ * Refinement of what is above rather than a second theme: the same
+ * palette and the same shapes, with the edges taken off — focus made
+ * visible everywhere, surfaces lifted off the background, motion that
+ * states have changed, and the live-filter affordances. Every rule
+ * here is additive; removing this block leaves a working dashboard.
+ * ====================================================================== */
+
+/* ---- Focus, everywhere, for everyone ---------------------------------- */
+
+.lf a:focus-visible,
+.lf button:focus-visible,
+.lf summary:focus-visible,
+.lf [tabindex]:focus-visible {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.lf-check input:focus-visible,
+.lf-field input:focus-visible,
+.lf-field textarea:focus-visible {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+}
+
+/* A keyboard operator lands on a table row and can see where. */
+.lf-table tbody tr:focus-within td {
+    background: var(--lf-accent-soft);
+}
+
+/* ---- Surfaces --------------------------------------------------------- */
+
+.lf-table-wrap,
+.lf-card,
+.lf-filters,
+.lf-count-card,
+.lf-notice {
+    box-shadow: var(--lf-shadow);
+}
+
+.lf-card .lf-table-wrap {
+    box-shadow: none;
+}
+
+.lf-count-card,
+.lf-button,
+.lf-live,
+.lf-nav__link,
+.lf-table tbody tr td {
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.lf-count-card:hover {
+    box-shadow: var(--lf-shadow-lift);
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-count-card,
+    .lf-button,
+    .lf-live,
+    .lf-nav__link,
+    .lf-table tbody tr td {
+        transition: none;
+    }
+
+    .lf-count-card:hover {
+        transform: none;
+    }
+}
+
+/* ---- Header ----------------------------------------------------------- */
+
+.lf-header {
+    box-shadow: var(--lf-shadow);
+}
+
+/* ---- Tables ----------------------------------------------------------- */
+
+/* A long list keeps its headings while it is scrolled. */
+.lf-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.lf-table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--lf-code-bg) 45%, transparent);
+}
+
+.lf-table tbody tr:hover td {
+    background: var(--lf-code-bg);
+}
+
+/* The id is the row's handle: make it look like one. */
+a.lf-id {
+    color: var(--lf-accent);
+}
+
+a.lf-id::before {
+    content: "#";
+    opacity: 0.5;
+}
+
+.lf-workflow {
+    color: var(--lf-text);
+}
+
+.lf-table a.lf-workflow:hover {
+    color: var(--lf-accent);
+}
+
+/* ---- Live filtering --------------------------------------------------- */
+
+/* The button is the no-script path; with script the form is live. */
+.lf-js .lf-no-js {
+    display: none;
+}
+
+.lf-filters__busy {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--lf-border);
+    border-top-color: var(--lf-accent);
+    opacity: 0;
+    align-self: center;
+}
+
+.lf-js.is-loading .lf-filters__busy {
+    opacity: 1;
+    animation: lf-spin 650ms linear infinite;
+}
+
+@keyframes lf-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* The page is being replaced: say so without hiding it. */
+.lf-js.is-loading .lf-table-wrap,
+.lf-js.is-loading .lf-counts {
+    opacity: 0.55;
+    transition: opacity 120ms ease 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-js.is-loading .lf-filters__busy {
+        animation: none;
+        border-top-color: var(--lf-border);
+        background: var(--lf-accent);
+    }
+
+    .lf-js.is-loading .lf-table-wrap,
+    .lf-js.is-loading .lf-counts {
+        transition: none;
+    }
+}
+
+.lf-filters__statuses {
+    gap: 0.35rem 0.5rem;
+}
+
+/* Each status is a target in its own right, not a word beside a box. */
+.lf-check {
+    padding: 0.15rem 0.5rem 0.15rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    user-select: none;
+}
+
+.lf-filters__statuses .lf-check:hover {
+    border-color: var(--lf-border);
+    background: var(--lf-code-bg);
+}
+
+.lf-filters__statuses .lf-check:has(input:checked) {
+    border-color: var(--lf-accent);
+    background: var(--lf-accent-soft);
+}
+
+.lf-filters__statuses .lf-check .lf-status {
+    opacity: 0.55;
+}
+
+.lf-filters__statuses .lf-check:has(input:checked) .lf-status {
+    opacity: 1;
+}
+
+/* ---- Notices and flashes ---------------------------------------------- */
+
+.lf-notice {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.lf-notice strong {
+    flex: 0 0 auto;
+}
+
+.lf-flash {
+    animation: lf-rise 180ms ease-out;
+}
+
+@keyframes lf-rise {
+    from { opacity: 0; transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-flash { animation: none; }
+}
+
+/* ---- Detail page ------------------------------------------------------ */
+
+.lf-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.lf-title .lf-id {
+    color: var(--lf-muted);
+    font-weight: 600;
+}
+
+.lf-crumbs a:hover {
+    color: var(--lf-accent);
+}
+
+.lf-dl dt {
+    font-size: 0.85rem;
+}
+
+.lf-card__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lf-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--lf-radius);
+}
+
+.lf-list li:hover {
+    background: var(--lf-code-bg);
+}
+
+/* ---- Empty states ------------------------------------------------------ */
+
+.lf-empty {
+    box-shadow: none;
+    color: var(--lf-muted);
+}
+
+.lf-empty .lf-code {
+    display: inline-block;
+    text-align: left;
+    max-width: 100%;
+}
+
+/* ---- Pagination -------------------------------------------------------- */
+
+.lf-pagination {
+    padding-bottom: 0.5rem;
+}
+
+.lf-pagination__group:empty {
+    display: none;
+}
+
+/* ---- Small screens ------------------------------------------------------ */
+
+@media (max-width: 720px) {
+    .lf-title {
+        font-size: 1.2rem;
+    }
+
+    .lf-counts {
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    }
+
+    .lf-count-card__value {
+        font-size: 1.25rem;
+    }
+
+    .lf-dl {
+        grid-template-columns: 1fr;
+        gap: 0 0;
+    }
+
+    .lf-dl dt {
+        margin-top: 0.5rem;
+    }
+
+    .lf-filters__fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- Print --------------------------------------------------------------
+ * An execution's record is a thing operators paste into an incident
+ * write-up. Give them the record and none of the furniture.
+ * ------------------------------------------------------------------------ */
+
+@media print {
+    .lf-header,
+    .lf-footer,
+    .lf-filters,
+    .lf-actions,
+    .lf-start,
+    .lf-pagination {
+        display: none !important;
+    }
+
+    .lf-card,
+    .lf-table-wrap {
+        box-shadow: none;
+        border-color: #ccc;
+        break-inside: avoid;
+    }
+
+    .lf-json {
+        max-height: none;
+        white-space: pre-wrap;
+    }
+}
+
+.lf-payload > summary {
+    margin: 0;
+}
+
+.lf-payload[open] > summary {
+    margin-bottom: 0.75rem;
+}
