@@ -322,9 +322,11 @@ The two capabilities deferred from Milestone 7, each specified in `docs/advanced
 
 #### Work
 
-- Fan-out/fan-in: a step group whose members run in parallel as child executions and whose join has defined semantics for partial failure, cancellation, and retry — the plan stays persisted and validated, the join is a wait, and the recovery contract gains no new windows.
-- Compensation: a step may declare `compensate()`; a failing workflow runs compensations in reverse over the steps that completed, with each compensation a durable, retryable step attempt and the saga's state inspectable like any other.
+- Fan-out/fan-in: a step group whose members run in parallel as child executions and whose join has defined semantics for partial failure, cancellation, and retry — the plan stays persisted and validated, the join is a wait, and the recovery contract gains no new windows. Semantics fixed in `docs/advanced-workflows.md` before implementation (step 2).
+- Compensation: a step may declare `compensate()`; a failing workflow runs compensations in reverse over the steps that completed, with each compensation a durable, retryable step attempt and the saga's state inspectable like any other. Semantics fixed in the same document (step 3).
 - Both ride the heartbeat and signal machinery that composition proved, not new mechanisms.
+
+The two decisions that shape everything downstream, taken in the contract: a fan-out is **one plan step** whose members are child executions, so the plan stays a flat validated list and graph branching stays out of scope; and a compensation is **an ordinary step row** appended after the plan, so it is retryable and inspectable without a line of new machinery — the plan being the rows that compensate nothing. Milestone 8.5's audit leftovers were taken first (step 1), because both capabilities land on the console and dashboard code they touched.
 
 #### Exit criteria
 
