@@ -106,9 +106,8 @@ runs:
         grep -q 'Simulated gateway timeout' show.log
         php artisan laraflow:execute 1 | grep -q 'Execution completed'
         php artisan laraflow:show 1 | tee show.log
-        grep -q completed show.log
         grep -q '"reserved":42' show.log
-        php artisan laraflow:list | grep -q '1 of 1'
+        php artisan laraflow:list --status=completed | grep -q '1 of 1'
 
     # The skeleton's queue connection is the database, so this proves
     # the dispatch path against the same engine, end to end.
@@ -117,10 +116,33 @@ runs:
       working-directory: ${{ inputs.app }}
       run: |
         php artisan laraflow:start 'App\Workflows\FulfilOrder' --input='{"order_id": 43}' --queue | grep -q 'Queued as execution 2'
-        php artisan laraflow:list | grep -q pending
+        php artisan laraflow:list --status=pending | grep -q '1 of 1'
         php artisan queue:work --stop-when-empty
-        php artisan laraflow:show 2 | grep -q completed
-        php artisan laraflow:list | grep -q '2 of 2'
+        # Filtered by status rather than grepping the detail view: that
+        # view prints a step table, where a completed *step* of a failed
+        # execution matches the word all the same.
+        php artisan laraflow:list --status=completed | grep -q '2 of 2'
+        test -z "$(php artisan laraflow:list --status=failed --status=retrying --status=pending --limit=1 | grep -E '^\| *2 ')"
+
+    # The generated connector carries its registration in a docblock,
+    # so registering it is the paste the stub tells the developer to
+    # make. Without it --check proves only that the two bundled
+    # connectors resolve, which the generators had no hand in.
+    - name: The generated connector registers and resolves
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php -r '
+          $path = "config/laraflow.php";
+          $config = file_get_contents($path);
+          $block = "\n        \"stripe\" => [\n            \"connector\" => \\App\\Connectors\\StripeConnector::class,\n        ],";
+          $config = preg_replace("/(\x27integrations\x27 => \[)/", "$1".$block, $config, 1);
+          file_put_contents($path, $config);
+        '
+        php -l config/laraflow.php
+        php artisan laraflow:connectors | tee connectors.log
+        grep -q stripe connectors.log
+        php artisan laraflow:connectors stripe --check
 
     - name: Connectors resolve and the schema rolls back
       shell: bash

@@ -4,22 +4,20 @@ declare(strict_types=1);
 
 namespace Laraflow\Console\Concerns;
 
+use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Workflow;
-use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
 
 /**
- * @internal The one way a console command starts a workflow and
- * reports what became of it, shared by `laraflow:start` and the demo:
- * inline, the execution is created and run here and every non-terminal
- * outcome — retrying, waiting, cancelled — is said for what it is
- * rather than reported as done; queued, it is created first and
- * dispatched second, so the id is known even when a sync queue
- * connection runs the job inside the dispatch call and a step fails.
+ * @internal The one way a console command creates an execution and runs
+ * or dispatches it, shared by `laraflow:start` and `laraflow:demo`.
+ *
+ * The outcome reporting itself lives in DisplaysExecutions, with the
+ * commands that run an execution they did not create.
  *
  * @mixin \Illuminate\Console\Command
  */
@@ -47,6 +45,15 @@ trait StartsExecutions
 
         try {
             $execution = $runner->execute($execution->id, $workflow);
+        } catch (WorkflowException $exception) {
+            // Not a step failure: the runtime refused the run itself —
+            // another worker holds the claim, the claim was lost, the
+            // definition no longer matches. The message names the thing
+            // and the fix, so it is printed as it stands, as every other
+            // command prints a WorkflowException.
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
         } catch (Throwable $exception) {
             $this->reportFailedRun($repository, $execution->id, $exception);
 
@@ -79,11 +86,33 @@ trait StartsExecutions
 
         try {
             $dispatcher->dispatchExecution($execution->id);
+        } catch (WorkflowException $exception) {
+            $this->components->error($exception->getMessage());
+            $this->components->info(
+                "Execution [{$execution->id}] was created and not queued. "
+                ."Run it with: laraflow:execute {$execution->id}"
+            );
+
+            return self::FAILURE;
         } catch (Throwable $exception) {
-            // Any driver but sync throwing here is the push itself
-            // failing — a different subsystem, said plainly.
-            if (! $this->queueDriverIsSync()) {
+            // Did the job run, or did the push fail? The configured
+            // driver cannot answer: a broker refusing a connection
+            // while the connection is nominally sync would be reported
+            // as a step failure with every step still pending, and a
+            // listener throwing after a successful push would be
+            // reported as a failure to queue. The record answers it.
+            // Nothing reached a step while the execution is still
+            // pending, whatever threw.
+            if ($repository->find($execution->id)->isPending()) {
                 $this->components->error('The execution could not be queued: '.$exception->getMessage());
+                // This command is the only thing that knows the id it
+                // just wrote, and the scan that would otherwise find a
+                // never-dispatched execution is off by default
+                // (docs/queue-and-recovery.md).
+                $this->components->info(
+                    "Execution [{$execution->id}] is persisted and pending. "
+                    ."Run it here with: laraflow:execute {$execution->id}"
+                );
 
                 return self::FAILURE;
             }
@@ -98,6 +127,24 @@ trait StartsExecutions
             return self::FAILURE;
         }
 
+        // The sync driver runs the job inside the dispatch call, so by
+        // here the execution may already be finished — or parked, or
+        // retrying, since the job deliberately does not throw for those.
+        // Telling the user to start a worker for work that has already
+        // run is how the result goes unseen, so what actually happened
+        // is read back and reported.
+        $execution = $repository->find($execution->id);
+
+        if (! $execution->isPending()) {
+            $this->components->info(
+                'The queue connection ran the job in this process (sync driver).'
+            );
+
+            $this->displayExecution($execution, $repository->steps($execution));
+
+            return $this->reportOutcome($execution);
+        }
+
         $this->components->info(
             "Queued as execution {$execution->id}. Process it with: php artisan queue:work"
         );
@@ -106,67 +153,5 @@ trait StartsExecutions
         );
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Say what a finished run amounts to. Three of the four outcomes
-     * are not failures and not completions either: the step's policy,
-     * a wait, or an operator owns what happens next, so the command
-     * succeeds and says who.
-     */
-    protected function reportOutcome(WorkflowExecution $execution): int
-    {
-        if ($execution->isRetrying()) {
-            $this->components->warn(sprintf(
-                'A step failed and its retry policy scheduled another attempt for %s. '
-                .'Deliver it with: laraflow:recover --sync — or skip the wait with: laraflow:execute %s --now',
-                $this->formatDate($execution->nextRetryAt),
-                $execution->id,
-            ));
-
-            return self::SUCCESS;
-        }
-
-        if ($execution->isWaiting()) {
-            $this->components->warn(sprintf(
-                'A step parked the execution on a wait. See what it is waiting for with: laraflow:show %s '
-                .'— a timed wait is delivered by laraflow:recover, a signal by WorkflowRunner::signal().',
-                $execution->id,
-            ));
-
-            return self::SUCCESS;
-        }
-
-        if ($execution->isCancelled()) {
-            $this->components->info('The execution was cancelled during the run; completed steps are kept.');
-
-            return self::SUCCESS;
-        }
-
-        $this->components->info(
-            "Done. Inspect it anytime with: laraflow:show {$execution->id}"
-        );
-
-        return self::SUCCESS;
-    }
-
-    /**
-     * A step threw and the failure is persisted: show the record as it
-     * now stands, the error, and the command that picks it up again.
-     */
-    protected function reportFailedRun(
-        ExecutionRepository $repository,
-        int $executionId,
-        Throwable $exception,
-        string $prefix = 'A step failed: ',
-    ): void {
-        $failed = $repository->find($executionId);
-
-        $this->displayExecution($failed, $repository->steps($failed));
-
-        $this->components->error($prefix.$exception->getMessage());
-        $this->components->info(
-            "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
-        );
     }
 }

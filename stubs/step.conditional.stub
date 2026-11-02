@@ -8,7 +8,7 @@ use Laraflow\Workflow\ConditionalStep;
 use Laraflow\Workflow\Step;
 use Laraflow\Workflow\WorkflowContext;
 
-class {{ class }} implements Step, ConditionalStep
+class {{ class }} implements ConditionalStep, Step
 {
     /**
      * Whether this step has anything to do. A false answer durably
@@ -24,6 +24,9 @@ class {{ class }} implements Step, ConditionalStep
      * Do this step's work. Read what earlier steps left in the context,
      * write what later steps need, and return a JSON-serializable value
      * to record as this step's output.
+     *
+     * Side effects may repeat after a crash; wrap any that must not in
+     * `$context->remember('key', fn () => ...)`.
      */
     public function handle(WorkflowContext $context): mixed
     {

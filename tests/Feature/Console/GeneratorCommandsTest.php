@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Console;
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
 use Laraflow\Integration\HttpConnector;
 use Laraflow\Tests\Support\RunsArtisanCommands;
@@ -181,6 +182,50 @@ class GeneratorCommandsTest extends TestCase
 
         $this->callCommand('make:workflow', ['name' => "Keep{$suffix}", '--force' => true]);
         $this->assertStringContainsString('extends Workflow', File::get($path));
+    }
+
+    /**
+     * What the generators write is the first Laraflow code most
+     * applications will own, and a package that ships a Pint preset
+     * should not generate code its own preset immediately rewrites.
+     * Both stubs failed this when it was first written (Phase C audit):
+     * an inline `\LogicException` against `global_namespace_import`,
+     * and `implements Step, ConditionalStep` against `ordered_interfaces`.
+     */
+    public function test_every_generated_class_passes_the_projects_own_code_style(): void
+    {
+        $suffix = $this->suffix();
+
+        $written = [
+            $this->callCommand('make:workflow', ['name' => "Styled{$suffix}"]),
+            $this->callCommand('make:step', ['name' => "StyledStep{$suffix}"]),
+            $this->callCommand('make:step', ['name' => "StyledGate{$suffix}", '--conditional' => true]),
+            $this->callCommand('make:step', ['name' => "StyledChild{$suffix}", '--sub-workflow' => true]),
+            $this->callCommand('make:connector', ['name' => "Styled{$suffix}Connector"]),
+        ];
+
+        foreach ($written as $result) {
+            $this->assertSame(CommandStatus::SUCCESS, $result['status']);
+        }
+
+        $paths = [
+            $this->generated("Workflows/Styled{$suffix}.php"),
+            $this->generated("Workflows/Steps/StyledStep{$suffix}.php"),
+            $this->generated("Workflows/Steps/StyledGate{$suffix}.php"),
+            $this->generated("Workflows/Steps/StyledChild{$suffix}.php"),
+            $this->generated("Connectors/Styled{$suffix}Connector.php"),
+        ];
+
+        $root = dirname(__DIR__, 3);
+        $result = Process::path($root)->run(array_merge(
+            [$root.'/vendor/bin/pint', '--test', '--config', $root.'/pint.json'],
+            $paths,
+        ));
+
+        $this->assertTrue(
+            $result->successful(),
+            'The generated classes do not pass the package\'s own pint preset: '.$result->output(),
+        );
     }
 
     private function generated(string $relative): string

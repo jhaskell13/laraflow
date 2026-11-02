@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Console;
 
 use Illuminate\Support\Facades\Queue;
+use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Tests\Support\ApprovalWorkflow;
 use Laraflow\Tests\Support\RunsArtisanCommands;
@@ -16,6 +17,7 @@ use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowRunner;
+use RuntimeException;
 use Symfony\Component\Console\Command\Command as CommandStatus;
 
 /**
@@ -242,6 +244,91 @@ class StartCommandTest extends TestCase
         $this->assertStringContainsString('ran the job in this process', $output);
         $this->assertStringContainsString('laraflow:execute 1', $output);
         $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    /**
+     * The Phase C audit's first finding. Under the sync driver the job
+     * runs inside the dispatch call, so by the time --queue returns the
+     * work is already done; telling the user to start a worker is how
+     * the result — and a failure — goes unseen.
+     */
+    public function test_queue_on_a_sync_connection_reports_what_actually_happened_not_queued(): void
+    {
+        // No Queue::fake(): the sync connection runs the job here.
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', [
+            'workflow' => TwoStepWorkflow::class,
+            '--queue' => true,
+        ]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('ran the job in this process', $output);
+        $this->assertStringContainsString('Execution completed', $output);
+        $this->assertStringNotContainsString('Queued as execution', $output);
+        $this->assertStringNotContainsString('queue:work', $output, 'No worker is needed for work already done.');
+
+        $this->assertSame(ExecutionStatus::Completed->value, WorkflowExecutionModel::query()->sole()->status);
+        $this->assertSame(1, StepTwo::$runs, 'The job really did run in this process.');
+    }
+
+    /**
+     * Same finding, the outcome that is neither done nor failed: the
+     * job deliberately does not throw when a step parks the execution.
+     */
+    public function test_queue_on_a_sync_connection_reports_a_wait_rather_than_queued(): void
+    {
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', [
+            'workflow' => ApprovalWorkflow::class,
+            '--queue' => true,
+        ]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('parked the execution on a wait', $output);
+        $this->assertStringNotContainsString('Queued as execution', $output);
+
+        $this->assertSame(ExecutionStatus::Waiting->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    /**
+     * The audit's fourth finding: the runtime refusing the run is not a
+     * step failure, and must not be reported as one — nothing failed
+     * and there is nothing to recover.
+     */
+    public function test_a_runtime_refusal_is_not_reported_as_a_step_failure(): void
+    {
+        // Another worker claims the execution between start() and
+        // execute(), the window a concurrent recover scan really opens.
+        StepOne::$throw = new ClaimLostException('Execution [1] claim was lost.');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', [
+            'workflow' => TwoStepWorkflow::class,
+        ]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('claim was lost', $output);
+        $this->assertStringNotContainsString('A step failed', $output);
+        $this->assertStringNotContainsString('The failure is persisted', $output);
+    }
+
+    /**
+     * The audit's second finding: when the push fails, this command is
+     * the only thing that knows the id of the execution it just wrote,
+     * and the scan that would otherwise find it is off by default.
+     */
+    public function test_a_push_failure_still_names_the_execution_it_created(): void
+    {
+        Queue::shouldReceive('connection')->andThrow(new RuntimeException('Connection refused'));
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', [
+            'workflow' => TwoStepWorkflow::class,
+            '--queue' => true,
+        ]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('could not be queued', $output);
+        $this->assertStringContainsString('Connection refused', $output);
+        $this->assertStringContainsString('laraflow:execute 1', $output, 'The id it wrote is printed.');
+
+        $this->assertSame(ExecutionStatus::Pending->value, WorkflowExecutionModel::query()->sole()->status);
     }
 
     public function test_a_workflow_with_no_steps_is_refused_by_the_plan_validation(): void

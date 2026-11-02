@@ -69,7 +69,10 @@ class StartCommand extends Command
         // class_exists() and is_subclass_of() above hold for the name;
         // this holds for what the container chose to bind to it.
         if (! $workflow instanceof Workflow) {
-            $this->components->error("The container resolved [{$class}] to something that is not a ".Workflow::class.'.');
+            $this->components->error(
+                "The container resolved [{$class}] to something that is not a ".Workflow::class
+                .'. Check the binding for it in a service provider.'
+            );
 
             return self::FAILURE;
         }
@@ -176,8 +179,9 @@ class StartCommand extends Command
         }
 
         // Input seeds the context by key, so only an object will do.
-        // `[]` decodes to the same empty array `{}` does and is accepted
-        // as "no input"; a non-empty list has no keys to seed with.
+        // `[]` and `{}` both decode to the empty array and are accepted
+        // as "no input" — PHP cannot tell them apart, and neither
+        // carries a key. A non-empty list has no keys to seed with.
         if (! is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
             throw new InvalidArgumentException(
                 'The --input option must be a JSON object, e.g. --input=\'{"order_id": 42}\'; got '
@@ -201,6 +205,8 @@ class StartCommand extends Command
             return null;
         }
 
-        return trim($value) === '' ? null : $value;
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 }

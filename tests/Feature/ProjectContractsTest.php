@@ -111,15 +111,17 @@ class ProjectContractsTest extends TestCase
         $problems = [];
 
         // Each console row looks like: | `laraflow:x {--a=} {--b}` | ...
-        preg_match_all('/`laraflow:([a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
+        // The make:* generators are documented in the same table and
+        // are just as much the package's console surface.
+        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
 
         $this->assertNotEmpty($rows, 'The console table was not found; this audit needs updating.');
 
         foreach ($rows as [, $name, $options]) {
-            $command = Artisan::all()["laraflow:{$name}"] ?? null;
+            $command = Artisan::all()[$name] ?? null;
 
             if ($command === null) {
-                $problems[] = "laraflow:{$name} is documented but not registered";
+                $problems[] = "{$name} is documented but not registered";
 
                 continue;
             }
@@ -128,7 +130,68 @@ class ProjectContractsTest extends TestCase
 
             foreach ($declared[1] as $option) {
                 if (! $command->getDefinition()->hasOption($option)) {
-                    $problems[] = "laraflow:{$name} has no --{$option}";
+                    $problems[] = "{$name} has no --{$option}";
+                }
+            }
+
+            // ...and the arguments, which the table spells the same way.
+            preg_match_all('/\{([a-z]+)\??\}/', $options, $arguments);
+
+            foreach ($arguments[1] as $argument) {
+                if (! $command->getDefinition()->hasArgument($argument)) {
+                    $problems[] = "{$name} has no {$argument} argument";
+                }
+            }
+        }
+
+        $this->assertSame([], $problems);
+    }
+
+    /**
+     * The other direction, which the audit above cannot see: an option
+     * added to a command and not written down ships undocumented and
+     * CI stays green. Milestone 8 added a command with four options and
+     * nothing structural would have caught their omission (Phase C
+     * audit). Laravel's own global options are not ours to document.
+     */
+    public function test_every_declared_command_option_and_argument_is_documented(): void
+    {
+        $doc = (string) file_get_contents($this->path('docs/public-api.md'));
+        $problems = [];
+
+        $global = ['help', 'quiet', 'verbose', 'version', 'ansi', 'no-ansi', 'no-interaction', 'env'];
+
+        $documented = [];
+        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
+
+        foreach ($rows as [, $name, $options]) {
+            $documented[$name] = ($documented[$name] ?? '').$options;
+        }
+
+        foreach (Artisan::all() as $name => $command) {
+            if (! str_starts_with($name, 'laraflow:') && ! in_array($name, ['make:workflow', 'make:step', 'make:connector'], true)) {
+                continue;
+            }
+
+            if (! isset($documented[$name])) {
+                $problems[] = "{$name} is registered but has no row in docs/public-api.md";
+
+                continue;
+            }
+
+            foreach ($command->getDefinition()->getOptions() as $option) {
+                if (in_array($option->getName(), $global, true)) {
+                    continue;
+                }
+
+                if (! str_contains($documented[$name], '{--'.$option->getName())) {
+                    $problems[] = "{$name} declares --{$option->getName()}, which is not documented";
+                }
+            }
+
+            foreach ($command->getDefinition()->getArguments() as $argument) {
+                if (! str_contains($documented[$name], '{'.$argument->getName())) {
+                    $problems[] = "{$name} takes {$argument->getName()}, which is not documented";
                 }
             }
         }

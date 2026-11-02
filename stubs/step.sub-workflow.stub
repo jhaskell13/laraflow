@@ -7,6 +7,7 @@ namespace {{ namespace }};
 use Laraflow\Workflow\SubWorkflowStep;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowContext;
+use LogicException;
 
 class {{ class }} extends SubWorkflowStep
 {
@@ -19,11 +20,12 @@ class {{ class }} extends SubWorkflowStep
     public function workflow(WorkflowContext $context): Workflow
     {
         // return new OtherWorkflow;
-        throw new \LogicException('Return the child workflow from '.static::class.'::workflow().');
+        throw new LogicException('Return the child workflow from '.static::class.'::workflow().');
     }
 
     /**
-     * The child's input, built from this execution's context.
+     * The child's input, built from this execution's context. Remove
+     * this to inherit the parent's empty default.
      *
      * @return array<string, mixed>
      */

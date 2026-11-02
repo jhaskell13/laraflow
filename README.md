@@ -17,6 +17,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
 - [Conditions, waits, and sub-workflows](#conditions-waits-and-sub-workflows)
+- [Changing a deployed workflow](#changing-a-deployed-workflow)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
@@ -738,6 +739,43 @@ class SyncSubsidiary extends SubWorkflowStep
 ```
 
 The child inherits the parent's correlation and tenant identifiers, runs like any other execution, and its outcome — identity and status, never its context — becomes the parent step's output. A failed child fails the parent step under the step's retry policy, and a retry resumes the *same* child from its own checkpoints rather than starting over. Cancelling a parent cascades to its unfinished children; nesting is bounded by `laraflow.workflows.max_depth`; and the parent checks on its child every `stale_after` seconds, so a lost signal or a lost dispatch heals instead of hanging.
+
+## Changing a deployed workflow
+
+The full step plan is persisted when an execution is created, and the runner refuses to run an execution whose persisted plan no longer matches the workflow's `steps()`. That refusal is deliberate — durable state must never be quietly reinterpreted by changed code — but it means **a deploy that edits a workflow strands every in-flight execution of it** with `WorkflowDefinitionMismatchException`.
+
+Versioning is the one way past it, and it is opt-in per workflow. Bump `version()` and say what changed, keyed by the version the migration moves *from*:
+
+```php
+use Laraflow\Workflow\PlanDraft;
+use Laraflow\Workflow\Workflow;
+
+class FulfilOrder extends Workflow
+{
+    public function steps(): array
+    {
+        return [ReserveInventory::class, ChargePayment::class, RecordTax::class, SendReceipt::class];
+    }
+
+    public function version(): int
+    {
+        return 2;
+    }
+
+    public function planMigrations(): array
+    {
+        return [
+            1 => fn (PlanDraft $plan) => $plan->insertAfter(ChargePayment::class, RecordTax::class),
+        ];
+    }
+}
+```
+
+An execution persisted under version 1 is carried forward the next time it is claimed: the declared hops run in turn, under the existing claim, in one transaction, before any step runs. Nothing new happens at recovery time and no new state is introduced.
+
+A migration may rewrite **only the part of the plan the execution has not reached**. A `pending` step row has no output, no attempt history, and nothing in the context, so it can be renumbered, removed, or replaced; every other row is the record of something that happened. Reaching further back is refused with `PlanMigrationRefusedException`, naming the step and the status that froze it. Leave `version()` alone and a changed `steps()` still strands its executions, exactly as before — silence means refuse.
+
+The full contract — what is refused and why, how several versions behind are chained, and how to test a migration — is in [docs/workflow-versioning.md](docs/workflow-versioning.md). Deploy guidance is in [docs/upgrading.md](docs/upgrading.md).
 
 ## Running on a queue
 
