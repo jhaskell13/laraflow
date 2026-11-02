@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use Laraflow\Support\DurableValue;
 use LogicException;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 /**
  * The machinery behind FanOutStep: declare the members once, create
@@ -103,6 +104,23 @@ class FanOutWorkflows
             } catch (ExecutionNotRunnableException) {
                 // Finished between create and deliver — an operator, or
                 // the sync driver through another path. Counted below.
+            } catch (Throwable $failure) {
+                // On the sync driver the member ran inside this call and
+                // its own failure surfaces here. That failure is already
+                // durably its own — the runner recorded it before
+                // rethrowing — and it is one member's answer, not the
+                // group's: the group decides below, from the record. A
+                // push that failed on another driver lands here too and
+                // leaves the member pending for the heartbeat to
+                // re-deliver; said out loud, or a dead queue would be an
+                // invisible loop.
+                if ($this->repository->find($member->id)->isPending()) {
+                    $this->logger->warning('Laraflow could not deliver a fan-out member; the parent heartbeat will re-deliver it.', [
+                        'parent_execution_id' => $parent->id,
+                        'member_execution_id' => $member->id,
+                        'exception' => $failure::class.': '.$failure->getMessage(),
+                    ]);
+                }
             }
         }
 

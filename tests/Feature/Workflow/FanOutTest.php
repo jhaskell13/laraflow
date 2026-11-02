@@ -10,19 +10,26 @@ use Illuminate\Support\Facades\Queue;
 use Laraflow\Events\WorkflowFanOutStarted;
 use Laraflow\Exceptions\Workflow\FanOutTooWideException;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Tests\Support\ArrayLogger;
+use Laraflow\Tests\Support\CrashingExecutionRepository;
 use Laraflow\Tests\Support\FailingAfterDelivery;
 use Laraflow\Tests\Support\FanOutWorkflow;
 use Laraflow\Tests\Support\NotifyMembersStep;
+use Laraflow\Tests\Support\SimulatedWorkerCrash;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ChildDelivery;
+use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionOptions;
+use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\FanOutWorkflows;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\WorkflowRunner;
-use RuntimeException;
+use Psr\Log\LoggerInterface;
 
 /**
  * The fan-out contract (docs/advanced-workflows.md): one plan step whose
@@ -176,39 +183,68 @@ class FanOutTest extends TestCase
     public function test_creation_resumes_from_the_members_that_exist_without_reading_members_again(): void
     {
         Queue::fake();
+        Date::setTestNow('2026-11-02 10:00:00');
 
-        // The worker dies handing over the second member: two members
-        // exist (one delivered, one not), the third was never made.
-        $delivery = new FailingAfterDelivery($this->app->make(ChildDelivery::class), dieOn: 2);
-        $this->app->instance(ChildDelivery::class, $delivery);
-        $this->app->forgetInstance(\Laraflow\Workflow\FanOutWorkflows::class);
+        // The worker dies creating the second member: the first exists
+        // and was delivered, the second and third were never made, and
+        // — as after a real death — nothing after the boundary is
+        // persisted, the failure included. The parent keeps its claim.
+        $real = $this->app->make(ExecutionRepository::class);
+        $this->app->instance(ExecutionRepository::class, new CrashingExecutionRepository($real, 'create', 3, 'before'));
 
         try {
             $this->runner()->run(new FanOutWorkflow);
-            $this->fail('The dying delivery must surface as the step failing.');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('died delivering member #2', $exception->getMessage());
+            $this->fail('The repository was meant to take the worker down.');
+        } catch (SimulatedWorkerCrash) {
         }
 
         $parent = WorkflowExecutionModel::query()->whereNull('parent_execution_id')->sole();
-        $this->assertSame(ExecutionStatus::Failed->value, $parent->status);
-        $this->assertSame(2, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count(), 'Exactly the members made before the death.');
+        $this->assertSame(ExecutionStatus::Running->value, $parent->status, 'Dead mid-step: still claimed, nothing recorded.');
+        $this->assertSame(1, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count(), 'Exactly the member made before the death.');
+        $this->assertCount(3, StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole()->input['members'] ?? [], 'The declaration was durable before the first member.');
         $this->assertSame(1, NotifyMembersStep::$membersCalls);
 
-        // The next claim reads the declaration from the row, counts what
-        // exists, and makes only the remainder.
-        $delivery->dieOn = 0;
+        // A live worker, after the claim has gone stale, takes over. It
+        // reads the declaration from the row, counts what exists, and
+        // makes only the remainder.
+        $this->app->instance(ExecutionRepository::class, $real);
+        foreach ([WorkflowRunner::class, FanOutWorkflows::class, ChildWorkflows::class, WorkflowDispatcher::class] as $singleton) {
+            $this->app->forgetInstance($singleton);
+        }
+        Date::setTestNow('2026-11-02 10:06:00');
+
         $resumed = $this->runner()->execute($parent->id, new FanOutWorkflow);
 
         $this->assertTrue($resumed->isWaiting(), 'Parked on the join with the group complete.');
         $this->assertSame(3, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count(), 'The remainder, not a second group.');
         $this->assertSame(1, NotifyMembersStep::$membersCalls, 'members() was not read again.');
-
-        // Every member of the three is now with a worker: the two made
-        // first, and the one the resumed claim made.
         $this->assertEquals(
-            WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->orderBy('id')->pluck('input')->all(),
             [['n' => 1], ['n' => 2], ['n' => 3]],
+            WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->orderBy('id')->pluck('input')->all(),
+            'The remainder is the declared tail, in order.',
+        );
+    }
+
+    public function test_a_push_that_fails_is_contained_and_said_and_creation_goes_on(): void
+    {
+        Queue::fake();
+        $logger = new ArrayLogger;
+        $this->app->instance(LoggerInterface::class, $logger);
+
+        // The broker refuses the second member's push. The member exists
+        // — its creation committed — and the heartbeat re-delivers a
+        // pending member; what must not happen is the whole fan-out
+        // failing, or the group being created twice.
+        $this->app->instance(ChildDelivery::class, new FailingAfterDelivery($this->app->make(ChildDelivery::class), dieOn: 2));
+
+        $parent = $this->runner()->run(new FanOutWorkflow);
+
+        $this->assertTrue($parent->isWaiting(), 'The fan-out parked; one bad push did not fail it.');
+        $this->assertSame(3, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count(), 'Every member was created.');
+        Queue::assertPushed(ExecuteWorkflowJob::class, 2);
+        $this->assertTrue(
+            $logger->hasRecordContaining('warning', 'could not deliver a fan-out member'),
+            'Said out loud, or a dead queue is an invisible loop.',
         );
     }
 
