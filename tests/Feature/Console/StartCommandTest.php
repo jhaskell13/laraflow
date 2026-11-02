@@ -60,7 +60,10 @@ class StartCommandTest extends TestCase
 
         $this->assertSame(ExecutionStatus::Completed->value, $execution->status);
         $this->assertSame(TwoStepWorkflow::class, $execution->workflow);
-        $this->assertSame(['order_id' => 42, 'items' => ['a', 'b']], $execution->input);
+        // assertEquals, not assertSame: MySQL stores JSON object keys in
+        // its own order, and the input is held to its value, not to the
+        // order the engine kept it in (as the store contract is).
+        $this->assertEquals(['order_id' => 42, 'items' => ['a', 'b']], $execution->input);
         $this->assertSame(1, StepOne::$runs);
         $this->assertSame(1, StepTwo::$runs);
     }
