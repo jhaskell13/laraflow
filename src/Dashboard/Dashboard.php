@@ -78,6 +78,7 @@ final class Dashboard
             // anything else is not a page that might exist: 404 here.
             $router->get('executions/{id}', [ExecutionController::class, 'show'])->whereNumber('id')->name('executions.show');
             $router->get('assets/dashboard.css', [AssetController::class, 'stylesheet'])->name('assets.stylesheet');
+            $router->get('assets/dashboard.js', [AssetController::class, 'script'])->name('assets.script');
 
             // Mounted read-only, the action routes are absent — not
             // hidden, not refused: there is nothing to find.

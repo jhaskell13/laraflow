@@ -11,8 +11,10 @@
     <meta name="robots" content="noindex, nofollow">
     <title>@yield('title', 'Dashboard') · Laraflow</title>
     <link rel="stylesheet" href="{{ route('laraflow.assets.stylesheet') }}">
+    <script src="{{ route('laraflow.assets.script') }}" defer></script>
 </head>
-<body class="lf">
+@php($refresh = max(0, (int) config('laraflow.dashboard.refresh', 10)))
+<body class="lf"{!! $refresh > 0 ? ' data-lf-refresh="'.$refresh.'"' : '' !!}>
     <header class="lf-header">
         <a class="lf-brand" href="{{ route('laraflow.dashboard') }}">
             <span class="lf-brand__mark" aria-hidden="true"></span>
@@ -22,9 +24,15 @@
             <a href="{{ route('laraflow.dashboard') }}" @class(['lf-nav__link', 'is-active' => request()->routeIs('laraflow.dashboard')])>Overview</a>
             <a href="{{ route('laraflow.executions') }}" @class(['lf-nav__link', 'is-active' => request()->routeIs('laraflow.executions', 'laraflow.executions.*')])>Executions</a>
         </nav>
-        @isset($now)
-            <time class="lf-header__clock" datetime="{{ $now->format(DATE_ATOM) }}">{{ $now->format('Y-m-d H:i:s') }}</time>
-        @endisset
+        <div class="lf-header__right">
+            @if ($refresh > 0)
+                {{-- Shown by the script, which owns its state; without script there is nothing to toggle. --}}
+                <button type="button" class="lf-live" data-lf-refresh-toggle hidden aria-pressed="true">Live · {{ $refresh }}s</button>
+            @endif
+            @isset($now)
+                <time class="lf-header__clock" datetime="{{ $now->format(DATE_ATOM) }}">{{ $now->format('Y-m-d H:i:s') }}</time>
+            @endisset
+        </div>
     </header>
 
     <main class="lf-main">

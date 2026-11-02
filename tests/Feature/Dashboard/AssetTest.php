@@ -42,17 +42,70 @@ class AssetTest extends TestCase
         $this->get('/laraflow/assets/dashboard.css')->assertForbidden();
     }
 
-    public function test_the_page_links_the_stylesheet_the_package_serves(): void
+    public function test_the_page_links_only_what_the_package_serves(): void
     {
         Dashboard::auth(fn (): bool => true);
         Dashboard::routes();
 
-        $this->get('/laraflow/executions')
+        $response = $this->get('/laraflow/executions');
+
+        $response->assertOk();
+        $response->assertSee('/laraflow/assets/dashboard.css"', false);
+        $response->assertSee('<script src="http://localhost/laraflow/assets/dashboard.js" defer></script>', false);
+
+        // Nothing from outside the application — no CDN, no script host
+        // — and nothing inline, so a content-security policy that
+        // forbids inline script need not loosen for the dashboard.
+        $html = (string) $response->getContent();
+        $this->assertSame(1, preg_match_all('/<script\b/', $html), 'Exactly one script tag.');
+        $this->assertSame(0, preg_match_all('/<script(?![^>]*\bsrc=)/', $html), 'No inline script.');
+        $this->assertSame(0, preg_match_all('/\son[a-z]+="/i', $html), 'No inline event handlers.');
+        $response->assertDontSee('cdn.', false);
+        $response->assertDontSee('unpkg', false);
+    }
+
+    public function test_the_script_is_served_like_the_stylesheet(): void
+    {
+        Dashboard::auth(fn (): bool => true);
+        Dashboard::routes();
+
+        $response = $this->get('/laraflow/assets/dashboard.js');
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'text/javascript; charset=utf-8');
+        $this->assertStringContainsString('data-lf-refresh', (string) $response->getContent());
+        $this->assertStringContainsString('data-lf-confirm', (string) $response->getContent());
+
+        $this->get('/laraflow/assets/dashboard.js', ['If-None-Match' => $response->headers->get('ETag')])
+            ->assertStatus(304);
+
+        Dashboard::auth(fn (): bool => false);
+        $this->get('/laraflow/assets/dashboard.js')->assertForbidden();
+    }
+
+    public function test_the_refresh_interval_is_the_pages_to_declare_and_configuration_turns_it_off(): void
+    {
+        Dashboard::auth(fn (): bool => true);
+        Dashboard::routes();
+
+        // The script reads the interval from the page, never hard-codes
+        // it; the toggle is there for the script to reveal.
+        $this->get('/laraflow')
             ->assertOk()
-            ->assertSee('/laraflow/assets/dashboard.css"', false)
-            // Nothing from outside the application: no CDN, no script host.
-            ->assertDontSee('cdn.', false)
-            ->assertDontSee('unpkg', false)
-            ->assertDontSee('<script src', false);
+            ->assertSee('<body class="lf" data-lf-refresh="10">', false)
+            ->assertSee('data-lf-refresh-toggle', false);
+
+        config()->set('laraflow.dashboard.refresh', 30);
+        $this->get('/laraflow')->assertSee('data-lf-refresh="30"', false);
+
+        // Off: no interval for the script to find, no toggle to show.
+        // The script itself stays — the confirmation dialogs are its
+        // other job.
+        config()->set('laraflow.dashboard.refresh', 0);
+        $this->get('/laraflow')
+            ->assertOk()
+            ->assertSee('<body class="lf">', false)
+            ->assertDontSee('data-lf-refresh', false)
+            ->assertSee('/laraflow/assets/dashboard.js', false);
     }
 }

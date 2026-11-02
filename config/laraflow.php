@@ -486,6 +486,11 @@ return [
 
         // Executions per list page, up to the repository's own ceiling.
         'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
+
+        // Seconds between a page asking for itself again; 0 turns the
+        // refresh off. Only with script — without it the page is static
+        // and the browser's reload does the same job.
+        'refresh' => env('LARAFLOW_DASHBOARD_REFRESH', 10),
     ],
 
     'integrations' => [

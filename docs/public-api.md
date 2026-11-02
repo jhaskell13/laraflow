@@ -236,7 +236,7 @@ Step exceptions are *not* wrapped: `run()` rethrows whatever the step threw afte
 | `config/laraflow.php` keys `logging.context` (default `true`) and `logging.lifecycle` (default `false`) | Public | `context` publishes the running execution's identity into Laravel's log context under `laraflow.*` keys; `lifecycle` writes one log record per lifecycle event. |
 | `config/laraflow.php` keys `retry.*` (`max_attempts`, `base_delay`, `multiplier`, `max_delay`, `jitter`, `dispatch_delayed`, `max_suggested_delay` — default 3600, the cap on a `SuggestsRetryDelay`), `timeout.step`, `errors.redactor` | Public | Defaults and rationale in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md). `retry.max_attempts` defaults to 1 — retries off — deliberately. |
 | `config/laraflow.php` key `workflows.max_depth` (default 8) | Public | How deep sub-workflows may nest, counted from the root; exceeded nesting is refused at child creation with `WorkflowDepthExceededException`. |
-| `config/laraflow.php` keys `dashboard.*` (`path`, `middleware`, `read_only`, `per_page`) | Experimental | The defaults `Dashboard::routes()` mounts with; none of them has any effect until it is called. See [docs/dashboard.md](dashboard.md). |
+| `config/laraflow.php` keys `dashboard.*` (`path`, `middleware`, `read_only`, `per_page`, `refresh`) | Experimental | The defaults `Dashboard::routes()` mounts with; none of them has any effect until it is called. See [docs/dashboard.md](dashboard.md). |
 | Publish tags `laraflow-config`, `laraflow-migrations` | Public | |
 
 ## Console commands

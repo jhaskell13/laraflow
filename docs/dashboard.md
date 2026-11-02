@@ -54,6 +54,9 @@ That registers the dashboard under the configured path and middleware:
     // How many executions a list page shows, up to the repository's
     // own ceiling.
     'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
+
+    // Seconds between a page asking for itself again; 0 turns it off.
+    'refresh' => env('LARAFLOW_DASHBOARD_REFRESH', 10),
 ],
 ```
 
@@ -122,7 +125,7 @@ With `read_only` set, the action routes are not registered. A read-only dashboar
 
 ## Refresh
 
-The executions and execution pages refresh themselves on an interval, preserving the filters and cursor in force, and pause when the tab is not visible. The interval is configurable and the mechanism is a plain request for the same page; without script the page is static and the browser's reload does the same job.
+Every page refreshes itself on an interval — `laraflow.dashboard.refresh` seconds, 10 by default, 0 for off — by asking for its own URL again, filters and cursor included, and swapping in the new content with the open disclosures kept open. It pauses while the tab is hidden, while a form control has focus, while an action form holds something not yet sent, and while a post is in flight, so an operator mid-thought is never interrupted; a response that is not a page (denied, gone, down) is ignored and the next tick tries again. A *Live* control in the header pauses and resumes it, and remembers the choice in the browser. The mechanism is one same-origin script the package serves beside its stylesheet, with nothing inline — an application's content-security policy need not loosen for it. Without script the page is static and the browser's reload does the same job.
 
 ## What is deliberately absent
 
@@ -130,7 +133,7 @@ The executions and execution pages refresh themselves on an interval, preserving
 - **A separate "may act" permission.** One rule governs seeing and acting; `read_only` is the switch for an audience that may only see.
 - **Editing anything.** No plan editor, no step editor, no configuration screen. The dashboard is a window.
 - **Credentials and remembered values.** Not in a page, not in a response, not in a page's source.
-- **Any JavaScript dependency, build tool, or CDN.** A single committed stylesheet and a few lines of inline script for refresh and confirmation.
+- **Any JavaScript dependency, build tool, or CDN.** A single committed stylesheet and a single committed script for refresh and confirmation, both served by the package, nothing inline.
 
 ## Enforcement
 
@@ -141,4 +144,5 @@ The executions and execution pages refresh themselves on an interval, preserving
 - `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
 - `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state.
 - `tests/Feature/Dashboard/ReadOnlyTest.php` — the action routes absent and the forms unrendered.
+- `tests/Feature/Dashboard/AssetTest.php` — one stylesheet and one script, served by the package behind the check, with validators; the page links nothing else and carries nothing inline; the refresh interval is the page's to declare and configuration turns it off.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

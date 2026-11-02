@@ -165,11 +165,57 @@
     background: var(--lf-accent-soft);
 }
 
-.lf-header__clock {
+.lf-header__right {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.lf-header__clock {
     color: var(--lf-muted);
     font-family: var(--lf-mono);
     font-size: 0.85rem;
+}
+
+.lf-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: 999px;
+    background: var(--lf-surface);
+    color: var(--lf-muted);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.lf-live::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--lf-grey);
+}
+
+.lf-live.is-on {
+    color: var(--lf-green);
+    border-color: var(--lf-green);
+}
+
+.lf-live.is-on::before {
+    background: var(--lf-green);
+    animation: lf-pulse 2s ease-in-out infinite;
+}
+
+@keyframes lf-pulse {
+    50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lf-live.is-on::before { animation: none; }
 }
 
 /* ---- Layout ---------------------------------------------------------- */
@@ -350,6 +396,10 @@
 
     .lf-header__clock {
         display: none;
+    }
+
+    .lf-header__right {
+        gap: 0.5rem;
     }
 
     .lf-main,
