@@ -134,5 +134,7 @@ The executions and execution pages refresh themselves on an interval, preserving
 
 - `tests/Feature/Dashboard/MountingTest.php` — unmounted means absent; mounted means present at the configured path; the dependency guard names what is missing.
 - `tests/Feature/Dashboard/AuthorizationTest.php` — the default rule in `local` and outside it; the callback; the gate; the stylesheet behind the same check.
-- `tests/Feature/Dashboard/ExecutionsPageTest.php` — the list renders what the repository returns, and nothing else.
+- `tests/Feature/Dashboard/ExecutionsPageTest.php` — the list renders what the repository returns; the filters are the console's and mean the same; an unreadable filter is reported and the rest hold; pages follow the cursor forward and the trail back, carrying the filters.
+- `tests/Feature/Dashboard/ExecutionPageTest.php` — the record, steps, attempts, wait, lineage; remembered keys and never their values; an unknown or malformed id is not found.
+- `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

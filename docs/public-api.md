@@ -70,6 +70,7 @@ Two tests keep this document honest in both directions: every class in `src/` mu
 | `Laraflow\Workflow\RetentionService` | Internal | Engine behind `laraflow:prune`. Use the command. |
 | `Laraflow\Dashboard\Dashboard` | Experimental | The inspection dashboard's mount point: `routes()` registers it, `auth()` decides who may use it. Nothing is registered unless an application calls `routes()`. Needs `illuminate/routing` and `illuminate/view`, which the package suggests rather than requires. Contract: [docs/dashboard.md](dashboard.md). |
 | `Laraflow\Dashboard\Authorize` | Internal | The middleware that applies `Dashboard::check()` to every mounted route. |
+| `Laraflow\Workflow\AttentionScan`, `Laraflow\Workflow\AttentionReport` | Internal | What needs an operator — retries and waits due, running steps past their deadline, the oldest unfinished execution — computed once for `laraflow:summary` and the dashboard's overview, so the two cannot disagree. Use the command or the page. |
 | `Laraflow\Workflow\RetentionRun` | Internal | State carried between a retention run's tiers: policy, clock instant, scope, accumulating report, and the executions the delete tier accounted for. |
 | `Laraflow\Workflow\RetentionReport` | Internal | Counts returned by one retention run. |
 | `Laraflow\Workflow\RecoveryCandidate` | Internal | Value object returned by `RecoveryService::scan()`. |

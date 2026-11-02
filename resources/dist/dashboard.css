@@ -358,3 +358,302 @@
         padding-right: 1rem;
     }
 }
+
+/* ---- Filters --------------------------------------------------------- */
+
+.lf-filters {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.lf-filters__label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+    margin-bottom: 0.3rem;
+}
+
+.lf-filters__statuses {
+    border: 0;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    align-items: center;
+}
+
+.lf-filters__statuses legend {
+    float: left;
+    width: 100%;
+}
+
+.lf-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+
+.lf-filters__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    align-items: end;
+}
+
+.lf-field input {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-bg);
+    color: var(--lf-text);
+    font: inherit;
+}
+
+.lf-field input:focus {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+    border-color: transparent;
+}
+
+.lf-filters__actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.lf-button--primary {
+    background: var(--lf-accent);
+    border-color: var(--lf-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+}
+
+.lf-button--primary:hover {
+    color: #fff;
+    filter: brightness(1.08);
+}
+
+.lf-problems {
+    margin: 0.75rem 0 0;
+    padding: 0.6rem 0.9rem 0.6rem 1.8rem;
+    border-radius: var(--lf-radius);
+    background: var(--lf-red-bg);
+    color: var(--lf-red);
+}
+
+.lf-pagination__group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* ---- Detail page ----------------------------------------------------- */
+
+.lf-crumbs {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--lf-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.lf-title .lf-status {
+    vertical-align: middle;
+    margin-left: 0.25rem;
+}
+
+.lf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+}
+
+.lf-card {
+    background: var(--lf-surface);
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+    min-width: 0;
+}
+
+.lf-card .lf-table-wrap {
+    border: 0;
+    border-radius: 0;
+    margin: 0 -1.1rem -1rem;
+    width: calc(100% + 2.2rem);
+}
+
+.lf-card .lf-table th:first-child,
+.lf-card .lf-table td:first-child {
+    padding-left: 1.1rem;
+}
+
+.lf-card__title {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 650;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+}
+
+.lf-count {
+    font-weight: 400;
+    margin-left: 0.25rem;
+}
+
+.lf-dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.35rem 1rem;
+    margin: 0;
+}
+
+.lf-dl dt {
+    color: var(--lf-muted);
+}
+
+.lf-dl dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.lf-error {
+    color: var(--lf-red);
+}
+
+.lf-warn {
+    color: var(--lf-yellow);
+}
+
+.lf-cell-wrap {
+    white-space: normal !important;
+    max-width: 28rem;
+    overflow-wrap: anywhere;
+}
+
+.lf-details summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.lf-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.lf-details summary::before {
+    content: "▸ ";
+    color: var(--lf-muted);
+}
+
+.lf-details[open] summary::before {
+    content: "▾ ";
+}
+
+.lf-details .lf-json {
+    margin-top: 0.5rem;
+}
+
+.lf-json {
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre;
+}
+
+.lf-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.lf-tag--warn {
+    color: var(--lf-yellow);
+    border-color: var(--lf-yellow);
+}
+
+.lf-tag--ok {
+    color: var(--lf-green);
+    border-color: var(--lf-green);
+}
+
+/* ---- Notices ---------------------------------------------------------- */
+
+.lf-notice {
+    padding: 0.7rem 1rem;
+    border-radius: var(--lf-radius);
+    border: 1px solid var(--lf-border);
+    margin-bottom: 0.75rem;
+    background: var(--lf-surface);
+}
+
+.lf-notice--info  { border-left: 4px solid var(--lf-cyan); }
+.lf-notice--warn  { border-left: 4px solid var(--lf-yellow); }
+.lf-notice--error { border-left: 4px solid var(--lf-red); }
+
+/* ---- Overview --------------------------------------------------------- */
+
+.lf-counts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.lf-count-card {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.8rem 1rem;
+    border-radius: var(--lf-radius);
+    border: 1px solid var(--lf-border);
+    border-top-width: 4px;
+    background: var(--lf-surface);
+    color: var(--lf-text);
+}
+
+.lf-count-card:hover {
+    text-decoration: none;
+    border-color: var(--lf-accent);
+}
+
+.lf-count-card__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.lf-count-card__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--lf-muted);
+}
+
+.lf-count-card__share {
+    font-size: 0.78rem;
+    color: var(--lf-muted);
+}
+
+.lf-count-card--completed { border-top-color: var(--lf-green); }
+.lf-count-card--failed    { border-top-color: var(--lf-red); }
+.lf-count-card--running   { border-top-color: var(--lf-yellow); }
+.lf-count-card--retrying  { border-top-color: var(--lf-cyan); }
+.lf-count-card--waiting   { border-top-color: var(--lf-cyan); }
+.lf-count-card--cancelled { border-top-color: var(--lf-magenta); }
+.lf-count-card--pending   { border-top-color: var(--lf-grey); }
+
+/* Attempt outcomes share the step palette; the two extra kinds. */
+.lf-status--timed_out   { color: var(--lf-red);    background: var(--lf-red-bg); }
+.lf-status--interrupted { color: var(--lf-yellow); background: var(--lf-yellow-bg); }

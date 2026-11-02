@@ -39,7 +39,7 @@ class MountingTest extends TestCase
         $this->assertTrue(Route::has('laraflow.dashboard'));
         $this->assertTrue(Route::has('laraflow.executions'));
 
-        $this->get('/laraflow')->assertRedirect('/laraflow/executions');
+        $this->get('/laraflow')->assertOk()->assertSee('Overview');
         $this->get('/laraflow/executions')->assertOk();
     }
 

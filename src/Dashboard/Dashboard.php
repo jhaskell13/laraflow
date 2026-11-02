@@ -14,6 +14,7 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Facade;
 use Laraflow\Dashboard\Controllers\AssetController;
 use Laraflow\Dashboard\Controllers\ExecutionController;
+use Laraflow\Dashboard\Controllers\OverviewController;
 use LogicException;
 
 /**
@@ -70,8 +71,11 @@ final class Dashboard
             // own check runs.
             'middleware' => array_merge($middleware, [Authorize::class]),
         ], function (Router $router): void {
-            $router->get('/', [ExecutionController::class, 'home'])->name('dashboard');
+            $router->get('/', OverviewController::class)->name('dashboard');
             $router->get('executions', [ExecutionController::class, 'index'])->name('executions');
+            // Integer ids on every signature (docs/public-api.md), so
+            // anything else is not a page that might exist: 404 here.
+            $router->get('executions/{id}', [ExecutionController::class, 'show'])->whereNumber('id')->name('executions.show');
             $router->get('assets/dashboard.css', [AssetController::class, 'stylesheet'])->name('assets.stylesheet');
         });
 

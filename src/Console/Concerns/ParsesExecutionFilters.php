@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace Laraflow\Console\Concerns;
 
 use DateTimeImmutable;
-use Illuminate\Support\Carbon;
 use InvalidArgumentException;
+use Laraflow\Support\FilterInput;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionStatus;
-use Throwable;
 
 /**
  * @internal Option parsing shared by the Laraflow console commands that
@@ -53,11 +52,7 @@ trait ParsesExecutionFilters
      */
     protected function toStatus(string $status): ExecutionStatus
     {
-        return ExecutionStatus::tryFrom($status) ?? throw new InvalidArgumentException(sprintf(
-            'Unknown status [%s]. Valid: %s.',
-            $status,
-            $this->statusList(),
-        ));
+        return FilterInput::status($status);
     }
 
     /**
@@ -96,24 +91,13 @@ trait ParsesExecutionFilters
             return null;
         }
 
-        try {
-            // Carbon accepts absolute times and relative expressions
-            // alike, so `--since="-2 hours"` works as an operator expects.
-            return Carbon::parse($value)->toImmutable();
-        } catch (Throwable) {
-            throw new InvalidArgumentException(
-                "The --{$name} option must be a date or time, got [{$value}]. "
-                .'Try an absolute time (2026-10-24 09:00:00) or a relative one (-2 hours).'
-            );
-        }
+        // The shared parser, so the console and the dashboard read a
+        // time the same way; the field is named as an option here.
+        return FilterInput::time($value, "--{$name} option");
     }
 
-    /**
-     * Listed from the enum rather than written out, so help text and
-     * error messages cannot drift from the cases that exist.
-     */
     protected function statusList(): string
     {
-        return implode(', ', array_column(ExecutionStatus::cases(), 'value'));
+        return FilterInput::statusList();
     }
 }

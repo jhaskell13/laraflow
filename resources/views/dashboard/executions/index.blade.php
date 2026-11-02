@@ -4,6 +4,9 @@
     @var \Laraflow\Workflow\ExecutionPage $page
     @var int $total
     @var array<int, array{total: int, completed: int, skipped: int}> $progress
+    @var \Laraflow\Dashboard\Support\FilterRequest $filters
+    @var \Laraflow\Dashboard\Support\CursorTrail $trail
+    @var list<string> $workflowsSeen
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
@@ -17,18 +20,29 @@
         <h1 class="lf-title">Executions</h1>
         <p class="lf-muted">
             @if ($total === 0)
-                No executions yet.
+                {{ $filters->isEmpty() ? 'No executions yet.' : 'No executions match that filter.' }}
             @else
-                Showing {{ count($page) }} of {{ number_format($total) }} execution{{ $total === 1 ? '' : 's' }}, newest first.
+                Showing {{ count($page) }} of {{ number_format($total) }} {{ $filters->isEmpty() ? '' : 'matching ' }}execution{{ $total === 1 ? '' : 's' }}, newest first.
             @endif
         </p>
     </div>
 
+    @include('laraflow::dashboard.partials.filters', [
+        'filters' => $filters,
+        'workflowsSeen' => $workflowsSeen,
+        'withStatus' => true,
+        'action' => route('laraflow.executions'),
+    ])
+
     @if ($page->isEmpty())
         <div class="lf-empty">
-            <p>Nothing has run. Start something and it appears here:</p>
-            <pre class="lf-code">php artisan laraflow:start App\Workflows\YourWorkflow --input='{"key": "value"}'</pre>
-            <p class="lf-muted">Or the bundled demo: <code>php artisan laraflow:demo</code></p>
+            @if ($filters->isEmpty())
+                <p>Nothing has run. Start something and it appears here:</p>
+                <pre class="lf-code">php artisan laraflow:start App\Workflows\YourWorkflow --input='{"key": "value"}'</pre>
+                <p class="lf-muted">Or the bundled demo: <code>php artisan laraflow:demo</code></p>
+            @else
+                <p>No execution matches every filter above.</p>
+            @endif
         </div>
     @else
         <div class="lf-table-wrap">
@@ -48,11 +62,11 @@
                 <tbody>
                     @foreach ($page as $execution)
                         <tr>
-                            <td class="lf-num"><span class="lf-id">{{ $execution->id }}</span></td>
+                            <td class="lf-num"><a class="lf-id" href="{{ route('laraflow.executions.show', $execution->id) }}">{{ $execution->id }}</a></td>
                             <td>
-                                <span class="lf-workflow" title="{{ $execution->workflow }}">{{ class_basename($execution->workflow) }}</span>
+                                <a class="lf-workflow" href="{{ route('laraflow.executions.show', $execution->id) }}" title="{{ $execution->workflow }}">{{ class_basename($execution->workflow) }}</a>
                                 @if ($execution->parentExecutionId !== null)
-                                    <span class="lf-tag" title="A sub-workflow of execution {{ $execution->parentExecutionId }}">child of {{ $execution->parentExecutionId }}</span>
+                                    <a class="lf-tag" href="{{ route('laraflow.executions.show', $execution->parentExecutionId) }}" title="A sub-workflow of execution {{ $execution->parentExecutionId }}">child of {{ $execution->parentExecutionId }}</a>
                                 @endif
                                 @if ($execution->planVersion > 1)
                                     <span class="lf-tag" title="Plan version">v{{ $execution->planVersion }}</span>
@@ -75,14 +89,19 @@
         </div>
 
         <nav class="lf-pagination" aria-label="Pages">
-            @if (request()->query('cursor'))
-                <a class="lf-button" href="{{ route('laraflow.executions') }}">« First page</a>
-            @endif
-            @if ($page->hasMore())
-                <a class="lf-button" href="{{ route('laraflow.executions', ['cursor' => $page->nextCursor]) }}" rel="next">Next page »</a>
-            @else
-                <span class="lf-muted">End of list</span>
-            @endif
+            <div class="lf-pagination__group">
+                @if (! $trail->isFirstPage())
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query()) }}">« First</a>
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->previous()) }}" rel="prev">‹ Previous</a>
+                @endif
+            </div>
+            <div class="lf-pagination__group">
+                @if ($page->hasMore())
+                    <a class="lf-button" href="{{ route('laraflow.executions', $filters->query() + $trail->next((string) $page->nextCursor)) }}" rel="next">Next ›</a>
+                @else
+                    <span class="lf-muted">End of list</span>
+                @endif
+            </div>
         </nav>
     @endif
 @endsection

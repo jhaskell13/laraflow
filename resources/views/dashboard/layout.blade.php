@@ -19,7 +19,8 @@
             Laraflow
         </a>
         <nav class="lf-nav" aria-label="Dashboard">
-            <a href="{{ route('laraflow.executions') }}" @class(['lf-nav__link', 'is-active' => request()->routeIs('laraflow.executions')])>Executions</a>
+            <a href="{{ route('laraflow.dashboard') }}" @class(['lf-nav__link', 'is-active' => request()->routeIs('laraflow.dashboard')])>Overview</a>
+            <a href="{{ route('laraflow.executions') }}" @class(['lf-nav__link', 'is-active' => request()->routeIs('laraflow.executions', 'laraflow.executions.*')])>Executions</a>
         </nav>
         @isset($now)
             <time class="lf-header__clock" datetime="{{ $now->format(DATE_ATOM) }}">{{ $now->format('Y-m-d H:i:s') }}</time>

@@ -44,6 +44,7 @@ use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
 use Laraflow\Support\SystemSleeper;
+use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
@@ -242,6 +243,10 @@ class LaraflowServiceProvider extends ServiceProvider
 
             return RetentionPolicy::fromArray(is_array($retention) ? $retention : []);
         });
+
+        $this->app->singleton(AttentionScan::class, fn (Container $app): AttentionScan => new AttentionScan(
+            repository: $app->make(ExecutionRepository::class),
+        ));
 
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),

@@ -8,7 +8,15 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Nothing yet.
+Milestone 8.5, in progress: the inspection dashboard.
+
+### Added
+
+- **The inspection dashboard — the console's surface, rendered in a browser.** Off unless an application mounts it with `Laraflow\Dashboard\Dashboard::routes()`; denied unless allowed, by `Dashboard::auth()`, a `viewLaraflow` gate, or — with neither — the `local` environment alone. Three pages so far, each the browser form of a console command and each reading the public `ExecutionRepository` and `IdempotencyStore` and nothing else, held there by the same test that holds the console: the **overview** (`laraflow:summary` — counts by status, and what needs attention), the **executions list** (`laraflow:list` — filterable by exactly the criteria `ExecutionFilter` indexes, paginated forward on the repository's keyset cursor with a trail of visited cursors for *previous*), and **one execution in full** (`laraflow:show --attempts` — the record, its steps, every attempt, what it is waiting on, its parent or children, and the keys it remembered, never their values). One hand-written stylesheet served by the package: no build step, no node, no CDN, and every page works without script. The dependencies — `illuminate/routing`, `illuminate/view`, `illuminate/session` — are *suggested*, not required, and the mount refuses with their names when they are absent. Contract: `docs/dashboard.md`.
+
+### Changed
+
+- **What needs attention is computed once.** `laraflow:summary`'s scan for due retries, due waits, running steps past their deadline, and the oldest unfinished execution is extracted into `Laraflow\Workflow\AttentionScan` (internal), which the command and the dashboard's overview both call, so the two cannot disagree about what is wrong; a test runs both against the same records. The console's date, duration, and value formatting likewise moves to `Laraflow\Support\Formats`, and its status and time parsing to `Laraflow\Support\FilterInput`, each shared with the dashboard for the same reason. The console's output and option semantics are unchanged.
 
 ## [0.3.0] - 2026-11-02
 
