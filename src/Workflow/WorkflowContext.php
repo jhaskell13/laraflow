@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use Closure;
 use DateTimeImmutable;
+use Laraflow\Exceptions\Workflow\IdempotencyStoreUnavailableException;
 
 /**
  * Key/value data shared between the steps of one execution.
@@ -24,15 +26,52 @@ class WorkflowContext
 
     protected ?DateTimeImmutable $deadline = null;
 
+    protected ?string $step = null;
+
     /**
      * @param  array<string, mixed>  $data
      */
     public function __construct(
         protected array $data = [],
-        protected int|string|null $executionId = null,
+        protected ?int $executionId = null,
         protected ?string $correlationId = null,
         protected ?string $tenantId = null,
+        protected ?IdempotencyResolver $idempotency = null,
     ) {}
+
+    /**
+     * Run $work at most once for this step, across every retry,
+     * recovery, and worker, and return its value — stored the first
+     * time, replayed thereafter. A previous attempt that began the work
+     * and never recorded an outcome is raised as
+     * IdempotentOutcomeUncertainException rather than guessed at;
+     * $reconcile, if given, is asked first and a non-null answer is
+     * taken as the outcome. Not exactly-once; see docs/idempotency.md.
+     *
+     * @param  Closure(): mixed  $work
+     * @param  (Closure(): mixed)|null  $reconcile
+     *
+     * @throws IdempotencyStoreUnavailableException on a context the runner did not build.
+     */
+    public function remember(string $key, Closure $work, ?Closure $reconcile = null): mixed
+    {
+        // Nullable because the context is a value object, not a
+        // service: one built by hand in a test has no execution behind
+        // it. Raised rather than silently running the work, which is
+        // the behaviour the store exists to end.
+        if ($this->idempotency === null || $this->executionId === null || $this->stepPosition === null || $this->step === null) {
+            throw IdempotencyStoreUnavailableException::forContext();
+        }
+
+        return $this->idempotency->remember(
+            $this->executionId,
+            $this->stepPosition,
+            $this->step,
+            $key,
+            $work,
+            $reconcile,
+        );
+    }
 
     public function set(string $key, mixed $value): void
     {
@@ -84,7 +123,7 @@ class WorkflowContext
      * The id of the execution this context belongs to, or null when the
      * context was constructed outside a runner (for example in a unit test).
      */
-    public function executionId(): int|string|null
+    public function executionId(): ?int
     {
         return $this->executionId;
     }
@@ -177,10 +216,11 @@ class WorkflowContext
     /**
      * @internal Called by the runner before each step is executed.
      */
-    public function enterStep(int $position, int $attempt, ?DateTimeImmutable $deadline = null): void
+    public function enterStep(int $position, int $attempt, ?DateTimeImmutable $deadline = null, ?string $step = null): void
     {
         $this->stepPosition = $position;
         $this->attempt = $attempt;
         $this->deadline = $deadline;
+        $this->step = $step;
     }
 }

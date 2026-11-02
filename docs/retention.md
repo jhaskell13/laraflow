@@ -163,6 +163,10 @@ Run that from a scheduled job that completes before the prune runs. One edge: th
 - Decide deliberately about `delete_failed_after_days`; the default leaves recoverable work alone forever.
 - If you archive, archive on the same `finished_at` cutoffs and schedule it to finish first.
 
+## Remembered work
+
+The idempotency store ([idempotency.md](idempotency.md)) holds the results of side effects, and those results are payload. The **scrub** tier clears every record's value for `completed` and `cancelled` executions and leaves the record, its key, and its status — a scrubbed record still keeps the work from running again, it just no longer remembers the answer. Scrub never touches a `failed` execution's records, for the reason it never touches its input and context: a re-run against discarded values would repeat side effects the record says already happened. **Delete** removes the records with their execution through the same orphan-safe path as attempts and steps. Attempt pruning does not touch them.
+
 ## Sub-workflows
 
 Parent-child links are plain columns, not foreign keys, so retention can prune a long-finished parent while its children's audit records live on. The trade-off is a dangling `parent_execution_id` on those children: the parent filter simply returns nothing for it, `laraflow:show` names an id that no longer resolves, and a live child's depth walk treats the pruned link as the root. A *waiting* parent is never prunable (it is unfinished), and a parent waits only on an unfinished child, so retention can never separate a live pair. A child that finishes after its parent was deleted signals no one — a recorded signal for a missing execution is a logged no-op. See [advanced-workflows.md](advanced-workflows.md#sub-workflows).

@@ -98,7 +98,7 @@ class ListCommand extends Command
 
         // One query for the whole page, rather than one per row.
         $progress = $repository->stepProgress(array_map(
-            fn (WorkflowExecution $execution): int|string => $execution->id,
+            fn (WorkflowExecution $execution): int => $execution->id,
             $page->executions,
         ));
 
@@ -194,11 +194,11 @@ class ListCommand extends Command
     /**
      * Steps done — completed or skipped — out of the plan.
      *
-     * @param  array<string, array{total: int, completed: int, skipped: int}>  $progress
+     * @param  array<int, array{total: int, completed: int, skipped: int}>  $progress
      */
     protected function stepProgress(array $progress, WorkflowExecution $execution): string
     {
-        $counts = $progress[(string) $execution->id] ?? ['total' => 0, 'completed' => 0, 'skipped' => 0];
+        $counts = $progress[$execution->id] ?? ['total' => 0, 'completed' => 0, 'skipped' => 0];
 
         // Skipped steps are decisions, not work left to do: an
         // execution whose steps are all completed-or-skipped reads as

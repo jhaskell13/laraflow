@@ -34,7 +34,7 @@ readonly class WorkflowExecutionCancelled
      *                                started.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public DateTimeImmutable $cancelledAt,
         public ?string $reason = null,

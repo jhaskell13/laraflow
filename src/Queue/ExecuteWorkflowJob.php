@@ -53,7 +53,7 @@ class ExecuteWorkflowJob implements ShouldQueue
     public int $backoff = 0;
 
     public function __construct(
-        public readonly int|string $executionId,
+        public readonly int $executionId,
     ) {
         $this->applyQueueSettings();
     }

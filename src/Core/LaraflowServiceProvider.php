@@ -16,10 +16,15 @@ use Laraflow\Console\CancelCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
+use Laraflow\Console\Generators\MakeConnectorCommand;
+use Laraflow\Console\Generators\MakeStepCommand;
+use Laraflow\Console\Generators\MakeWorkflowCommand;
+use Laraflow\Console\InstallCommand;
 use Laraflow\Console\ListCommand;
 use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ShowCommand;
+use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\LifecycleLogger;
@@ -42,10 +47,13 @@ use Laraflow\Support\SystemSleeper;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\IdempotencyResolver;
+use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\Repositories\EloquentIdempotencyStore;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionService;
 use Laraflow\Workflow\RunnerOptions;
@@ -107,6 +115,13 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ClockInterface::class, Clock::class);
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+        $this->app->singleton(IdempotencyStore::class, EloquentIdempotencyStore::class);
+
+        $this->app->singleton(IdempotencyResolver::class, fn (Container $app): IdempotencyResolver => new IdempotencyResolver(
+            store: $app->make(IdempotencyStore::class),
+            clock: $app->make(ClockInterface::class),
+            options: $app->make(RunnerOptions::class),
+        ));
 
         $this->app->singleton(ErrorRedactor::class, function (Container $app): ErrorRedactor {
             $class = $this->setting($app->make(Config::class), 'laraflow.errors.redactor');
@@ -188,6 +203,7 @@ class LaraflowServiceProvider extends ServiceProvider
             redactor: $app->make(ErrorRedactor::class),
             logging: $app->make(LoggingContext::class),
             childDelivery: $app->make(ChildDelivery::class),
+            idempotency: $app->make(IdempotencyResolver::class),
         ));
 
         $this->app->singleton(ChildDelivery::class, fn (Container $app): ChildDelivery => new QueueChildDelivery($app));
@@ -213,8 +229,9 @@ class LaraflowServiceProvider extends ServiceProvider
             clock: $app->make(ClockInterface::class),
             // The manager Laravel's queue defers after-commit pushes
             // through; the dispatched event is deferred through the same
-            // one. Not bound when the database component is absent.
-            transactions: $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+            // one. illuminate/database is a hard dependency, so it is
+            // always bound.
+            transactions: $app->make('db.transactions'),
         ));
 
         $this->app->singleton(RetentionPolicy::class, function (Container $app): RetentionPolicy {
@@ -295,10 +312,15 @@ class LaraflowServiceProvider extends ServiceProvider
             ConnectorsCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
+            InstallCommand::class,
             ListCommand::class,
+            MakeConnectorCommand::class,
+            MakeStepCommand::class,
+            MakeWorkflowCommand::class,
             PruneCommand::class,
             RecoverCommand::class,
             ShowCommand::class,
+            StartCommand::class,
             SummaryCommand::class,
         ]);
     }
@@ -316,6 +338,12 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../../database/migrations' => $this->app->databasePath('migrations'),
         ], 'laraflow-migrations');
+
+        // The generators read a published stub in preference to the
+        // package's, so an application can reshape what they write.
+        $this->publishes([
+            __DIR__.'/../../stubs' => $this->app->basePath('stubs/laraflow'),
+        ], 'laraflow-stubs');
     }
 
     /**

@@ -17,6 +17,47 @@ abstract class Workflow
     abstract public function steps(): array;
 
     /**
+     * Which version of this workflow's step plan the code describes.
+     *
+     * Recorded on every execution this workflow creates. Bump it when
+     * steps() changes and declare the matching entry in
+     * planMigrations(), and in-flight executions are carried forward
+     * the next time they are claimed. Leave it alone and a changed
+     * steps() strands them with WorkflowDefinitionMismatchException,
+     * exactly as before versioning existed — the refusal is the
+     * default and silence means refuse.
+     *
+     * See docs/workflow-versioning.md.
+     */
+    public function version(): int
+    {
+        return 1;
+    }
+
+    /**
+     * How to carry a persisted plan forward, keyed by the version each
+     * entry migrates *from*.
+     *
+     * Each value is a callable taking the PlanDraft and changing it in
+     * place; an execution several versions behind runs them in turn,
+     * one hop at a time. A migration may only change the part of the
+     * plan the execution has not reached — see PlanDraft.
+     *
+     *     public function planMigrations(): array
+     *     {
+     *         return [
+     *             1 => fn (PlanDraft $plan) => $plan->insertAfter(ChargePayment::class, RecordTax::class),
+     *         ];
+     *     }
+     *
+     * @return array<int, callable(PlanDraft): mixed>
+     */
+    public function planMigrations(): array
+    {
+        return [];
+    }
+
+    /**
      * Retry and timeout policy for this workflow's steps that do not
      * declare one of their own (see Policy\HasStepPolicy). Null falls
      * back to the configured package default, which disables retries.

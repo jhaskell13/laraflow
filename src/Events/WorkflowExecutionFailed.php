@@ -33,7 +33,7 @@ readonly class WorkflowExecutionFailed
      *                                started.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public string $errorClass,
         public ?string $error,

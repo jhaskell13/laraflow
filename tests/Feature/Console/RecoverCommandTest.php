@@ -14,6 +14,7 @@ use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
@@ -368,6 +369,43 @@ class RecoverCommandTest extends TestCase
         Queue::assertPushed(ExecuteWorkflowJob::class, 1);
     }
 
+    public function test_the_tenant_filter_narrows_the_scans_that_lacked_it(): void
+    {
+        Queue::fake();
+
+        // One stale claim and one lost pending per tenant: the two scans
+        // that did not take a tenant before Milestone 8. All created at
+        // one instant, then the clock moves past both thresholds.
+        Date::setTestNow('2026-10-22 10:00:00');
+        $this->makeStaleExecution(freezeTime: false, tenant: 'acme');
+        $this->makeStaleExecution(freezeTime: false, tenant: 'globex');
+        $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow, options: new ExecutionOptions(tenantId: 'acme'));
+        $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow, options: new ExecutionOptions(tenantId: 'globex'));
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:recover',
+            ['--tenant' => 'nobody', '--pending-after' => 60],
+        );
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Nothing to recover', $output);
+        Queue::assertNothingPushed();
+
+        ['status' => $status, 'output' => $output] = $this->callCommand(
+            'laraflow:recover',
+            ['--tenant' => 'acme', '--pending-after' => 60],
+        );
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Handled 2 execution(s): 2 dispatched', $output);
+        Queue::assertPushed(ExecuteWorkflowJob::class, 2);
+
+        // Blank is unscoped, as it is for every other command's --tenant.
+        ['output' => $output] = $this->callCommand('laraflow:recover', ['--tenant' => ' ', '--pending-after' => 60]);
+        $this->assertStringContainsString('Handled 4 execution(s)', $output);
+    }
+
     public function test_invalid_numeric_options_are_rejected(): void
     {
         Queue::fake();
@@ -393,14 +431,17 @@ class RecoverCommandTest extends TestCase
      * An execution whose worker died mid-step: claimed at 10:00, step one
      * attempted once, clock advanced to 10:30 so the claim is stale.
      */
-    protected function makeStaleExecution(bool $freezeTime = true): WorkflowExecution
+    protected function makeStaleExecution(bool $freezeTime = true, ?string $tenant = null): WorkflowExecution
     {
         if ($freezeTime) {
             Date::setTestNow('2026-10-22 10:00:00');
         }
 
         $repository = $this->app->make(ExecutionRepository::class);
-        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+        $execution = $this->app->make(WorkflowRunner::class)->start(
+            new TwoStepWorkflow,
+            options: new ExecutionOptions(tenantId: $tenant),
+        );
 
         $claimed = $repository->claim($execution->id, bin2hex(random_bytes(16)), 300);
 

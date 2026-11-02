@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Events;
 
+use Laraflow\Workflow\RecoveryReason;
+
 /**
  * The recovery mechanism (laraflow:recover) selected an interrupted
  * execution for retry: queued it, or — in sync mode — is about to run it
@@ -15,29 +17,25 @@ namespace Laraflow\Events;
  */
 readonly class WorkflowExecutionRetryScheduled
 {
+    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::StaleClaim (`$reason->value` for the string). */
     public const REASON_STALE_CLAIM = 'stale_claim';
 
+    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::NeverDispatched. */
     public const REASON_NEVER_DISPATCHED = 'never_dispatched';
 
-    /** A policy-scheduled retry whose next_retry_at has arrived. */
+    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::RetryDue. */
     public const REASON_RETRY_DUE = 'retry_due';
 
-    /**
-     * A stale claim whose interrupted step had also passed its deadline:
-     * the recovering worker will charge the attempt to the step's retry
-     * policy as a timeout rather than re-run it for free.
-     */
+    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::StepTimeout. */
     public const REASON_STEP_TIMEOUT = 'step_timeout';
 
-    /**
-     * A waiting execution whose next event — a timed resume or a
-     * signal deadline — has arrived.
-     */
+    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::WaitDue. */
     public const REASON_WAIT_DUE = 'wait_due';
 
     /**
      * @param  string  $workflow  Workflow class name.
-     * @param  string  $reason  One of the REASON_* constants.
+     * @param  RecoveryReason  $reason  Why recovery selected it; `->value` is the
+     *                                  string this event carried before Milestone 8.
      * @param  int  $attempts  Highest step attempt count so far, 0 if nothing ran.
      * @param  string|null  $correlationId  Application-supplied identifier
      *                                      recorded on the execution, or null if none was supplied.
@@ -45,9 +43,9 @@ readonly class WorkflowExecutionRetryScheduled
      *                                 or null if none was supplied.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
-        public string $reason,
+        public RecoveryReason $reason,
         public int $attempts,
         public ?string $correlationId = null,
         public ?string $tenantId = null,

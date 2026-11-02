@@ -24,7 +24,6 @@ namespace Laraflow\Workflow;
 readonly class RecoveryCandidate
 {
     /**
-     * @param  string  $reason  A WorkflowExecutionRetryScheduled::REASON_* value.
      * @param  int  $attempts  Highest step attempt count, 0 if nothing ran yet.
      * @param  bool  $workflowMissing  The recorded workflow class no longer exists
      *                                 (or is not a workflow), so no retry can run it.
@@ -32,7 +31,7 @@ readonly class RecoveryCandidate
      */
     public function __construct(
         public WorkflowExecution $execution,
-        public string $reason,
+        public RecoveryReason $reason,
         public int $attempts,
         public bool $abandoned,
         public bool $workflowMissing = false,

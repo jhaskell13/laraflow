@@ -6,7 +6,7 @@ The guarantees here start at the schema freeze (Milestone 6). Before it, migrati
 
 ## What the freeze guarantees
 
-**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again, and neither will any migration shipped after them — Milestone 7 added three, all additive: `fruitless_claims` on executions, `wait_signal` on steps, and the sub-workflow parent-linkage columns. Any later schema change arrives as a *new* dated migration.
+**The shipped migrations are immutable.** The three dated migrations that create `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` will not change again, and neither will any migration shipped after them — Milestone 7 added four, all additive: `fruitless_claims` on executions, `wait_signal` on steps, the sub-workflow parent-linkage columns, and the scrub-scan index; Milestone 8 added a fifth, the pending-scan index; a sixth, `plan_version` on executions; and a seventh, the `laraflow_idempotency_keys` table. Any later schema change arrives as a *new* dated migration.
 
 Concretely, for an installed application:
 
@@ -92,10 +92,11 @@ php artisan laraflow:recover
 
 `laraflow:recover` touches interrupted work — executions claimed by a worker that is gone — and delivers scheduled work that has come due: retries, waits, recorded signals, and sub-workflow heartbeats. It does not retry genuinely failed executions; those answer to their step's retry policy, or to `laraflow:execute <id>` if you want to re-run one deliberately.
 
-Two points that matter during a deploy:
+Three points that matter during a deploy:
 
-- **Steps may run more than once.** Laraflow is at-least-once at recovery boundaries. If a step has an external side effect, it needs the idempotency hooks described in [execution-lifecycle.md](execution-lifecycle.md) — an upgrade is exactly when that gets exercised.
+- **Steps may run more than once.** Laraflow is at-least-once at recovery boundaries. If a step has an external side effect, wrap it in `$context->remember()` — the contract is [idempotency.md](idempotency.md) — and an upgrade is exactly when that gets exercised.
 - **A stale claim is not a failure.** Give a restarted worker its claim timeout (`laraflow.execution.stale_after`) before deciding something is stuck.
+- **A deploy that changes a workflow's `steps()` strands its in-flight executions unless you version the plan.** The persisted plan is validated against the code on every claim, so an execution created before the deploy and claimed after it fails with `WorkflowDefinitionMismatchException` — the refusal is deliberate and silence means refuse. Bump `version()` and declare the matching entry in `planMigrations()` and those executions are carried forward instead, under the existing claim, before the first step write. A migration may rewrite only the part of the plan the execution has not yet reached. The contract, and what is refused and why, is [workflow-versioning.md](workflow-versioning.md). Plan this before the deploy, not after it: an execution already stranded is recovered by rolling the code back or by shipping the migration.
 
 ## If an upgrade goes wrong
 

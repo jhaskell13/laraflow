@@ -26,8 +26,8 @@ class TransportPipeline
         protected Sleeper $sleeper,
         protected ClockInterface $clock,
         protected RateLimiter $limiter,
-        protected ConnectorObserver $observer = new ConnectorObserver,
-        protected ?LoggingContext $logging = null,
+        protected ConnectorObserver $observer,
+        protected LoggingContext $logging,
     ) {}
 
     /**

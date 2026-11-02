@@ -223,14 +223,13 @@ class StepTimeoutTest extends TestCase
 
     protected function crashMidStepOne(): void
     {
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new CrashingExecutionRepository(
                 new EloquentExecutionRepository($this->clock),
                 'checkpoint',
                 1,
                 'before',
             ),
-            container: $this->app,
             logger: new ArrayLogger,
             clock: $this->clock,
         );
@@ -246,9 +245,8 @@ class StepTimeoutTest extends TestCase
 
     protected function runner(): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: new EloquentExecutionRepository($this->clock),
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 0),
             clock: $this->clock,

@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\IdempotencyStatus;
+use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -17,6 +21,7 @@ use Laraflow\Workflow\WorkflowExecution;
 class ShowCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionId;
 
     protected $signature = 'laraflow:show
         {execution : The id of the execution to inspect}
@@ -24,10 +29,18 @@ class ShowCommand extends Command
 
     protected $description = 'Inspect a workflow execution and its steps';
 
-    public function handle(ExecutionRepository $repository): int
+    public function handle(ExecutionRepository $repository, IdempotencyStore $idempotency): int
     {
         try {
-            $execution = $repository->find((string) $this->argument('execution'));
+            $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        try {
+            $execution = $repository->find($id);
         } catch (WorkflowException $exception) {
             $this->components->error($exception->getMessage());
 
@@ -72,6 +85,7 @@ class ShowCommand extends Command
 
         if ((bool) $this->option('attempts')) {
             $this->displayAttemptHistory($repository, $execution, $steps);
+            $this->displayIdempotency($idempotency, $execution, $steps);
         }
 
         return self::SUCCESS;
@@ -94,7 +108,8 @@ class ShowCommand extends Command
             if (Wait::isChildSignal($step->waitSignal)) {
                 // A child wait is never indefinite: the parent checks on
                 // the child at every heartbeat, recorded on the execution.
-                $detail = 'on child execution '.Wait::childIdFrom((string) $step->waitSignal)
+                $childId = Wait::childIdFrom((string) $step->waitSignal);
+                $detail = ($childId === 0 ? 'on a malformed child signal '.$step->waitSignal : 'on child execution '.$childId)
                     .' (next check '.$this->formatDate($execution->nextRetryAt).')';
             } elseif ($step->waitSignal === null) {
                 $detail = 'until '.$this->formatDate($step->nextRetryAt);
@@ -158,5 +173,47 @@ class ShowCommand extends Command
             ['Step', 'Attempt', 'Outcome', 'Started', 'Duration', 'Scheduled retry', 'Error'],
             $rows,
         );
+    }
+
+    /**
+     * What the execution has remembered: step, key, status, and when.
+     * Values are never printed — they are the results of side effects
+     * and may carry anything. A pending record is an unresolved
+     * outcome, and is said so.
+     *
+     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     */
+    protected function displayIdempotency(IdempotencyStore $store, WorkflowExecution $execution, array $steps): void
+    {
+        $records = $store->records($execution->id);
+
+        if ($records === []) {
+            return;
+        }
+
+        $names = [];
+
+        foreach ($steps as $step) {
+            $names[$step->position] = class_basename($step->step);
+        }
+
+        $rows = [];
+
+        foreach ($records as $record) {
+            $rows[] = [
+                $names[$record->stepPosition] ?? "position {$record->stepPosition}",
+                $record->key,
+                $record->status === IdempotencyStatus::Pending
+                    ? '<fg=yellow>pending (outcome unknown)</>'
+                    : $this->coloredStatus($record->status->value),
+                $this->formatDate($record->startedAt),
+                $record->settledAt !== null ? $this->formatDate($record->settledAt) : '',
+                $record->errorClass ?? '',
+            ];
+        }
+
+        $this->newLine();
+        $this->components->twoColumnDetail('<fg=gray>Remembered work</>', (string) count($records));
+        $this->table(['Step', 'Key', 'Status', 'Began', 'Settled', 'Error'], $rows);
     }
 }

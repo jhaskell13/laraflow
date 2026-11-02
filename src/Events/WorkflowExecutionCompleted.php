@@ -28,7 +28,7 @@ readonly class WorkflowExecutionCompleted
      *                                started.
      */
     public function __construct(
-        public int|string $executionId,
+        public int $executionId,
         public string $workflow,
         public DateTimeImmutable $completedAt,
         public ?string $correlationId = null,

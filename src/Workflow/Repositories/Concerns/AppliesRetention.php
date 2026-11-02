@@ -7,6 +7,7 @@ namespace Laraflow\Workflow\Repositories\Concerns;
 use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\IdempotencyKeyModel;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
@@ -108,6 +109,16 @@ trait AppliesRetention
                     'output' => null,
                 ]);
 
+            // A remembered value is payload — the result of a side
+            // effect, which may carry anything. The record itself, its
+            // key, and its status stay: a scrubbed record still keeps
+            // the work from running again, it just no longer remembers
+            // the answer. Failed executions never reach this tier, for
+            // exactly the reason their input and context do not.
+            IdempotencyKeyModel::query()
+                ->whereIn('workflow_execution_id', $eligible)
+                ->update(['value' => null]);
+
             return $scrubbed;
         });
     }
@@ -178,6 +189,7 @@ trait AppliesRetention
             // SQLite does so only when the connection asks.
             $this->deleteOrphansOf(StepAttemptModel::class, $ids);
             $this->deleteOrphansOf(StepExecutionModel::class, $ids);
+            $this->deleteOrphansOf(IdempotencyKeyModel::class, $ids);
 
             return $deleted;
         });
@@ -211,13 +223,13 @@ trait AppliesRetention
      * Which of $ids still satisfy the guard, read inside the caller's
      * transaction so the writes that follow act on exactly this set.
      *
-     * @param  list<int|string>  $ids
+     * @param  list<int>  $ids
      * @param  list<ExecutionStatus>  $statuses
-     * @return list<int|string>
+     * @return list<int>
      */
     protected function stillEligible(array $ids, array $statuses, DateTimeImmutable $finishedBefore): array
     {
-        /** @var list<int|string> $eligible */
+        /** @var list<int> $eligible */
         $eligible = $this->finishedBefore($statuses, $finishedBefore)
             ->whereIn('id', $ids)
             ->pluck('id')
@@ -230,8 +242,8 @@ trait AppliesRetention
      * Delete rows of $model among $ids whose parent execution no longer
      * exists.
      *
-     * @param  class-string<StepAttemptModel|StepExecutionModel>  $model
-     * @param  list<int|string>  $ids
+     * @param  class-string<StepAttemptModel|StepExecutionModel|IdempotencyKeyModel>  $model
+     * @param  list<int>  $ids
      */
     protected function deleteOrphansOf(string $model, array $ids): void
     {

@@ -39,22 +39,22 @@ readonly class ExecutionOptions
      *                                      job, or external operation that caused it.
      * @param  string|null  $tenantId  Ties it to a tenant, for listing and retention
      *                                 in multi-tenant applications.
-     * @param  int|string|null  $parentExecutionId  The execution whose step spawned
-     *                                              this one. Written by the sub-workflow machinery;
-     *                                              setting it yourself makes the execution behave as
-     *                                              a child — cancelled by the parent's cascade and
-     *                                              adoptable by its step — with no validation that
-     *                                              the ids exist.
-     * @param  int|string|null  $parentStepExecutionId  The exact parent step row waiting
-     *                                                  on this execution.
+     * @param  int|null  $parentExecutionId  The execution whose step spawned
+     *                                       this one. Written by the sub-workflow machinery;
+     *                                       setting it yourself makes the execution behave as
+     *                                       a child — cancelled by the parent's cascade and
+     *                                       adoptable by its step — with no validation that
+     *                                       the ids exist.
+     * @param  int|null  $parentStepExecutionId  The exact parent step row waiting
+     *                                           on this execution.
      *
      * @throws InvalidExecutionOptionsException
      */
     public function __construct(
         ?string $correlationId = null,
         ?string $tenantId = null,
-        public int|string|null $parentExecutionId = null,
-        public int|string|null $parentStepExecutionId = null,
+        public ?int $parentExecutionId = null,
+        public ?int $parentStepExecutionId = null,
     ) {
         $this->correlationId = self::normalize($correlationId, 'correlationId');
         $this->tenantId = self::normalize($tenantId, 'tenantId');

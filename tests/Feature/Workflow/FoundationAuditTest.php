@@ -7,7 +7,6 @@ namespace Laraflow\Tests\Feature\Workflow;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
-use Laraflow\Events\WorkflowExecutionRetryScheduled;
 use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
@@ -27,6 +26,7 @@ use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\FailurePolicy;
+use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\RunnerOptions;
@@ -117,7 +117,7 @@ class FoundationAuditTest extends TestCase
         // a transient failure there used to drive the failure path into
         // InvalidStateTransitionException and leave the execution
         // claimed. The real error must be what the step row records.
-        $repository = new class(null) extends EloquentExecutionRepository
+        $repository = new class($this->app->make(\Psr\Clock\ClockInterface::class)) extends EloquentExecutionRepository
         {
             public int $failures = 1;
 
@@ -131,9 +131,8 @@ class FoundationAuditTest extends TestCase
             }
         };
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: $repository,
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 300),
         );
@@ -225,8 +224,8 @@ class FoundationAuditTest extends TestCase
         $candidates = $this->app->make(RecoveryService::class)->scan(300, null, limit: 1, abandonAfterAttempts: 3);
 
         $reasons = array_map(fn ($c) => $c->reason, $candidates);
-        $this->assertContains(WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM, $reasons, 'The abandoned one is still reported.');
-        $this->assertContains(WorkflowExecutionRetryScheduled::REASON_RETRY_DUE, $reasons, 'The due retry is still found despite a limit of one.');
+        $this->assertContains(RecoveryReason::StaleClaim, $reasons, 'The abandoned one is still reported.');
+        $this->assertContains(RecoveryReason::RetryDue, $reasons, 'The due retry is still found despite a limit of one.');
     }
 
     public function test_an_abandoned_stale_execution_can_be_cancelled_outright(): void
@@ -245,9 +244,8 @@ class FoundationAuditTest extends TestCase
 
     public function test_a_signal_payload_is_bounded_at_signal_time(): void
     {
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 300, maxPayloadBytes: 64),
         );

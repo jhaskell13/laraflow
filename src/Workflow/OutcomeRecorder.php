@@ -7,13 +7,13 @@ namespace Laraflow\Workflow;
 use DateTimeImmutable;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionFailed;
+use Laraflow\Events\WorkflowStepCompleted;
 use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
-use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
-use Laraflow\Support\PassthroughRedactor;
+use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -24,8 +24,13 @@ use Throwable;
  *
  * Writes down how a step or an execution ended, and announces it.
  *
- * Four outcomes, and their storage-failure behaviour differs on
- * purpose — the differences are the contract, not an inconsistency:
+ * Completion is one checkpoint (`completeStep`), and a failure is
+ * settled one way wherever it arose — thrown from handle(), classified
+ * at recovery, or resolved from a wait — by `settle()`, which hands it
+ * to the first three failure outcomes below; the fourth is the loop's
+ * own, for a `Continue` run's first failure. Their storage-failure
+ * behaviour differs on purpose — the differences are the contract, not
+ * an inconsistency:
  *
  * | Outcome          | If the write itself fails                        |
  * |------------------|--------------------------------------------------|
@@ -56,16 +61,95 @@ class OutcomeRecorder
     public function __construct(
         protected ExecutionRepository $repository,
         protected LoggerInterface $logger,
-        protected ?EventEmitter $events = null,
+        protected EventEmitter $events,
+        ClockInterface $clock,
+        ErrorRedactor $redactor,
+        protected ParentNotifier $parents,
         protected int $maxErrorLength = 65535,
         protected bool $includeErrorMessages = true,
-        ?ClockInterface $clock = null,
-        ?ErrorRedactor $redactor = null,
         protected int $maxSuggestedRetryDelaySeconds = 3600,
-        protected ?ParentNotifier $parents = null,
     ) {
-        $this->clock = $clock ?? new Clock;
-        $this->redactor = $redactor ?? new PassthroughRedactor;
+        $this->clock = $clock;
+        $this->redactor = $redactor;
+    }
+
+    /**
+     * Complete a step — fresh from handle(), or by resolving its wait —
+     * in one claim-guarded checkpoint: the step row, the context, and
+     * the attempt row that closes this handle() run, whose duration
+     * spans run and park alike. The event carries the same attempt
+     * record that went to history, so the two can never disagree about
+     * how long the step took.
+     */
+    public function completeStep(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        WorkflowContext $context,
+        mixed $output,
+    ): void {
+        $completedAt = $this->clock->now();
+        $before = $stepExecution->snapshot();
+        $stepExecution->markCompleted($output, $completedAt);
+        $execution->context = $context->all();
+
+        $attempt = new StepAttempt(
+            executionId: $execution->id,
+            stepExecutionId: $stepExecution->id,
+            attempt: $stepExecution->attempts,
+            status: StepAttemptStatus::Completed,
+            startedAt: $stepExecution->startedAt,
+            endedAt: $completedAt,
+        );
+
+        try {
+            $this->repository->checkpoint($execution, $stepExecution, $attempt);
+        } catch (Throwable $checkpointFailure) {
+            // The handle said "completed" a moment early. Put it back,
+            // so the failure paths that follow run from a legal state and
+            // record the real error rather than an illegal transition.
+            $stepExecution->restore($before);
+
+            throw $checkpointFailure;
+        }
+
+        $this->emit(new WorkflowStepCompleted(
+            ...$this->identity($execution),
+            step: $stepExecution->step,
+            position: $stepExecution->position,
+            attempt: $stepExecution->attempts,
+            completedAt: $completedAt,
+            durationMs: $attempt->durationMs(),
+        ));
+    }
+
+    /**
+     * One step failure, settled the one way every failure is: a retry
+     * if the step's policy grants one (the claim is released and the
+     * handle describes the schedule), a recorded failure the loop walks
+     * past under FailurePolicy::Continue, or the execution's terminal
+     * failure, thrown. Legal from Running and from Waiting alike.
+     */
+    public function settle(
+        WorkflowExecution $execution,
+        StepExecution $stepExecution,
+        StepPolicy $policy,
+        FailurePolicy $failurePolicy,
+        Throwable $exception,
+        StepAttemptStatus $attemptStatus = StepAttemptStatus::Failed,
+    ): StepResolution {
+        if ($this->scheduleRetry($execution, $stepExecution, $policy, $exception, $attemptStatus)) {
+            return StepResolution::settled();
+        }
+
+        if ($failurePolicy === FailurePolicy::Continue) {
+            $this->stepFailure($execution, $stepExecution, $exception, $attemptStatus);
+
+            return StepResolution::continueWith($exception);
+        }
+
+        $this->failure($execution, $stepExecution, $exception, $attemptStatus);
+
+        throw $exception;
     }
 
     /**
@@ -201,7 +285,7 @@ class OutcomeRecorder
 
         $this->announceStepFailure($execution, $stepExecution, $stepExecution->attempts, $exception, $error, $record);
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
-        $this->parents?->childFinished($execution);
+        $this->parents->childFinished($execution);
     }
 
     /**
@@ -226,7 +310,7 @@ class OutcomeRecorder
         }
 
         $this->announceExecutionFailure($execution, $exception, $error, $failedAt);
-        $this->parents?->childFinished($execution);
+        $this->parents->childFinished($execution);
     }
 
     /**
@@ -273,7 +357,7 @@ class OutcomeRecorder
      * carries them" structural rather than a thing each call site has
      * to remember.
      *
-     * @return array{executionId: int|string, workflow: string, correlationId: string|null, tenantId: string|null}
+     * @return array{executionId: int, workflow: string, correlationId: string|null, tenantId: string|null}
      */
     public function identity(WorkflowExecution $execution): array
     {
@@ -287,7 +371,7 @@ class OutcomeRecorder
 
     public function emit(object $event): void
     {
-        $this->events?->emit($event);
+        $this->events->emit($event);
     }
 
     protected function attempt(

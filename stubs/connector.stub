@@ -1,0 +1,53 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Laraflow\Auth\Authenticator;
+use Laraflow\Auth\BearerTokenAuthenticator;
+use Laraflow\Integration\HttpConnector;
+
+/**
+ * Register it under `laraflow.integrations.{{ key }}`:
+ *
+ *     '{{ key }}' => [
+ *         'connector' => \{{ namespace }}\{{ class }}::class,
+ *         'default' => 'default',
+ *         'connections' => [
+ *             'default' => [
+ *                 'credentials' => ['token' => env('{{ env }}_TOKEN')],
+ *             ],
+ *         ],
+ *     ],
+ *
+ * then `php artisan laraflow:connectors --check` resolves it. Hold it
+ * to the published contract with `Laraflow\Testing\ConnectorContract`.
+ */
+class {{ class }} extends HttpConnector
+{
+    protected function baseUrl(): ?string
+    {
+        return 'https://api.example.com';
+    }
+
+    /**
+     * Headers every request carries; a connection may add or override.
+     *
+     * @return array<string, string>
+     */
+    protected function headers(): array
+    {
+        return ['Accept' => 'application/json'];
+    }
+
+    /**
+     * How a request is authenticated. The default reads the connection's
+     * `token` credential, falling back to the named environment variable,
+     * and sends it as a bearer token.
+     */
+    protected function authenticator(): Authenticator
+    {
+        return new BearerTokenAuthenticator('token', '{{ env }}_TOKEN');
+    }
+}

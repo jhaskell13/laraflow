@@ -33,6 +33,8 @@ readonly class RunnerOptions
      * @param  int  $maxSuggestedRetryDelaySeconds  Longest retry delay an exception
      *                                              implementing SuggestsRetryDelay may ask for; a
      *                                              provider's Retry-After is honoured up to this.
+     * @param  int  $maxIdempotencyKeysPerExecution  Most distinct remember() keys one
+     *                                               execution may record; a generated key in a loop is a bug.
      */
     public function __construct(
         public int $staleAfterSeconds = 300,
@@ -40,6 +42,7 @@ readonly class RunnerOptions
         public bool $includeErrorMessages = true,
         public ?int $maxPayloadBytes = null,
         public int $maxSuggestedRetryDelaySeconds = 3600,
+        public int $maxIdempotencyKeysPerExecution = 100,
     ) {
         if ($maxPayloadBytes !== null && $maxPayloadBytes < 1) {
             throw new InvalidArgumentException(
@@ -50,6 +53,10 @@ readonly class RunnerOptions
 
         if ($maxSuggestedRetryDelaySeconds < 0) {
             throw new InvalidArgumentException('laraflow.retry.max_suggested_delay cannot be negative.');
+        }
+
+        if ($maxIdempotencyKeysPerExecution < 1) {
+            throw new InvalidArgumentException('laraflow.idempotency.max_keys_per_execution must be at least 1.');
         }
 
         // Only max_payload_bytes is validated here, because only it
@@ -75,6 +82,7 @@ readonly class RunnerOptions
             includeErrorMessages: (bool) ($config->get('laraflow.events.include_error_messages') ?? true),
             maxPayloadBytes: $payload === null ? null : (int) $payload,
             maxSuggestedRetryDelaySeconds: (int) (self::setting($config, 'laraflow.retry.max_suggested_delay') ?? 3600),
+            maxIdempotencyKeysPerExecution: (int) (self::setting($config, 'laraflow.idempotency.max_keys_per_execution') ?? 100),
         );
     }
 

@@ -362,9 +362,8 @@ class LifecycleEventsTest extends TestCase
         bool $includeErrorMessages = true,
         int $maxErrorLength = 65535,
     ): WorkflowRunner {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: $this->logger,
             options: new RunnerOptions(maxErrorLength: $maxErrorLength, includeErrorMessages: $includeErrorMessages),
             events: new EventEmitter($this->app->make(Dispatcher::class), $this->logger),

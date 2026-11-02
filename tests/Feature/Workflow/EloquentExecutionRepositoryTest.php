@@ -12,6 +12,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepAttemptModel;
@@ -419,6 +420,68 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->assertCount(2, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowA'));
         $this->assertCount(1, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowB'));
         $this->assertCount(0, $this->repository()->stale($this->secondsAgo(300), workflow: 'WorkflowC'));
+    }
+
+    /**
+     * Milestone 8 step 2: every recovery scan takes the same tenant
+     * scope and honours it the same way. One fixture per status the
+     * four scans look for, two tenants each, and a tenant-less row that
+     * no scoped call may return — the Milestone 7 audit found only two
+     * of the four scans accepted a tenant at all.
+     */
+    public function test_every_recovery_scan_is_scoped_by_tenant_the_same_way(): void
+    {
+        Date::setTestNow('2026-10-22 10:00:00');
+        $repository = $this->repository();
+        $byTenant = [];
+
+        foreach (['acme', 'globex', null] as $tenant) {
+            $options = new ExecutionOptions(tenantId: $tenant);
+
+            $stale = $repository->create('WorkflowA', options: $options);
+            $repository->claim($stale->id, 'dead-worker', 300);
+
+            $pending = $repository->create('WorkflowA', options: $options);
+
+            $retrying = $repository->create('WorkflowA', steps: ['One'], options: $options);
+            $retrying = $repository->claim($retrying->id, 'worker', 300);
+            $retrying->markRetrying('boom', 'RuntimeException', new DateTimeImmutable('2026-10-22 10:01:00'));
+            $repository->release($retrying);
+
+            $waiting = $repository->create('WorkflowA', steps: ['One'], options: $options);
+            WorkflowExecutionModel::query()->whereKey($waiting->id)->update([
+                'status' => ExecutionStatus::Waiting->value,
+                'next_retry_at' => '2026-10-22 10:01:00',
+            ]);
+
+            $byTenant[$tenant ?? ''] = [$stale->id, $pending->id, $retrying->id, $waiting->id];
+        }
+
+        Date::setTestNow('2026-10-22 10:30:00');
+        $cutoff = $this->secondsAgo(300);
+        $ids = fn (array $executions): array => array_map(fn (WorkflowExecution $e) => $e->id, $executions);
+
+        $scans = [
+            'stale' => fn (?string $tenant) => $repository->stale($cutoff, tenantId: $tenant),
+            'pendingBefore' => fn (?string $tenant) => $repository->pendingBefore($cutoff, tenantId: $tenant),
+            'dueForRetry' => fn (?string $tenant) => $repository->dueForRetry($cutoff, tenantId: $tenant),
+            'waitingDue' => fn (?string $tenant) => $repository->waitingDue($cutoff, tenantId: $tenant),
+        ];
+
+        foreach ($scans as $name => $scan) {
+            foreach (['acme', 'globex'] as $tenant) {
+                $found = $ids($scan($tenant));
+
+                $this->assertCount(1, $found, "{$name}() scoped to {$tenant} returned ".count($found).' rows.');
+                $this->assertTrue(
+                    in_array($found[0], $byTenant[$tenant], true),
+                    "{$name}() scoped to {$tenant} returned another tenant's execution.",
+                );
+            }
+
+            $this->assertCount(3, $scan(null), "{$name}() unscoped should see every tenant and the tenant-less row.");
+            $this->assertSame([], $scan('nobody'), "{$name}() scoped to an unknown tenant returned rows.");
+        }
     }
 
     // ------------------------------------------------------------------

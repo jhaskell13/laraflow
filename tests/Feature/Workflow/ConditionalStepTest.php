@@ -134,7 +134,7 @@ class ConditionalStepTest extends TestCase
 
         $this->assertSame(
             ['total' => 3, 'completed' => 2, 'skipped' => 1],
-            $progress[(string) $execution->id],
+            $progress[$execution->id],
         );
     }
 

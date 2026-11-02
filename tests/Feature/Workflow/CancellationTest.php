@@ -321,13 +321,19 @@ class CancellationTest extends TestCase
             ->assertExitCode(1);
     }
 
+    public function test_the_cancel_command_refuses_a_non_integer_execution_id(): void
+    {
+        $this->command('laraflow:cancel', ['execution' => 'abc'])
+            ->expectsOutputToContain('must be a positive integer execution id')
+            ->assertExitCode(1);
+    }
+
     public function test_cancellation_timestamps_come_from_the_injected_clock(): void
     {
         $clock = new FixedClock('2026-10-23 15:00:00');
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new EloquentExecutionRepository($clock),
-            container: $this->app,
             logger: new ArrayLogger,
             clock: $clock,
         );
@@ -360,9 +366,8 @@ class CancellationTest extends TestCase
      */
     protected function staleTolerantRunner(): WorkflowRunner
     {
-        return new WorkflowRunner(
+        return $this->makeRunner(
             repository: $this->app->make(ExecutionRepository::class),
-            container: $this->app,
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 0),
         );

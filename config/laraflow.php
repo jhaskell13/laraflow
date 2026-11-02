@@ -275,6 +275,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Idempotency
+    |--------------------------------------------------------------------------
+    |
+    | max_keys_per_execution: the most distinct keys one execution may
+    | record through $context->remember(). A step remembering under a
+    | generated key is usually a loop, and a table that grows with it
+    | is the failure this bound exists to catch; past it the step fails
+    | with TooManyIdempotencyKeysException. Raise it deliberately for a
+    | workflow that genuinely needs more. See docs/idempotency.md.
+    |
+    */
+
+    'idempotency' => [
+        'max_keys_per_execution' => env('LARAFLOW_IDEMPOTENCY_MAX_KEYS', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Errors
     |--------------------------------------------------------------------------
     |

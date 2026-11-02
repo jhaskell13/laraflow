@@ -21,6 +21,7 @@ use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryCandidate;
+use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
@@ -45,7 +46,7 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertSame($execution->id, $candidates[0]->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM, $candidates[0]->reason);
+        $this->assertSame(RecoveryReason::StaleClaim, $candidates[0]->reason);
         $this->assertSame(1, $candidates[0]->attempts);
         $this->assertFalse($candidates[0]->abandoned);
     }
@@ -77,7 +78,7 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertSame($execution->id, $candidates[0]->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_NEVER_DISPATCHED, $candidates[0]->reason);
+        $this->assertSame(RecoveryReason::NeverDispatched, $candidates[0]->reason);
         $this->assertSame(0, $candidates[0]->attempts);
     }
 
@@ -184,9 +185,48 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertCount(2, $candidates);
         $this->assertSame(
-            [WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM, WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM],
+            [RecoveryReason::StaleClaim, RecoveryReason::StaleClaim],
             array_map(fn (RecoveryCandidate $candidate) => $candidate->reason, $candidates),
         );
+    }
+
+    public function test_the_scan_limit_is_shared_across_the_scheduled_scans_too(): void
+    {
+        // No stale work at all: two due retries, two due waits, two lost
+        // pendings. The budget left for each scan was recomputed from a
+        // closure that had captured the candidate list by value when
+        // only the stale scan had run — so with nothing stale, every
+        // later scan saw a full budget and a limit of two returned six.
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        $runner = $this->app->make(WorkflowRunner::class);
+
+        foreach ([1, 2] as $i) {
+            $waiting = $runner->start(new TwoStepWorkflow);
+            WorkflowExecutionModel::query()->whereKey($waiting->id)->update([
+                'status' => ExecutionStatus::Waiting->value,
+                'next_retry_at' => '2026-10-22 10:01:00',
+            ]);
+        }
+
+        $runner->start(new TwoStepWorkflow);
+        $runner->start(new TwoStepWorkflow);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        $reasons = fn (int $limit): array => array_map(
+            fn (RecoveryCandidate $candidate) => $candidate->reason,
+            $this->service()->scan(300, 300, limit: $limit, abandonAfterAttempts: 3),
+        );
+
+        $this->assertSame([RecoveryReason::RetryDue, RecoveryReason::RetryDue], $reasons(2));
+        $this->assertSame([RecoveryReason::RetryDue, RecoveryReason::RetryDue, RecoveryReason::WaitDue], $reasons(3));
+        $this->assertSame(
+            [RecoveryReason::RetryDue, RecoveryReason::RetryDue, RecoveryReason::WaitDue, RecoveryReason::WaitDue, RecoveryReason::NeverDispatched],
+            $reasons(5),
+        );
+        $this->assertCount(6, $reasons(100), 'Everything is found when the limit allows it.');
     }
 
     public function test_scan_flags_executions_whose_workflow_class_is_gone_as_unrecoverable(): void
@@ -246,7 +286,7 @@ class RecoveryServiceTest extends TestCase
         [$candidate] = $this->service()->scan(300, null, 100, abandonAfterAttempts: 3);
 
         $this->assertSame($execution->id, $candidate->execution->id);
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_RETRY_DUE, $candidate->reason);
+        $this->assertSame(RecoveryReason::RetryDue, $candidate->reason);
         $this->assertSame(5, $candidate->attempts);
         $this->assertFalse($candidate->abandoned, 'Abandoning a policy-live retry would strand every budget above the bound.');
         $this->assertTrue($candidate->retryable());
@@ -286,7 +326,7 @@ class RecoveryServiceTest extends TestCase
 
         [$candidate] = $this->service()->scan(300, null, 100, 3);
 
-        $this->assertSame(WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT, $candidate->reason);
+        $this->assertSame(RecoveryReason::StepTimeout, $candidate->reason);
     }
 
     public function test_the_limit_is_shared_across_all_three_scans_in_urgency_order(): void
@@ -303,8 +343,8 @@ class RecoveryServiceTest extends TestCase
 
         $this->assertSame(
             [
-                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
-                WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
+                RecoveryReason::StaleClaim,
+                RecoveryReason::StaleClaim,
             ],
             array_map(fn (RecoveryCandidate $candidate) => $candidate->reason, $candidates),
             'Lost work outranks scheduled work under a shared limit.',
@@ -313,7 +353,7 @@ class RecoveryServiceTest extends TestCase
         $candidates = $this->service()->scan(300, null, limit: 3, abandonAfterAttempts: 3);
 
         $this->assertSame(
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+            RecoveryReason::RetryDue,
             $candidates[2]->reason,
         );
     }
@@ -339,7 +379,7 @@ class RecoveryServiceTest extends TestCase
         Event::assertDispatched(
             WorkflowExecutionRetryScheduled::class,
             fn (WorkflowExecutionRetryScheduled $event): bool => $event->executionId === $execution->id
-                && $event->reason === WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
+                && $event->reason === RecoveryReason::RetryDue,
         );
     }
 
@@ -386,7 +426,7 @@ class RecoveryServiceTest extends TestCase
             WorkflowExecutionRetryScheduled::class,
             function (WorkflowExecutionRetryScheduled $event) use ($execution): bool {
                 return $event->executionId === $execution->id
-                    && $event->reason === WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM
+                    && $event->reason === RecoveryReason::StaleClaim
                     && $event->attempts === 1;
             }
         );

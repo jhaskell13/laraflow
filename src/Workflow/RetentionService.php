@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
-use Laraflow\Support\Clock;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -46,9 +45,9 @@ class RetentionService
 
     public function __construct(
         protected ExecutionRepository $repository,
-        ?ClockInterface $clock = null,
+        ClockInterface $clock,
     ) {
-        $this->clock = $clock ?? new Clock;
+        $this->clock = $clock;
     }
 
     /**

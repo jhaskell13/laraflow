@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\WorkflowRunner;
 
@@ -21,6 +23,7 @@ use Laraflow\Workflow\WorkflowRunner;
 class CancelCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionId;
 
     protected $signature = 'laraflow:cancel
         {execution : The id of the execution to cancel}
@@ -30,9 +33,16 @@ class CancelCommand extends Command
 
     public function handle(WorkflowRunner $runner): int
     {
-        $id = (string) $this->argument('execution');
         $reason = $this->option('reason');
         $reason = is_string($reason) && $reason !== '' ? $reason : null;
+
+        try {
+            $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         try {
             $execution = $runner->cancel($id, $reason);

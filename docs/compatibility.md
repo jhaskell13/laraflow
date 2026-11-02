@@ -7,12 +7,12 @@ This policy states which platform versions Laraflow supports, what "supported" m
 | Component | Versions | Status |
 |-----------|----------|--------|
 | PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
-| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors and a `prefer-lowest` leg, so the floor of every constraint is proven, not assumed. |
+| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each of the four server engines below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
 | SQLite | 3.x | Tested: the suite's default (in-memory). |
-| MySQL | 8.0+ | Tested: the full suite runs against MySQL 8.0 in CI. |
-| MariaDB | 10.6+ | Tested: the full suite runs against MariaDB 10.6 in CI. JSON columns are stored as `LONGTEXT` with a check constraint. |
-| PostgreSQL | 13+ | Tested: the full suite runs against PostgreSQL 13 in CI. |
-| SQL Server | 2019+ | Tested: the full suite runs against SQL Server 2019 in CI. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
+| MySQL | 8.0+ | Tested: the full suite runs against MySQL 8.0 in CI, on both Laravel majors, and the install walk ends the job against it. |
+| MariaDB | 10.6+ | Tested: the full suite runs against MariaDB 10.6 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
+| PostgreSQL | 13+ | Tested: the full suite runs against PostgreSQL 13 in CI, on both Laravel majors, and the install walk ends the job against it. |
+| SQL Server | 2019+ | Tested: the full suite runs against SQL Server 2019 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
 
 Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
 
@@ -46,6 +46,9 @@ Reviewed in full for Milestone 6 before the schema freeze; every decision below 
 - `laraflow_workflow_executions.fruitless_claims` (added by the first post-freeze migration, Milestone 7) counts consecutive claims that ended before any step-row write or orderly release; `claim()` increments it, the first step write and every `release()` zero it. Recovery's abandonment bound reads it alongside step attempts. Unindexed: it is read per candidate, never scanned.
 - `laraflow_step_executions.wait_signal` (second post-freeze migration, Milestone 7) names the signal a waiting step is parked on; null for timed waits and every non-waiting step. Unindexed: signal delivery matches it inside a query already bounded by the execution id.
 - `laraflow_workflow_executions.parent_execution_id` / `parent_step_execution_id` (third post-freeze migration, Milestone 7) link a sub-workflow to the parent step that spawned it. Plain columns, **not** foreign keys, so retention may prune a long-finished parent while the child's audit record lives on — the documented trade-off in [retention.md](retention.md#sub-workflows). Only `parent_execution_id` is indexed.
+- `laraflow_workflow_executions.plan_version` (sixth post-freeze migration, Milestone 8) records which version of its workflow's plan an execution is running, so a declared plan migration can carry it forward after a deploy changes the step list. Default 1, so a row predating the column reads as version 1 — which is what it is. Unindexed: read per claimed execution, never scanned. See [workflow-versioning.md](workflow-versioning.md).
+- `laraflow_idempotency_keys` (seventh post-freeze migration, Milestone 8) is the fourth table: one row per piece of work a step began under `remember()`, keyed `(workflow_execution_id, step_position, key)` and unique on that triple — the constraint is what stops two live workers both performing a side effect. The marker row is inserted before the work and settled after, so a row left `pending` is evidence the work began and no evidence it finished. `value` is `json`, cleared by the scrub tier; the foreign key cascades, and the table is deleted with its execution through the orphan-safe path regardless. See [idempotency.md](idempotency.md).
+- Two post-freeze migrations add only indexes: `(payloads_scrubbed_at, status, finished_at)` (fourth, Milestone 7) for the scrub tier's scan, and `(status, created_at)` (fifth, Milestone 8) for the opt-in pending scan — each closing a scan whose cost had grown with history rather than with its backlog. Both appear in the table below.
 
 ### Indexes, and the ones deliberately absent
 
@@ -55,15 +58,18 @@ Every query the package issues is served by an index:
 |-------|--------|
 | `(status, claimed_at)` | The stale-claim recovery scan; bare `status` filters via its prefix. |
 | `(status, next_retry_at)` | The due-retry and due-wait scans — a wait's resume instant, deadline, signal due-time, and sub-workflow heartbeat all live in `next_retry_at`. |
-| `(status, finished_at)` | Retention candidate scans. |
+| `(status, created_at)` | The opt-in never-dispatched recovery scan: `pending` rows created before a cutoff. |
+| `(status, finished_at)` | Retention candidate scans: the delete tiers, and attempt pruning. |
+| `(payloads_scrubbed_at, status, finished_at)` | The scrub tier's scan, which leads with `IS NULL` so already-scrubbed rows are skipped by the index rather than walked. |
 | `(workflow, status)` | Listing a workflow's executions, with or without a status. |
 | `correlation_id`, `tenant_id`, `created_at` | Listing filters; keyset pagination orders by the primary key. |
 | `parent_execution_id` | A sub-workflow's children: the parent filter, the cancellation cascade, the same-child lookup on a parent-step retry. |
 | `laraflow_step_executions (workflow_execution_id, position)` unique | "Steps of this execution" reads, `stepProgress()`'s grouping, the plan's one-row-per-position invariant — and the foreign key itself, via the leftmost prefix. |
 | `laraflow_step_attempts (step_execution_id, attempt)` unique | One row per logical attempt; a duplicate delivery cannot double-count. |
 | `laraflow_step_attempts (workflow_execution_id)` | The prune scan and `attemptHistory()`. Not redundant: PostgreSQL, SQLite, and SQL Server create no index for a foreign key on their own; MySQL and MariaDB reuse this one. |
+| `laraflow_idempotency_keys (workflow_execution_id, step_position, key)` unique | `remember()`'s marker insert — exactly one of two concurrent attempts succeeds — and the lookup of the record it found; and, by its leading column, every read by execution: the key count behind the cap, `laraflow:show --attempts`, retention's scrub and orphan deletes. The table's only index, so the foreign key needs none of its own. |
 
-Deliberately absent: a single-column `status` index (three composites already lead with `status`; a fourth index on the same prefix only taxes writes) and any index on `laraflow_step_executions.status` (no query filters step rows by status alone).
+Deliberately absent: a single-column `status` index (four composites already lead with `status`; another index on the same prefix only taxes writes) and any index on `laraflow_step_executions.status` (no query filters step rows by status alone).
 
 ### Foreign keys and cascades
 

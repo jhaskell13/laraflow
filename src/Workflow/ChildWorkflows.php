@@ -37,7 +37,7 @@ class ChildWorkflows
      * sync queue driver — the outcome itself, completing or failing the
      * step without a park.
      *
-     * @return Wait|array{execution_id: int|string, status: string}
+     * @return Wait|array{execution_id: int, status: string}
      *
      * @throws ChildWorkflowFailedException
      * @throws WorkflowDepthExceededException

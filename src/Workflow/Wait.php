@@ -98,7 +98,7 @@ final readonly class Wait
      * @internal The sub-workflow machinery's park on its child, exempt
      * from the reserved-prefix refusal that applies to applications.
      */
-    public static function forChild(int|string $childExecutionId): self
+    public static function forChild(int $childExecutionId): self
     {
         return new self(self::CHILD_PREFIX.$childExecutionId, null, null);
     }
@@ -109,10 +109,17 @@ final readonly class Wait
         return $signal !== null && str_starts_with($signal, self::CHILD_PREFIX);
     }
 
-    /** The child execution id a child signal names. */
-    public static function childIdFrom(string $signal): string
+    /**
+     * The child execution id a child signal names. A signal forChild()
+     * did not write — anything but digits after the prefix — reads as
+     * 0, an id no execution can have, so a lookup reports it missing
+     * rather than guessing.
+     */
+    public static function childIdFrom(string $signal): int
     {
-        return substr($signal, strlen(self::CHILD_PREFIX));
+        $id = substr($signal, strlen(self::CHILD_PREFIX));
+
+        return ctype_digit($id) && (string) (int) $id === $id ? (int) $id : 0;
     }
 
     /**

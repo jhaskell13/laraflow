@@ -18,7 +18,7 @@ class QueueChildDelivery implements ChildDelivery
 {
     public function __construct(protected Container $container) {}
 
-    public function deliver(int|string $executionId): void
+    public function deliver(int $executionId): void
     {
         $this->container->make(WorkflowDispatcher::class)->dispatchExecution($executionId);
     }

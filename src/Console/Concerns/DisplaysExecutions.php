@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Laraflow\Console\Concerns;
 
 use DateTimeInterface;
+use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Date;
+use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
+use Throwable;
 
 /**
  * @internal Rendering helpers shared by the Laraflow console commands.
@@ -26,6 +29,12 @@ trait DisplaysExecutions
         $this->newLine();
         $this->components->twoColumnDetail('<fg=gray>Execution</>', (string) $execution->id);
         $this->components->twoColumnDetail('<fg=gray>Workflow</>', $execution->workflow);
+
+        if ($execution->planVersion > 1) {
+            // Only worth a line once a workflow has versioned its plan;
+            // every execution of an unversioned workflow is version 1.
+            $this->components->twoColumnDetail('<fg=gray>Plan version</>', (string) $execution->planVersion);
+        }
         $this->components->twoColumnDetail('<fg=gray>Status</>', $this->coloredStatus($execution->status->value));
         $this->components->twoColumnDetail('<fg=gray>Started</>', $this->formatDate($execution->startedAt));
 
@@ -88,6 +97,88 @@ trait DisplaysExecutions
         }
 
         $this->newLine();
+    }
+
+    /**
+     * Say what a finished run amounts to, and give the command that
+     * carries it forward.
+     *
+     * Three of the four outcomes are neither failures nor completions:
+     * the step's retry policy, a wait, or an operator owns what happens
+     * next, so the command succeeds and says who. Shared by every
+     * command that runs an execution in this process, so two of them
+     * cannot disagree about what a parked execution looks like — which
+     * is exactly what happened while laraflow:execute kept its own copy
+     * and reported a wait as "completed" (Phase C audit).
+     */
+    protected function reportOutcome(WorkflowExecution $execution): int
+    {
+        if ($execution->isRetrying()) {
+            $this->components->warn(sprintf(
+                'A step failed and its retry policy scheduled another attempt for %s. '
+                .'Deliver it with: laraflow:recover --sync — or skip the wait with: laraflow:execute %s --now',
+                $this->formatDate($execution->nextRetryAt),
+                $execution->id,
+            ));
+
+            return Command::SUCCESS;
+        }
+
+        if ($execution->isWaiting()) {
+            $this->components->warn(sprintf(
+                'A step parked the execution on a wait. See what it is waiting for with: laraflow:show %s '
+                .'— a timed wait is delivered by laraflow:recover, a signal by WorkflowRunner::signal().',
+                $execution->id,
+            ));
+
+            return Command::SUCCESS;
+        }
+
+        if ($execution->isCancelled()) {
+            $this->components->info('The execution was cancelled during the run; completed steps are kept.');
+
+            return Command::SUCCESS;
+        }
+
+        if (! $execution->isCompleted()) {
+            // Every path that reaches here today has already thrown for
+            // a terminal failure — FailurePolicy::Continue rethrows the
+            // first failure once the remaining steps have run — so this
+            // is the guard that keeps the sentence below true rather
+            // than a branch with a known caller. A state this method
+            // has not been taught is reported as itself, not as done.
+            $this->components->error(sprintf(
+                'The execution finished in status [%s]. See it with: laraflow:show %s',
+                $execution->status->value,
+                $execution->id,
+            ));
+
+            return Command::FAILURE;
+        }
+
+        $this->components->info("Execution completed. Inspect it anytime with: laraflow:show {$execution->id}");
+
+        return Command::SUCCESS;
+    }
+
+    /**
+     * A step threw and the failure is persisted: the record as it now
+     * stands, the error, and the command that picks it up again.
+     */
+    protected function reportFailedRun(
+        ExecutionRepository $repository,
+        int $executionId,
+        Throwable $exception,
+        string $prefix = 'A step failed: ',
+    ): void {
+        $failed = $repository->find($executionId);
+
+        $this->displayExecution($failed, $repository->steps($failed));
+
+        $this->components->error($prefix.$exception->getMessage());
+        $this->components->info(
+            "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
+        );
     }
 
     /**

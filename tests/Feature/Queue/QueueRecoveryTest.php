@@ -23,7 +23,6 @@ use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\WorkflowExecution;
-use Laraflow\Workflow\WorkflowRunner;
 use Symfony\Component\Console\Command\Command as CommandStatus;
 
 /**
@@ -323,14 +322,13 @@ class QueueRecoveryTest extends TestCase
     ): void {
         DB::table('jobs')->delete();
 
-        $runner = new WorkflowRunner(
+        $runner = $this->makeRunner(
             repository: new CrashingExecutionRepository(
                 $this->app->make(ExecutionRepository::class),
                 $dieOn,
                 $call,
                 $phase,
             ),
-            container: $this->app,
             logger: $this->logger,
             options: new RunnerOptions(staleAfterSeconds: 300),
         );

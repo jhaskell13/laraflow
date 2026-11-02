@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Workflow\ExecutionRepository;
@@ -25,6 +27,7 @@ use Throwable;
 class ExecuteCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionId;
 
     protected $signature = 'laraflow:execute
         {execution : The id of the execution to run or recover}
@@ -39,7 +42,13 @@ class ExecuteCommand extends Command
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
     ): int {
-        $id = (string) $this->argument('execution');
+        try {
+            $id = $this->executionIdArgument();
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         try {
             $execution = $repository->find($id);
@@ -70,16 +79,33 @@ class ExecuteCommand extends Command
                     return self::FAILURE;
                 }
 
-                $failed = $repository->find($id);
-
-                $this->displayExecution($failed, $repository->steps($failed));
-
-                $this->components->error(
-                    'The queue connection ran the job in this process (sync driver) '
-                    .'and a step failed: '.$exception->getMessage()
+                $this->reportFailedRun(
+                    $repository,
+                    $id,
+                    $exception,
+                    'The queue connection ran the job in this process (sync driver) and a step failed: ',
                 );
 
                 return self::FAILURE;
+            }
+
+            // A sync queue connection runs the job inside the dispatch
+            // call, so by here it may already have run. "Still pending"
+            // cannot say so — this command dispatches failed and
+            // retrying executions too — so the record is compared with
+            // the one read before the push: a run that completed changed
+            // the status, and a run that failed again moved finished_at.
+            $before = $execution;
+            $execution = $repository->find($id);
+
+            if ($execution->status !== $before->status || $execution->finishedAt != $before->finishedAt) {
+                $this->components->info(
+                    'The queue connection ran the job in this process (sync driver).'
+                );
+
+                $this->displayExecution($execution, $repository->steps($execution));
+
+                return $this->reportOutcome($execution);
             }
 
             $this->components->info(
@@ -105,37 +131,15 @@ class ExecuteCommand extends Command
 
             return self::FAILURE;
         } catch (Throwable $exception) {
-            $failed = $repository->find($id);
-
-            $this->displayExecution($failed, $repository->steps($failed));
-
-            $this->components->error('A step failed: '.$exception->getMessage());
+            $this->reportFailedRun($repository, $id, $exception);
 
             return self::FAILURE;
         }
 
         $this->displayExecution($execution, $repository->steps($execution));
 
-        if ($execution->isRetrying()) {
-            // Not an operator failure: the step's policy owns what
-            // happens next, so the command succeeds and says when.
-            $this->components->warn(
-                'A step failed and its retry policy scheduled another attempt for '
-                .$this->formatDate($execution->nextRetryAt)
-                .". Run it early with: laraflow:execute {$id} --now"
-            );
-
-            return self::SUCCESS;
-        }
-
-        if ($execution->isCancelled()) {
-            $this->components->info('Execution was cancelled during the run; completed steps are kept.');
-
-            return self::SUCCESS;
-        }
-
-        $this->components->info('Execution completed.');
-
-        return self::SUCCESS;
+        // Every outcome — retrying, waiting, cancelled, completed — is
+        // said by the one reporter every running command shares.
+        return $this->reportOutcome($execution);
     }
 }

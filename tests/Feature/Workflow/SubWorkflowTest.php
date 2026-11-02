@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Queue;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Tests\Support\ApprovalWorkflow;
 use Laraflow\Tests\Support\HookedParentWorkflow;
 use Laraflow\Tests\Support\HookedSubStep;
 use Laraflow\Tests\Support\ParentWorkflow;
@@ -173,6 +174,29 @@ class SubWorkflowTest extends TestCase
             return true;
         });
         $this->assertSame(2, $deliveries, 'The lost dispatch was re-delivered to the child.');
+    }
+
+    public function test_a_child_signal_that_names_no_child_fails_the_step_by_name(): void
+    {
+        // Only forChild() writes the child prefix, and it writes digits.
+        // A row altered outside the package used to read as child [0]
+        // and fail as "pruned by retention"; it fails as what it is.
+        $execution = $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
+
+        StepExecutionModel::query()
+            ->where('workflow_execution_id', $execution->id)
+            ->where('status', StepStatus::Waiting->value)
+            ->update(['wait_signal' => 'laraflow.child.oops']);
+
+        try {
+            $this->app->make(WorkflowRunner::class)->execute($execution->id, new ApprovalWorkflow, ignoreRetrySchedule: true);
+            $this->fail('A malformed child signal must fail the step.');
+        } catch (ChildWorkflowFailedException $exception) {
+            $this->assertStringContainsString('[laraflow.child.oops]', $exception->getMessage());
+            $this->assertStringNotContainsString('[0]', $exception->getMessage());
+        }
+
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->whereKey($execution->id)->sole()->status);
     }
 
     public function test_a_recursive_workflow_is_refused_at_the_depth_bound(): void

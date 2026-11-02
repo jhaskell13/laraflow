@@ -16,7 +16,7 @@ use DateTimeImmutable;
  */
 class RetryNotDueException extends WorkflowException
 {
-    public static function forId(int|string $id, ?DateTimeImmutable $nextRetryAt): self
+    public static function forId(int $id, ?DateTimeImmutable $nextRetryAt): self
     {
         $due = $nextRetryAt?->format('Y-m-d H:i:s') ?? 'an unknown time';
 

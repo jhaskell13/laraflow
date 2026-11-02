@@ -17,6 +17,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
 - [Conditions, waits, and sub-workflows](#conditions-waits-and-sub-workflows)
+- [Changing a deployed workflow](#changing-a-deployed-workflow)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
@@ -49,14 +50,30 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.2.0
+composer require laraflow/laraflow:^0.3.0
 ```
 
-Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed.
+Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
+
+```bash
+php artisan laraflow:install
+```
+
+That publishes `config/laraflow.php`, runs the migrations, and prints what to do next. It does nothing `vendor:publish` and `migrate` would not, so the two sections below are the same thing by hand.
+
+From there, the whole first workflow is three commands and one edit:
+
+```bash
+php artisan make:workflow FulfilOrder          # app/Workflows/FulfilOrder.php
+php artisan make:step ReserveInventory         # app/Workflows/Steps/ReserveInventory.php
+# name the step in the workflow's steps() list, then:
+php artisan laraflow:start FulfilOrder --input='{"order_id": 42}'
+php artisan laraflow:show 1
+```
 
 ### Database tables
 
-Laraflow stores executions in three tables: `laraflow_workflow_executions`, `laraflow_step_executions`, and `laraflow_step_attempts` (the append-only per-attempt history). The package loads its own migrations, so you only need to run:
+Laraflow stores executions in four tables: `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts` (the append-only per-attempt history), and `laraflow_idempotency_keys` (what steps have remembered). The package loads its own migrations, so you only need to run:
 
 ```bash
 php artisan migrate
@@ -486,7 +503,7 @@ Keep credentials in your `.env` file, not in the published config.
 
 ## Your first workflow
 
-A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
+Scaffold both halves — `php artisan make:workflow SyncCustomerWorkflow` and `php artisan make:step LoadCustomer` (`--conditional` and `--sub-workflow` for the other two kinds of step) — or write them by hand. A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
 
 ```php
 <?php
@@ -579,6 +596,12 @@ $execution = $runner->start(new SyncCustomerWorkflow(), ['customer_id' => 42]);
 $execution = $runner->execute($execution->id, new SyncCustomerWorkflow());
 ```
 
+The same from the console, without writing a caller — the class fully qualified or by its bare name under `App\Workflows`, the input as a JSON object, `--queue` to dispatch instead:
+
+```bash
+php artisan laraflow:start SyncCustomerWorkflow --input='{"customer_id": 42}'
+```
+
 ### Failure and recovery
 
 If a step throws, the failure (message and exception class) is persisted on both the step and the execution, and the exception is rethrown. Calling `execute()` again on a failed execution **resumes it**: completed steps are skipped, their results are restored into the context from durable state, and the failed step runs again.
@@ -594,7 +617,7 @@ try {
 
 The same call recovers executions whose worker died mid-run: a `running` execution whose claim is older than `laraflow.execution.stale_after` (default 300 seconds) can be reclaimed, and the interrupted step runs again. Two workers can never both hold a live execution — claiming is an atomic compare-and-set, and a worker that loses its claim can no longer write durable state.
 
-A step that repeats this way may re-perform external side effects — that is the **at-least-once contract**. Steps can deduplicate using `$context->idempotencyKey()`, which is stable across crashes and retries of the same step. The full contract, state machines, and crash-boundary behaviour are specified in [docs/execution-lifecycle.md](docs/execution-lifecycle.md).
+A step that repeats this way may re-perform external side effects — that is the **at-least-once contract**. Wrap a side effect in `$context->remember('charge', fn () => $payments->charge(...))` and it runs at most once per execution across every retry, recovery, and worker; a worker that dies *after* the charge and *before* its result was recorded leaves evidence, and the next attempt is told the outcome is uncertain rather than charging again ([docs/idempotency.md](docs/idempotency.md)). The full execution contract, state machines, and crash-boundary behaviour are specified in [docs/execution-lifecycle.md](docs/execution-lifecycle.md).
 
 ### What gets persisted
 
@@ -716,6 +739,43 @@ class SyncSubsidiary extends SubWorkflowStep
 ```
 
 The child inherits the parent's correlation and tenant identifiers, runs like any other execution, and its outcome — identity and status, never its context — becomes the parent step's output. A failed child fails the parent step under the step's retry policy, and a retry resumes the *same* child from its own checkpoints rather than starting over. Cancelling a parent cascades to its unfinished children; nesting is bounded by `laraflow.workflows.max_depth`; and the parent checks on its child every `stale_after` seconds, so a lost signal or a lost dispatch heals instead of hanging.
+
+## Changing a deployed workflow
+
+The full step plan is persisted when an execution is created, and the runner refuses to run an execution whose persisted plan no longer matches the workflow's `steps()`. That refusal is deliberate — durable state must never be quietly reinterpreted by changed code — but it means **a deploy that edits a workflow strands every in-flight execution of it** with `WorkflowDefinitionMismatchException`.
+
+Versioning is the one way past it, and it is opt-in per workflow. Bump `version()` and say what changed, keyed by the version the migration moves *from*:
+
+```php
+use Laraflow\Workflow\PlanDraft;
+use Laraflow\Workflow\Workflow;
+
+class FulfilOrder extends Workflow
+{
+    public function steps(): array
+    {
+        return [ReserveInventory::class, ChargePayment::class, RecordTax::class, SendReceipt::class];
+    }
+
+    public function version(): int
+    {
+        return 2;
+    }
+
+    public function planMigrations(): array
+    {
+        return [
+            1 => fn (PlanDraft $plan) => $plan->insertAfter(ChargePayment::class, RecordTax::class),
+        ];
+    }
+}
+```
+
+An execution persisted under version 1 is carried forward the next time it is claimed: the declared hops run in turn, under the existing claim, in one transaction, before any step runs. Nothing new happens at recovery time and no new state is introduced.
+
+A migration may rewrite **only the part of the plan the execution has not reached**. A `pending` step row has no output, no attempt history, and nothing in the context, so it can be renumbered, removed, or replaced; every other row is the record of something that happened. Reaching further back is refused with `PlanMigrationRefusedException`, naming the step and the status that froze it. Leave `version()` alone and a changed `steps()` still strands its executions, exactly as before — silence means refuse.
+
+The full contract — what is refused and why, how several versions behind are chained, and how to test a migration — is in [docs/workflow-versioning.md](docs/workflow-versioning.md). Deploy guidance is in [docs/upgrading.md](docs/upgrading.md).
 
 ## Running on a queue
 
@@ -1043,12 +1103,11 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 7; what comes next lives in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 8; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
-- **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Use `$context->idempotencyKey()` to deduplicate; the package cannot make arbitrary side effects exactly-once. Transport retries follow the same honesty: a `POST` is repeated only on 429 or when you mark it `asIdempotent()`.
-- **No workflow versioning.** If a workflow's step list changes, in-flight executions of the old definition can only be finished by the old code; `execute()` rejects a mismatched definition rather than guessing.
+- **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Wrap them in `$context->remember()` so they run once per execution and a crash inside the window is raised rather than repeated ([docs/idempotency.md](docs/idempotency.md)). Transport retries follow the same honesty: a `POST` is repeated only on 429 or when you mark it `asIdempotent()`.
 - **No per-workflow aggregates.** The query API filters and counts within one scope; it has no `GROUP BY`. `laraflow:summary --workflow=` scopes the same numbers to one workflow, and a dashboard needing a breakdown should count per workflow it knows about.
 - **No write-time payload redaction.** Input seeds the context on every `execute()` and context is restored on recovery, so rewriting either at write time would corrupt re-runs. Store identifiers rather than secrets; scrub payloads after the fact with retention; redact error messages with `errors.redactor`.
 - **Metrics are events, not an integration.** Durations, queue lag, and connector call timings are on events; turning them into Prometheus, StatsD, or Pulse metrics is a listener you write. Recipes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).

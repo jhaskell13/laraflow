@@ -9,12 +9,13 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
-use Laraflow\Events\WorkflowExecutionRetryScheduled;
+use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Workflow\RecoveryCandidate;
+use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
 use Throwable;
 
@@ -23,8 +24,8 @@ use Throwable;
  *
  * Finds recoverable executions — stale running claims (reported as step
  * timeouts when the interrupted step overran its deadline), scheduled
- * retries that have come due, and optionally lost pending dispatches —
- * and re-dispatches them. Designed to run from the scheduler:
+ * retries and waits that have come due, and optionally lost pending
+ * dispatches — and re-dispatches them. Designed to run from the scheduler:
  *
  *   Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
  *
@@ -40,6 +41,7 @@ use Throwable;
 class RecoverCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionFilters;
 
     protected $signature = 'laraflow:recover
         {--stale-after= : Seconds after which a running claim counts as stale (default: laraflow.execution.stale_after)}
@@ -48,6 +50,7 @@ class RecoverCommand extends Command
         {--abandon-after= : Report interrupted executions whose steps reached this many attempts, or that were claimed this many times without reaching a step, as abandoned (default: laraflow.recovery.abandon_after_attempts)}
         {--skip-retries : Do not deliver scheduled retries or due waits; only interrupted and lost work is recovered}
         {--workflow= : Only consider executions created from this workflow class}
+        {--tenant= : Only consider executions for this tenant id}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
         {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
 
@@ -75,16 +78,14 @@ class RecoverCommand extends Command
             return self::FAILURE;
         }
 
-        $workflow = $this->option('workflow');
-        $workflow = is_string($workflow) && $workflow !== '' ? $workflow : null;
-
         $candidates = $service->scan(
             staleAfterSeconds: $staleAfter,
             pendingAfterSeconds: $pendingAfter,
             limit: $limit,
             abandonAfterAttempts: $abandonAfter,
-            workflow: $workflow,
+            workflow: $this->stringOption('workflow'),
             includeDueRetries: ! (bool) $this->option('skip-retries'),
+            tenantId: $this->stringOption('tenant'),
         );
 
         if ($candidates === []) {
@@ -104,7 +105,7 @@ class RecoverCommand extends Command
                 $candidate->execution->id,
                 class_basename($candidate->execution->workflow),
                 $this->coloredStatus($candidate->execution->status->value),
-                str_replace('_', ' ', $candidate->reason),
+                $candidate->reason->label(),
                 $candidate->attempts,
                 $this->formatDate($this->interruptedSince($candidate)),
                 $this->act($service, $candidate, $dryRun, $sync, $counts),
@@ -250,11 +251,9 @@ class RecoverCommand extends Command
     protected function interruptedSince(RecoveryCandidate $candidate): ?DateTimeImmutable
     {
         return match ($candidate->reason) {
-            WorkflowExecutionRetryScheduled::REASON_STALE_CLAIM,
-            WorkflowExecutionRetryScheduled::REASON_STEP_TIMEOUT => $candidate->execution->claimedAt,
-            WorkflowExecutionRetryScheduled::REASON_RETRY_DUE,
-            WorkflowExecutionRetryScheduled::REASON_WAIT_DUE => $candidate->execution->nextRetryAt,
-            default => $candidate->execution->createdAt,
+            RecoveryReason::StaleClaim, RecoveryReason::StepTimeout => $candidate->execution->claimedAt,
+            RecoveryReason::RetryDue, RecoveryReason::WaitDue => $candidate->execution->nextRetryAt,
+            RecoveryReason::NeverDispatched => $candidate->execution->createdAt,
         };
     }
 

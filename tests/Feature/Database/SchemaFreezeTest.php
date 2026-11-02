@@ -36,7 +36,7 @@ class SchemaFreezeTest extends TestCase
             'created_at', 'dispatched_at', 'duration_ms', 'error', 'error_class',
             'failed_at', 'finished_at', 'fruitless_claims', 'id', 'input', 'next_retry_at',
             'parent_execution_id', 'parent_step_execution_id',
-            'payloads_scrubbed_at', 'started_at', 'status', 'tenant_id',
+            'payloads_scrubbed_at', 'plan_version', 'started_at', 'status', 'tenant_id',
             'updated_at', 'version', 'workflow',
         ],
         'laraflow_step_executions' => [
@@ -49,6 +49,10 @@ class SchemaFreezeTest extends TestCase
             'attempt', 'created_at', 'duration_ms', 'ended_at', 'error',
             'error_class', 'id', 'next_retry_at', 'started_at', 'status',
             'step_execution_id', 'updated_at', 'workflow_execution_id',
+        ],
+        'laraflow_idempotency_keys' => [
+            'created_at', 'error_class', 'id', 'key', 'settled_at', 'started_at', 'status',
+            'step_position', 'updated_at', 'value', 'workflow_execution_id',
         ],
     ];
 
@@ -67,6 +71,7 @@ class SchemaFreezeTest extends TestCase
             ['parent_execution_id'],
             ['payloads_scrubbed_at', 'status', 'finished_at'],
             ['status', 'claimed_at'],
+            ['status', 'created_at'],
             ['status', 'finished_at'],
             ['status', 'next_retry_at'],
             ['tenant_id'],
@@ -80,6 +85,10 @@ class SchemaFreezeTest extends TestCase
             ['id'],
             ['step_execution_id', 'attempt'],
             ['workflow_execution_id'],
+        ],
+        'laraflow_idempotency_keys' => [
+            ['id'],
+            ['workflow_execution_id', 'step_position', 'key'],
         ],
     ];
 
@@ -103,6 +112,9 @@ class SchemaFreezeTest extends TestCase
         '2026_10_28_000001_add_wait_signal_to_laraflow_step_executions.php' => '67736320011ef3d5dd9475ccab43508fcbf4514684c03e3de92f36d120210a85',
         '2026_10_28_000002_add_parent_links_to_laraflow_workflow_executions.php' => 'eb6f47d57df0250318dad185c8cd6d54e301ee89396ec25bd8772a3a1403fa18',
         '2026_10_28_000003_add_scrub_scan_index_to_laraflow_workflow_executions.php' => '250b1192065da97f03d14a4919437c9805cbd0429f6c9b2f3fc63f2c567462ac',
+        '2026_11_01_000000_add_pending_scan_index_to_laraflow_workflow_executions.php' => '41c51997344b3a10298f98e417b230414b700a665c5d40f92d8d99995e8f66e9',
+        '2026_11_01_000001_add_plan_version_to_laraflow_workflow_executions.php' => '5f328f52e8e2a79400e4af240b6d2ffd95cd71879981aa5a3a13c376b7ebc13b',
+        '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => 'e46ed7c81eae3ab357d97f509ab5832deb859caa5322373180c0b8463372df15',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void
@@ -121,9 +133,7 @@ class SchemaFreezeTest extends TestCase
     public function test_the_frozen_tables_have_exactly_these_indexes(): void
     {
         foreach (self::INDEXES as $table => $expected) {
-            $actual = collect(Schema::getIndexes($table))
-                ->map(fn (array $index): array => $index['columns'])
-                ->all();
+            $actual = $this->indexColumns($table);
 
             // Both sides through the same sort: engines report indexes
             // in their own order, and the literal above is written for
@@ -156,7 +166,7 @@ class SchemaFreezeTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "[{$table}] is missing. ".self::EXPLANATION);
         }
 
-        // A fourth Laraflow table is a schema change like any other, and
+        // A fifth Laraflow table is a schema change like any other, and
         // the queue tables this suite creates are Laravel's, not ours.
         $laraflow = collect(Schema::getTableListing())
             // SQL Server reports tables schema-qualified (dbo.foo).

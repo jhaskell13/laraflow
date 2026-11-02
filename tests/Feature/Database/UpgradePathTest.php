@@ -112,20 +112,23 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7 migrations, exercised the way an installed
+        // The Milestone 7 and 8 migrations, exercised the way an installed
         // application meets them: rows written under the frozen schema,
         // then the new migrations applied — simulated by rolling them
         // back first, since the harness installs every migration up
-        // front. One rollback step per post-freeze migration — four.
+        // front. One rollback step per post-freeze migration — seven.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
 
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
+        $this->assertFalse(Schema::hasTable('laraflow_idempotency_keys'));
+        $this->assertNotContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
         $this->assertTrue(Schema::hasTable('laraflow_step_attempts'), 'Steps back are migrations, not the batch.');
@@ -139,6 +142,15 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'wait_signal'));
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'parent_execution_id'));
+        $this->assertContains(['status', 'created_at'], $this->indexColumns('laraflow_workflow_executions'), 'The pending-scan index is back.');
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'plan_version'));
+        $this->assertTrue(Schema::hasTable('laraflow_idempotency_keys'));
+
+        // A row that predates the column is running plan version 1,
+        // which is exactly what it is, and the package reads it so
+        // without a coalesce.
+        $this->assertSame(1, WorkflowExecutionModel::query()->findOrFail($execution->id)->plan_version);
+        $this->assertSame(1, $this->app->make(ExecutionRepository::class)->find($execution->id)->planVersion);
 
         // A row that predates the column has made no fruitless claims,
         // and the package reads it that way without a coalesce.

@@ -103,19 +103,30 @@ jobs:
         run: composer analyse -- --no-progress
 
   # The engine matrix: the whole suite against every database the
-  # compatibility policy names, through the LARAFLOW_TEST_DB_* seam.
+  # compatibility policy names, through the LARAFLOW_TEST_DB_* seam, at
+  # both ends of the dependency axis — Laravel 13 on the lock file, and
+  # Laravel 12 resolved to the floor of every constraint on the oldest
+  # supported PHP — and then the install walk against the same engine.
+  # Full coverage over CI weight, decided at Milestone 8 planning: the
+  # engines are where new code has found its defects every time.
+  #
   # One shared env block configures every image — each ignores the
   # variables that are not its own — and health options come from the
   # matrix because every engine answers "are you up" differently.
   databases:
-    name: Database (${{ matrix.name }})
+    name: Database (${{ matrix.name }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        engine: [mysql, mariadb, pgsql, sqlsrv]
+        laravel: ['12', '13']
         include:
-          - name: MySQL 8.0
-            driver: mysql
+          # Each engine's image and the way to ask it whether it is up.
+          # The engine name doubles as the Laravel connection the
+          # install walk's application is pointed at.
+          - engine: mysql
+            name: MySQL 8.0
             image: mysql:8.0
             port: 3306
             extensions: pdo_mysql
@@ -124,8 +135,8 @@ jobs:
             options: >-
               --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - name: MariaDB 10.6
-            driver: mariadb
+          - engine: mariadb
+            name: MariaDB 10.6
             image: mariadb:10.6
             port: 3306
             extensions: pdo_mysql
@@ -134,8 +145,8 @@ jobs:
             options: >-
               --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - name: PostgreSQL 13
-            driver: pgsql
+          - engine: pgsql
+            name: PostgreSQL 13
             image: postgres:13
             port: 5432
             extensions: pdo_pgsql
@@ -144,8 +155,8 @@ jobs:
             options: >-
               --health-cmd="pg_isready -U laraflow"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - name: SQL Server 2019
-            driver: sqlsrv
+          - engine: sqlsrv
+            name: SQL Server 2019
             image: mcr.microsoft.com/mssql/server:2019-latest
             port: 1433
             extensions: pdo_sqlsrv
@@ -155,6 +166,16 @@ jobs:
             # moved between CUs (mssql-tools vs mssql-tools18), so the
             # wait step below asks from outside, trying both.
             options: --env MSSQL_PID=Developer
+          # The two ends of the dependency axis, the same pairings the
+          # SQLite install job has always used.
+          - laravel: '12'
+            php: '8.2'
+            testbench: '^10.0'
+            dependencies: prefer-lowest
+          - laravel: '13'
+            php: '8.4'
+            testbench: '^11.0'
+            dependencies: prefer-stable
 
     services:
       database:
@@ -182,18 +203,28 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php }}
           extensions: mbstring, pdo_sqlite, json, ${{ matrix.extensions }}
           coverage: none
 
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Pin the Laravel major via Testbench
+        run: >
+          composer require --dev --no-update --no-interaction
+          "orchestra/testbench:${{ matrix.testbench }}"
+
+      - name: Install dependencies (prefer-stable)
+        if: matrix.dependencies == 'prefer-stable'
+        run: composer update --prefer-dist --prefer-stable --no-interaction --no-progress
+
+      - name: Install dependencies (prefer-lowest)
+        if: matrix.dependencies == 'prefer-lowest'
+        run: composer update --prefer-dist --prefer-lowest --prefer-stable --no-interaction --no-progress
 
       # pdo_sqlsrv is a shim over Microsoft's ODBC driver, which the
       # runner image does not carry; without it every connection fails
       # with IMSSP before reaching the server.
       - name: Install the Microsoft ODBC driver
-        if: matrix.driver == 'sqlsrv'
+        if: matrix.engine == 'sqlsrv'
         # The runner image already carries Microsoft's apt repository,
         # so adding it again only conflicts with the existing keyring.
         run: |
@@ -202,12 +233,12 @@ jobs:
 
       # SQL Server creates no database from environment variables the
       # way the other images do, and its startup is the slowest of the
-      # four. Wait for it and create the database in one idempotent
+      # four. Wait for it and create both databases in one idempotent
       # loop, trying both sqlcmd locations the image has shipped.
-      - name: Wait for SQL Server and create the database
-        if: matrix.driver == 'sqlsrv'
+      - name: Wait for SQL Server and create the databases
+        if: matrix.engine == 'sqlsrv'
         run: |
-          QUERY="IF DB_ID('laraflow_test') IS NULL CREATE DATABASE laraflow_test"
+          QUERY="IF DB_ID('laraflow_test') IS NULL CREATE DATABASE laraflow_test; IF DB_ID('laraflow_install') IS NULL CREATE DATABASE laraflow_install"
           for i in $(seq 1 60); do
             if docker exec ${{ job.services.database.id }} sh -c \
               "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b \
@@ -220,9 +251,25 @@ jobs:
           docker logs ${{ job.services.database.id }}
           exit 1
 
+      # The suite leaves laraflow_test migrated and the install walk
+      # must start from nothing, as a new application does; the images
+      # create one database from their environment, so the second is
+      # created from inside the container, with the client each ships.
+      - name: Create a database for the install walk
+        if: matrix.engine != 'sqlsrv'
+        run: |
+          case "${{ matrix.engine }}" in
+            mysql|mariadb)
+              docker exec ${{ job.services.database.id }} mysql -uroot -proot \
+                -e "CREATE DATABASE laraflow_install; GRANT ALL ON laraflow_install.* TO 'laraflow'@'%';" ;;
+            pgsql)
+              docker exec ${{ job.services.database.id }} psql -U laraflow -d laraflow_test \
+                -c "CREATE DATABASE laraflow_install" ;;
+          esac
+
       - name: Tests
         env:
-          LARAFLOW_TEST_DB_DRIVER: ${{ matrix.driver }}
+          LARAFLOW_TEST_DB_DRIVER: ${{ matrix.engine }}
           LARAFLOW_TEST_DB_HOST: 127.0.0.1
           LARAFLOW_TEST_DB_PORT: ${{ matrix.port }}
           LARAFLOW_TEST_DB_DATABASE: laraflow_test
@@ -230,19 +277,36 @@ jobs:
           LARAFLOW_TEST_DB_PASSWORD: ${{ matrix.password }}
         run: composer test
 
-  # The Milestone 0 exit criterion, held for good: a new application can
-  # go from `composer require` to a persisted, recoverable execution
-  # using only documented steps. A real `laravel/laravel` skeleton, the
-  # package required from a path repository, and every assertion is a
-  # command an actual user would run.
+      # The third Milestone 8 exit criterion, against this engine: a
+      # fresh application, pointed at the second database through the
+      # same DB_* variables a user would set. The skeleton leaves SQL
+      # Server's certificate settings commented out, and the ODBC driver
+      # refuses a container's self-signed certificate by default, so
+      # that one is configured through DB_URL — the documented way to
+      # pass a connection option the skeleton does not name.
+      - name: Install walk
+        uses: ./.github/actions/install-walk
+        env:
+          DB_CONNECTION: ${{ matrix.engine }}
+          DB_HOST: 127.0.0.1
+          DB_PORT: ${{ matrix.port }}
+          DB_DATABASE: laraflow_install
+          DB_USERNAME: ${{ matrix.username }}
+          DB_PASSWORD: ${{ matrix.password }}
+          DB_URL: ${{ matrix.engine == 'sqlsrv' && format('sqlsrv://{0}:{1}@127.0.0.1:{2}/laraflow_install?encrypt=yes&trust_server_certificate=true', matrix.username, matrix.password, matrix.port) || '' }}
+        with:
+          laravel: ${{ matrix.laravel }}
+
+  # The install walk on SQLite, the database a new application has
+  # before it has chosen one: the oldest supported pairing and the
+  # newest, through the same action the engine jobs end with.
   install:
-    name: Install (Laravel ${{ matrix.laravel }}, PHP ${{ matrix.php }})
+    name: Install (SQLite, Laravel ${{ matrix.laravel }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # The oldest supported pairing and the newest.
           - laravel: '12'
             php: '8.2'
           - laravel: '13'
@@ -250,8 +314,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: package
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -259,52 +321,7 @@ jobs:
           extensions: mbstring, pdo_sqlite, json
           coverage: none
 
-      - name: Create a fresh Laravel application
-        run: composer create-project "laravel/laravel:^${{ matrix.laravel }}.0" app --no-interaction --no-progress
-
-      - name: Require Laraflow from the local path
-        working-directory: app
-        run: |
-          composer config repositories.laraflow path "${GITHUB_WORKSPACE}/package"
-          composer require "laraflow/laraflow:@dev" --no-interaction --no-progress
-
-      - name: Auto-discovery registered the provider
-        working-directory: app
-        run: |
-          php artisan package:discover | grep -q "laraflow/laraflow"
-          test "$(php artisan list --raw | grep -c '^laraflow:')" -ge 8
-
-      - name: Config and migrations publish
-        working-directory: app
-        run: |
-          php artisan vendor:publish --tag=laraflow-config --no-interaction
-          test -f config/laraflow.php
-          php artisan vendor:publish --tag=laraflow-migrations --no-interaction
-          # Counted from the package rather than written down: the schema
-          # freeze means this number only ever grows, one migration at a time.
-          test "$(ls database/migrations | grep -c laraflow)" -eq "$(ls ../package/database/migrations | wc -l)"
-
-      - name: Migrations run
-        working-directory: app
-        run: |
-          touch database/database.sqlite
-          php artisan migrate --force | grep -c "laraflow.*DONE" | grep -qx "$(ls ../package/database/migrations | wc -l)"
-
-      - name: A workflow runs to a persisted execution
-        working-directory: app
-        run: |
-          php artisan laraflow:demo
-          php artisan laraflow:show 1 | grep -q completed
-          php artisan laraflow:list | grep -q "1 of 1"
-
-      - name: A failed execution recovers from its checkpoint
-        working-directory: app
-        run: |
-          php artisan laraflow:demo --fail && exit 1 || test $? -eq 1
-          php artisan laraflow:execute 2 | grep -q "Execution completed"
-
-      - name: Connectors resolve and the schema rolls back
-        working-directory: app
-        run: |
-          php artisan laraflow:connectors --check
-          php artisan migrate:rollback --force | grep -c "laraflow.*DONE" | grep -qx "$(ls ../package/database/migrations | wc -l)"
+      - name: Install walk
+        uses: ./.github/actions/install-walk
+        with:
+          laravel: ${{ matrix.laravel }}

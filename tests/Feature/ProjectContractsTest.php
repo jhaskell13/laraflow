@@ -4,12 +4,20 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature;
 
+use Closure;
+use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Laraflow\Tests\TestCase;
 use ReflectionClass;
+use ReflectionNamedType;
 use ReflectionParameter;
+use ReflectionType;
+use ReflectionUnionType;
 use SensitiveParameter;
+use Stringable;
+use Throwable;
 
 /**
  * Holds the project's documentation and its code to each other.
@@ -103,15 +111,17 @@ class ProjectContractsTest extends TestCase
         $problems = [];
 
         // Each console row looks like: | `laraflow:x {--a=} {--b}` | ...
-        preg_match_all('/`laraflow:([a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
+        // The make:* generators are documented in the same table and
+        // are just as much the package's console surface.
+        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
 
         $this->assertNotEmpty($rows, 'The console table was not found; this audit needs updating.');
 
         foreach ($rows as [, $name, $options]) {
-            $command = Artisan::all()["laraflow:{$name}"] ?? null;
+            $command = Artisan::all()[$name] ?? null;
 
             if ($command === null) {
-                $problems[] = "laraflow:{$name} is documented but not registered";
+                $problems[] = "{$name} is documented but not registered";
 
                 continue;
             }
@@ -120,7 +130,68 @@ class ProjectContractsTest extends TestCase
 
             foreach ($declared[1] as $option) {
                 if (! $command->getDefinition()->hasOption($option)) {
-                    $problems[] = "laraflow:{$name} has no --{$option}";
+                    $problems[] = "{$name} has no --{$option}";
+                }
+            }
+
+            // ...and the arguments, which the table spells the same way.
+            preg_match_all('/\{([a-z]+)\??\}/', $options, $arguments);
+
+            foreach ($arguments[1] as $argument) {
+                if (! $command->getDefinition()->hasArgument($argument)) {
+                    $problems[] = "{$name} has no {$argument} argument";
+                }
+            }
+        }
+
+        $this->assertSame([], $problems);
+    }
+
+    /**
+     * The other direction, which the audit above cannot see: an option
+     * added to a command and not written down ships undocumented and
+     * CI stays green. Milestone 8 added a command with four options and
+     * nothing structural would have caught their omission (Phase C
+     * audit). Laravel's own global options are not ours to document.
+     */
+    public function test_every_declared_command_option_and_argument_is_documented(): void
+    {
+        $doc = (string) file_get_contents($this->path('docs/public-api.md'));
+        $problems = [];
+
+        $global = ['help', 'quiet', 'verbose', 'version', 'ansi', 'no-ansi', 'no-interaction', 'env'];
+
+        $documented = [];
+        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
+
+        foreach ($rows as [, $name, $options]) {
+            $documented[$name] = ($documented[$name] ?? '').$options;
+        }
+
+        foreach (Artisan::all() as $name => $command) {
+            if (! str_starts_with($name, 'laraflow:') && ! in_array($name, ['make:workflow', 'make:step', 'make:connector'], true)) {
+                continue;
+            }
+
+            if (! isset($documented[$name])) {
+                $problems[] = "{$name} is registered but has no row in docs/public-api.md";
+
+                continue;
+            }
+
+            foreach ($command->getDefinition()->getOptions() as $option) {
+                if (in_array($option->getName(), $global, true)) {
+                    continue;
+                }
+
+                if (! str_contains($documented[$name], '{--'.$option->getName())) {
+                    $problems[] = "{$name} declares --{$option->getName()}, which is not documented";
+                }
+            }
+
+            foreach ($command->getDefinition()->getArguments() as $argument) {
+                if (! str_contains($documented[$name], '{'.$argument->getName())) {
+                    $problems[] = "{$name} takes {$argument->getName()}, which is not documented";
                 }
             }
         }
@@ -150,7 +221,7 @@ class ProjectContractsTest extends TestCase
 
     public function test_every_publish_tag_the_readme_names_works(): void
     {
-        foreach (['laraflow-config', 'laraflow-migrations'] as $tag) {
+        foreach (['laraflow-config', 'laraflow-migrations', 'laraflow-stubs'] as $tag) {
             $this->assertNotEmpty(
                 \Illuminate\Support\ServiceProvider::$publishGroups[$tag] ?? [],
                 "The {$tag} publish tag is documented but publishes nothing.",
@@ -189,17 +260,7 @@ class ProjectContractsTest extends TestCase
         $doc = (string) file_get_contents($this->path('docs/public-api.md'));
         $undocumented = [];
 
-        foreach (File::allFiles($this->path('src')) as $file) {
-            $class = 'Laraflow\\'.str_replace(
-                ['/', '.php'],
-                ['\\', ''],
-                mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1),
-            );
-
-            if (! class_exists($class) && ! interface_exists($class) && ! enum_exists($class)) {
-                continue;
-            }
-
+        foreach ($this->packageClasses() as $class) {
             $reflection = new ReflectionClass($class);
             $docblock = (string) $reflection->getDocComment();
 
@@ -349,9 +410,7 @@ class ProjectContractsTest extends TestCase
         // own stack frames.
         $missing = [];
 
-        foreach (File::allFiles($this->path('src')) as $file) {
-            $class = 'Laraflow\\'.str_replace(['/', '.php'], ['\\', ''], mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1));
-
+        foreach ($this->packageClasses() as $class) {
             if (! class_exists($class) || ! is_subclass_of($class, \Laraflow\Integration\Http\HttpTransport::class)) {
                 continue;
             }
@@ -410,6 +469,170 @@ class ProjectContractsTest extends TestCase
                     "{$implementation} is missing {$method->getName()}().",
                 );
             }
+        }
+    }
+
+    /**
+     * Milestone 8 step 1: execution and step ids are integers, on every
+     * signature. The persistence has issued integers since Milestone 0
+     * and the `int|string` union on the contract was a hedge nobody
+     * exercised; the Milestone 7 audit asked for a commitment and this
+     * is it. Reflection over every parameter and property in the
+     * package named like an id, so a new event or exception cannot
+     * quietly reopen the question.
+     */
+    public function test_execution_ids_are_integers_on_every_signature(): void
+    {
+        // Anything named like an id, less the two application-supplied
+        // identifiers, which are strings by contract. Lists of ids are
+        // array-typed and left to static analysis.
+        $idNames = '/^(id|.+Id)$/';
+        $stringIdentifiers = ['correlationId', 'tenantId'];
+        $offenders = [];
+        $inspected = 0;
+
+        foreach ($this->packageClasses() as $class) {
+            $reflection = new ReflectionClass($class);
+
+            // Eloquent models expose ids as untyped attributes and are
+            // internal to the repository, which casts them.
+            if ($reflection->isSubclassOf(\Illuminate\Database\Eloquent\Model::class)) {
+                continue;
+            }
+
+            foreach ($reflection->getMethods() as $method) {
+                if ($method->getDeclaringClass()->getName() !== $class) {
+                    continue;
+                }
+
+                foreach ($method->getParameters() as $parameter) {
+                    if (preg_match($idNames, $parameter->getName()) !== 1 || in_array($parameter->getName(), $stringIdentifiers, true)) {
+                        continue;
+                    }
+
+                    $inspected++;
+
+                    if (! in_array((string) $parameter->getType(), ['int', '?int'], true)) {
+                        $offenders[] = sprintf('%s::%s($%s): %s', $class, $method->getName(), $parameter->getName(), (string) $parameter->getType());
+                    }
+                }
+            }
+
+            foreach ($reflection->getProperties() as $property) {
+                if ($property->getDeclaringClass()->getName() !== $class
+                    || preg_match($idNames, $property->getName()) !== 1
+                    || in_array($property->getName(), $stringIdentifiers, true)) {
+                    continue;
+                }
+
+                $inspected++;
+
+                if (! in_array((string) $property->getType(), ['int', '?int'], true)) {
+                    $offenders[] = sprintf('%s::$%s: %s', $class, $property->getName(), (string) $property->getType());
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'An execution or step id is not typed int.');
+        $this->assertGreaterThan(40, $inspected, 'The id rule inspected too few signatures to mean anything.');
+    }
+
+    /**
+     * Milestone 8 step 2: the four recovery scans have one shape — a
+     * cutoff, a limit, a workflow scope, a tenant scope — so whatever
+     * narrows one narrows all. Compared structurally, by position, type,
+     * and default, so a fifth scan or a widened one is caught here.
+     */
+    public function test_the_recovery_scans_share_one_signature_shape(): void
+    {
+        $contract = new ReflectionClass(\Laraflow\Workflow\ExecutionRepository::class);
+        $shapes = [];
+
+        foreach (['stale', 'pendingBefore', 'dueForRetry', 'waitingDue'] as $scan) {
+            $shapes[$scan] = array_map(
+                fn (ReflectionParameter $p): string => sprintf(
+                    '%d:%s%s',
+                    $p->getPosition(),
+                    (string) $p->getType(),
+                    $p->isDefaultValueAvailable() ? '='.var_export($p->getDefaultValue(), true) : '',
+                ),
+                $contract->getMethod($scan)->getParameters(),
+            );
+        }
+
+        $this->assertSame(
+            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL'],
+            $shapes['stale'],
+        );
+        $this->assertCount(1, array_unique(array_map('serialize', $shapes)), 'The recovery scans differ in shape: '.json_encode($shapes));
+    }
+
+    /**
+     * Milestone 8 step 4: a service takes every collaborator it needs,
+     * and the service provider is the one place that supplies them. A
+     * constructor parameter typed as a class with a null default was a
+     * second, silent configuration — a runner with its own clock, an
+     * observer that emitted nothing — that disagreed with the rest of
+     * the application.
+     *
+     * A service is any package class whose constructor takes a
+     * collaborator; a collaborator is an interface other than the
+     * language's own, a framework class, or a package class that itself
+     * takes collaborators. Derived rather than listed: the list this
+     * test began as missed WaitResolver one commit after it was written.
+     * The only nullable collaborators allowed are the two whose null is
+     * a documented setting.
+     */
+    public function test_services_require_their_collaborators(): void
+    {
+        $nullMeansOff = [
+            \Laraflow\Support\LoggingContext::class => ['context'],
+            \Laraflow\Events\EventEmitter::class => ['events'],
+            // The context is a value object the runner builds; one built
+            // by hand has no execution behind it, and remember() on it
+            // raises rather than running the work (docs/idempotency.md).
+            \Laraflow\Workflow\WorkflowContext::class => ['idempotency'],
+        ];
+
+        $services = [];
+        $optional = [];
+
+        foreach ($this->packageClasses() as $class) {
+            $collaborators = $this->collaboratorParameters($class);
+
+            if ($collaborators === []) {
+                continue;
+            }
+
+            $services[] = $class;
+
+            foreach ($collaborators as $parameter) {
+                if (in_array($parameter->getName(), $nullMeansOff[$class] ?? [], true)) {
+                    continue;
+                }
+
+                if ($parameter->allowsNull() || $parameter->isDefaultValueAvailable()) {
+                    $optional[] = sprintf('%s::__construct($%s)', $class, $parameter->getName());
+                }
+            }
+        }
+
+        $this->assertSame([], $optional, 'A service constructor makes a collaborator optional.');
+
+        // The rule has teeth only if the derivation recognises the
+        // services it was written for; an empty set would pass above.
+        foreach ([
+            \Laraflow\Workflow\WorkflowRunner::class,
+            \Laraflow\Workflow\WaitResolver::class,
+            \Laraflow\Workflow\OutcomeRecorder::class,
+            \Laraflow\Workflow\RecoveryService::class,
+            \Laraflow\Workflow\RetentionService::class,
+            \Laraflow\Queue\WorkflowDispatcher::class,
+            \Laraflow\Workflow\Repositories\EloquentExecutionRepository::class,
+            \Laraflow\Integration\Http\TransportPipeline::class,
+            \Laraflow\Integration\Http\ConnectorObserver::class,
+        ] as $known) {
+            $this->assertContains($known, $services, "{$known} was not recognised as a service.");
         }
     }
 
@@ -515,6 +738,95 @@ class ProjectContractsTest extends TestCase
                 class_basename($class).' is never retried but the contract does not say so.',
             );
         }
+    }
+
+    /**
+     * The constructor parameters of $class that are collaborators.
+     *
+     * @param  class-string  $class
+     * @return list<ReflectionParameter>
+     */
+    protected function collaboratorParameters(string $class): array
+    {
+        $constructor = (new ReflectionClass($class))->getConstructor();
+        $collaborators = [];
+
+        foreach ($constructor?->getParameters() ?? [] as $parameter) {
+            $type = $parameter->getType();
+
+            // A union of classes is a collaborator by any member.
+            $names = match (true) {
+                $type instanceof ReflectionNamedType => $type->isBuiltin() ? [] : [$type->getName()],
+                $type instanceof ReflectionUnionType => array_map(
+                    fn (ReflectionType $t): string => $t instanceof ReflectionNamedType && ! $t->isBuiltin() ? $t->getName() : '',
+                    $type->getTypes(),
+                ),
+                default => [],
+            };
+
+            foreach (array_filter($names) as $name) {
+                if ($this->isCollaboratorType($name)) {
+                    $collaborators[] = $parameter;
+
+                    break;
+                }
+            }
+        }
+
+        return $collaborators;
+    }
+
+    protected function isCollaboratorType(string $type): bool
+    {
+        static $memo = [];
+
+        // The language's own interfaces describe values, not services.
+        if (in_array($type, [Throwable::class, DateTimeInterface::class, Stringable::class, Closure::class, DateTimeImmutable::class], true)) {
+            return false;
+        }
+
+        if (interface_exists($type) || str_starts_with($type, 'Illuminate\\') || str_starts_with($type, 'Psr\\')) {
+            return true;
+        }
+
+        // Exceptions are values the package throws, whatever they carry.
+        if (! str_starts_with($type, 'Laraflow\\') || str_starts_with($type, 'Laraflow\\Exceptions\\') || ! class_exists($type) || enum_exists($type)) {
+            return false;
+        }
+
+        if (array_key_exists($type, $memo)) {
+            return $memo[$type];
+        }
+
+        // Cycle guard before the recursion; a class that only reaches
+        // itself has no collaborator.
+        $memo[$type] = false;
+
+        return $memo[$type] = $this->collaboratorParameters($type) !== [];
+    }
+
+    /**
+     * Every class, interface, and enum under src/, by file.
+     *
+     * @return list<class-string>
+     */
+    protected function packageClasses(): array
+    {
+        $classes = [];
+
+        foreach (File::allFiles($this->path('src')) as $file) {
+            $class = 'Laraflow\\'.str_replace(
+                ['/', '.php'],
+                ['\\', ''],
+                mb_substr($file->getRealPath(), mb_strlen($this->path('src')) + 1),
+            );
+
+            if (class_exists($class) || interface_exists($class) || enum_exists($class) || trait_exists($class)) {
+                $classes[] = $class;
+            }
+        }
+
+        return $classes;
     }
 
     /**
