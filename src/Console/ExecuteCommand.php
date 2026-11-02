@@ -10,6 +10,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
@@ -98,7 +99,7 @@ class ExecuteCommand extends Command
             $before = $execution;
             $execution = $repository->find($id);
 
-            if ($execution->status !== $before->status || $execution->finishedAt != $before->finishedAt) {
+            if (Outcome::ranInline($before, $execution)) {
                 $this->components->info(
                     'The queue connection ran the job in this process (sync driver).'
                 );

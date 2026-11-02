@@ -28,6 +28,11 @@
     </header>
 
     <main class="lf-main">
+        @if (request()->hasSession() && session()->has(\Laraflow\Dashboard\Controllers\ActionController::FLASH))
+            @php($flash = session(\Laraflow\Dashboard\Controllers\ActionController::FLASH))
+            <div class="lf-notice lf-notice--{{ $flash['level'] }} lf-flash" role="status">{{ $flash['message'] }}</div>
+        @endif
+
         @yield('content')
     </main>
 

@@ -657,3 +657,103 @@
 /* Attempt outcomes share the step palette; the two extra kinds. */
 .lf-status--timed_out   { color: var(--lf-red);    background: var(--lf-red-bg); }
 .lf-status--interrupted { color: var(--lf-yellow); background: var(--lf-yellow-bg); }
+
+/* ---- Actions ---------------------------------------------------------- */
+
+.lf-actions__summary {
+    cursor: pointer;
+    list-style: none;
+    margin: 0;
+}
+
+.lf-actions__summary::-webkit-details-marker {
+    display: none;
+}
+
+.lf-actions__summary::before {
+    content: "▸ ";
+}
+
+details[open] > .lf-actions__summary::before {
+    content: "▾ ";
+}
+
+details[open] > .lf-actions__summary {
+    margin-bottom: 0.75rem;
+}
+
+.lf-actions__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.lf-action {
+    display: grid;
+    gap: 0.6rem;
+    align-content: start;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-bg);
+}
+
+.lf-action__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 650;
+}
+
+.lf-action__help {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.lf-action .lf-button {
+    justify-self: start;
+}
+
+.lf-field textarea {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--lf-border);
+    border-radius: var(--lf-radius);
+    background: var(--lf-surface);
+    color: var(--lf-text);
+    font: inherit;
+    font-family: var(--lf-mono);
+    font-size: 0.85rem;
+    resize: vertical;
+}
+
+.lf-field textarea:focus {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 1px;
+    border-color: transparent;
+}
+
+.lf-field--wide {
+    grid-column: 1 / -1;
+}
+
+.lf-button--danger {
+    border-color: var(--lf-red);
+    color: var(--lf-red);
+    cursor: pointer;
+    font: inherit;
+}
+
+.lf-button--danger:hover {
+    background: var(--lf-red-bg);
+    color: var(--lf-red);
+}
+
+.lf-flash {
+    margin-bottom: 1rem;
+}
+
+.lf-start__form {
+    background: transparent;
+    border: 0;
+    padding: 0;
+}

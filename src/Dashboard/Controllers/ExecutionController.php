@@ -84,6 +84,7 @@ final class ExecutionController
                 fn (WorkflowExecution $execution): string => $execution->workflow,
                 $page->executions,
             ))),
+            'queueIsSync' => $this->queueIsSync(),
             'now' => $this->clock->now(),
         ]);
     }
@@ -125,6 +126,7 @@ final class ExecutionController
             'children' => $children,
             'overdue' => array_filter($steps, fn ($step): bool => AttentionScan::isOverdue($step, $now)),
             'waiting' => $this->waitingOn($steps),
+            'queueIsSync' => $this->queueIsSync(),
             'now' => $now,
         ]);
     }
@@ -158,6 +160,18 @@ final class ExecutionController
         }
 
         return null;
+    }
+
+    /**
+     * Whether a dispatch would run in this request: the action forms
+     * default to the queue only when there is one.
+     */
+    private function queueIsSync(): bool
+    {
+        $connection = $this->config->get('laraflow.queue.connection');
+        $connection = is_string($connection) && $connection !== '' ? $connection : (string) $this->config->get('queue.default');
+
+        return $this->config->get("queue.connections.{$connection}.driver") === 'sync';
     }
 
     private function perPage(): int

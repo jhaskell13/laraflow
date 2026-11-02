@@ -9,6 +9,7 @@
     @var \Laraflow\Workflow\ExecutionPage $children
     @var \Laraflow\Workflow\StepExecution[] $overdue
     @var array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}|null $waiting
+    @var bool $queueIsSync
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
@@ -39,6 +40,14 @@
         'overdue' => $overdue,
         'now' => $now,
     ])
+
+    @if (\Illuminate\Support\Facades\Route::has('laraflow.actions.execute'))
+        @include('laraflow::dashboard.partials.actions', [
+            'execution' => $execution,
+            'waiting' => $waiting,
+            'queueIsSync' => $queueIsSync,
+        ])
+    @endif
 
     <div class="lf-grid">
         <section class="lf-card">

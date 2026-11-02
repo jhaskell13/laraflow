@@ -7,6 +7,7 @@
     @var \Laraflow\Dashboard\Support\FilterRequest $filters
     @var \Laraflow\Dashboard\Support\CursorTrail $trail
     @var list<string> $workflowsSeen
+    @var bool $queueIsSync
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
@@ -33,6 +34,13 @@
         'withStatus' => true,
         'action' => route('laraflow.executions'),
     ])
+
+    @if (\Illuminate\Support\Facades\Route::has('laraflow.actions.start'))
+        @include('laraflow::dashboard.partials.start', [
+            'workflowsSeen' => $workflowsSeen,
+            'queueIsSync' => $queueIsSync,
+        ])
+    @endif
 
     @if ($page->isEmpty())
         <div class="lf-empty">

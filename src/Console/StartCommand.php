@@ -6,15 +6,15 @@ namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
 use InvalidArgumentException;
-use JsonException;
 use Laraflow\Console\Concerns\StartsExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\JsonObject;
+use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowRunner;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -95,68 +95,13 @@ class StartCommand extends Command
     }
 
     /**
-     * The class the argument names, resolved and checked by name.
-     *
-     * Forward slashes are accepted as namespace separators, as the
-     * generators accept them, because a backslash costs quoting in
-     * every shell; a bare name is looked for where `make:workflow`
-     * writes, so the class the generator just wrote is reachable by
-     * the name it was given.
-     *
      * @return class-string<Workflow>
      *
      * @throws InvalidArgumentException when nothing by that name is a workflow.
      */
     protected function workflowClass(): string
     {
-        $name = trim(str_replace('/', '\\', $this->argument('workflow')), " \t\n\r\0\x0B\\");
-
-        if ($name === '') {
-            throw new InvalidArgumentException('The workflow argument must name a workflow class.');
-        }
-
-        $candidates = [$name];
-
-        if (! str_contains($name, '\\')) {
-            $candidates[] = $this->workflowsNamespace().$name;
-        }
-
-        foreach ($candidates as $candidate) {
-            if (! class_exists($candidate)) {
-                continue;
-            }
-
-            if (! is_subclass_of($candidate, Workflow::class)) {
-                throw new InvalidArgumentException(
-                    "[{$candidate}] is not a workflow: it does not extend ".Workflow::class.'.'
-                );
-            }
-
-            return $candidate;
-        }
-
-        throw new InvalidArgumentException(sprintf(
-            'No workflow class named [%s] exists%s. Give the fully qualified class name, or generate one with make:workflow.',
-            $name,
-            count($candidates) > 1 ? ' (also looked for '.$candidates[1].')' : '',
-        ));
-    }
-
-    /**
-     * Where `make:workflow` writes: the application namespace plus
-     * `Workflows`. Outside a Laravel application skeleton the namespace
-     * cannot be read from composer.json, and `App\` is the answer the
-     * generators would give there too.
-     */
-    protected function workflowsNamespace(): string
-    {
-        try {
-            $namespace = $this->laravel->getNamespace();
-        } catch (RuntimeException) {
-            $namespace = 'App\\';
-        }
-
-        return $namespace.'Workflows\\';
+        return WorkflowName::resolve($this->argument('workflow'), $this->laravel);
     }
 
     /**
@@ -166,31 +111,7 @@ class StartCommand extends Command
      */
     protected function inputOption(): array
     {
-        $raw = $this->stringOption('input');
-
-        if ($raw === null) {
-            return [];
-        }
-
-        try {
-            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new InvalidArgumentException('The --input option must be valid JSON: '.$exception->getMessage().'.');
-        }
-
-        // Input seeds the context by key, so only an object will do.
-        // `[]` and `{}` both decode to the empty array and are accepted
-        // as "no input" — PHP cannot tell them apart, and neither
-        // carries a key. A non-empty list has no keys to seed with.
-        if (! is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
-            throw new InvalidArgumentException(
-                'The --input option must be a JSON object, e.g. --input=\'{"order_id": 42}\'; got '
-                .(is_array($decoded) ? 'a list' : get_debug_type($decoded)).'.'
-            );
-        }
-
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
+        return JsonObject::parse($this->stringOption('input'), '--input option');
     }
 
     /**

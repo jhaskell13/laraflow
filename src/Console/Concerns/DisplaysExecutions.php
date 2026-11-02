@@ -8,6 +8,7 @@ use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
+use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
@@ -111,52 +112,15 @@ trait DisplaysExecutions
      */
     protected function reportOutcome(WorkflowExecution $execution): int
     {
-        if ($execution->isRetrying()) {
-            $this->components->warn(sprintf(
-                'A step failed and its retry policy scheduled another attempt for %s. '
-                .'Deliver it with: laraflow:recover --sync — or skip the wait with: laraflow:execute %s --now',
-                $this->formatDate($execution->nextRetryAt),
-                $execution->id,
-            ));
+        ['level' => $level, 'message' => $message, 'ok' => $ok] = Outcome::describe($execution);
 
-            return Command::SUCCESS;
-        }
+        match ($level) {
+            Outcome::WARN => $this->components->warn($message),
+            Outcome::ERROR => $this->components->error($message),
+            default => $this->components->info($message),
+        };
 
-        if ($execution->isWaiting()) {
-            $this->components->warn(sprintf(
-                'A step parked the execution on a wait. See what it is waiting for with: laraflow:show %s '
-                .'— a timed wait is delivered by laraflow:recover, a signal by WorkflowRunner::signal().',
-                $execution->id,
-            ));
-
-            return Command::SUCCESS;
-        }
-
-        if ($execution->isCancelled()) {
-            $this->components->info('The execution was cancelled during the run; completed steps are kept.');
-
-            return Command::SUCCESS;
-        }
-
-        if (! $execution->isCompleted()) {
-            // Every path that reaches here today has already thrown for
-            // a terminal failure — FailurePolicy::Continue rethrows the
-            // first failure once the remaining steps have run — so this
-            // is the guard that keeps the sentence below true rather
-            // than a branch with a known caller. A state this method
-            // has not been taught is reported as itself, not as done.
-            $this->components->error(sprintf(
-                'The execution finished in status [%s]. See it with: laraflow:show %s',
-                $execution->status->value,
-                $execution->id,
-            ));
-
-            return Command::FAILURE;
-        }
-
-        $this->components->info("Execution completed. Inspect it anytime with: laraflow:show {$execution->id}");
-
-        return Command::SUCCESS;
+        return $ok ? Command::SUCCESS : Command::FAILURE;
     }
 
     /**

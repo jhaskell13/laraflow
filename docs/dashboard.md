@@ -114,9 +114,11 @@ Four, each the browser form of a console command, each through the same service:
 | Signal | — (the application calls `signal()`) | `WorkflowRunner::signal()` |
 | Start | `laraflow:start {workflow} --input=` | the same resolution and validation, then `WorkflowRunner` or `WorkflowDispatcher` |
 
-Every action is a `POST` with CSRF protection from the application's middleware, passes the same authorization check as every page, and asks for confirmation. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it — a wait as a wait, a retry as a retry, never a parked execution as "done".
+Every action is a `POST` with CSRF protection from the application's middleware and passes the same authorization check as every page. Confirmation is two-layered: with script, a dialog before the post; without, each action sits behind a disclosure and its own labelled button, so nothing happens on a stray click either way. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it, from the same `Outcome` definition — a wait as a wait, a retry as a retry, never a parked execution as "done". Whether a dispatch ran the job in the request (a `sync` connection does) is judged from the record, not from configuration, for the reason the Phase C audit recorded.
 
-With `read_only` set, the action routes are not registered. A read-only dashboard has nothing to probe, and the forms are not rendered because the routes they would post to do not exist.
+*Execute* runs in the request or, with its checkbox, on the queue; the checkbox defaults to the queue when there is one. *Signal* records and, with its checkbox, dispatches — recording is not delivery ([advanced-workflows.md](advanced-workflows.md)), and the page says which happened. *Start* refuses a name that is not a workflow and an input that is not an object before anything is written, and shows the form back filled in. *Cancel* is terminal, and the forms that would act on a cancelled execution are gone.
+
+With `read_only` set, the action routes are not registered. A read-only dashboard has nothing to probe, and the forms are not rendered because the routes they would post to do not exist; the action paths answer `404`, and the start path — which shares its URL with the list — answers `405`, because the method is absent and the page is not.
 
 ## Refresh
 
@@ -137,4 +139,6 @@ The executions and execution pages refresh themselves on an interval, preserving
 - `tests/Feature/Dashboard/ExecutionsPageTest.php` — the list renders what the repository returns; the filters are the console's and mean the same; an unreadable filter is reported and the rest hold; pages follow the cursor forward and the trail back, carrying the filters.
 - `tests/Feature/Dashboard/ExecutionPageTest.php` — the record, steps, attempts, wait, lineage; remembered keys and never their values; an unknown or malformed id is not found.
 - `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
+- `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state.
+- `tests/Feature/Dashboard/ReadOnlyTest.php` — the action routes absent and the forms unrendered.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

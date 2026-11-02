@@ -12,6 +12,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Facade;
+use Laraflow\Dashboard\Controllers\ActionController;
 use Laraflow\Dashboard\Controllers\AssetController;
 use Laraflow\Dashboard\Controllers\ExecutionController;
 use Laraflow\Dashboard\Controllers\OverviewController;
@@ -77,6 +78,15 @@ final class Dashboard
             // anything else is not a page that might exist: 404 here.
             $router->get('executions/{id}', [ExecutionController::class, 'show'])->whereNumber('id')->name('executions.show');
             $router->get('assets/dashboard.css', [AssetController::class, 'stylesheet'])->name('assets.stylesheet');
+
+            // Mounted read-only, the action routes are absent — not
+            // hidden, not refused: there is nothing to find.
+            if (! self::readOnly()) {
+                $router->post('executions', [ActionController::class, 'start'])->name('actions.start');
+                $router->post('executions/{id}/execute', [ActionController::class, 'execute'])->whereNumber('id')->name('actions.execute');
+                $router->post('executions/{id}/cancel', [ActionController::class, 'cancel'])->whereNumber('id')->name('actions.cancel');
+                $router->post('executions/{id}/signal', [ActionController::class, 'signal'])->whereNumber('id')->name('actions.signal');
+            }
         });
 
         // Laravel refreshes the name and action lookups once, after the
