@@ -44,11 +44,16 @@ class InstallCommand extends Command
             $this->callSilently('vendor:publish', ['--tag' => 'laraflow-migrations']);
             $this->components->task('Migrations published to database/migrations', fn (): bool => true);
 
-            // Published and auto-loaded is the one combination that
-            // runs them twice. Said here, where the choice was made.
+            // Published and auto-loaded, Laravel runs each migration
+            // once — the sets share names, and the application's copy,
+            // read last, is the one that runs. That holds only while
+            // the names match: a renamed copy runs beside the original
+            // and fails on a table that exists. Said here, where the
+            // choice was made, and the choice is the application's.
             $this->components->warn(
-                'The package also loads its migrations itself. Set LARAFLOW_LOAD_MIGRATIONS=false so the '
-                .'published copies are the only ones that run.'
+                'The package also loads its migrations itself. The two sets share names, so Laravel runs each '
+                .'migration once, from your published copy. Set LARAFLOW_LOAD_MIGRATIONS=false so that stays true '
+                .'if you rename one.'
             );
         }
 

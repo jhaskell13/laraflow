@@ -46,12 +46,32 @@ class InstallCommandTest extends TestCase
         $this->assertStringContainsString('Migrations skipped', $output);
     }
 
-    public function test_publishing_migrations_warns_about_loading_them_twice(): void
+    public function test_publishing_migrations_runs_each_once_from_the_published_copy_and_says_so(): void
     {
+        $package = count(File::files(dirname(__DIR__, 3).'/database/migrations'));
+
         ['output' => $output] = $this->callCommand('laraflow:install', ['--publish-migrations' => true]);
 
-        $this->assertNotEmpty(File::glob($this->app->databasePath('migrations/*laraflow*.php')), 'The migrations were copied.');
+        $copies = File::glob($this->app->databasePath('migrations/*laraflow*.php')) ?: [];
+        $this->assertCount($package, $copies, 'Every migration was copied.');
         $this->assertStringContainsString('LARAFLOW_LOAD_MIGRATIONS=false', $output);
+        $this->assertStringContainsString('runs each migration once', $output);
+
+        // What `migrate` will run, resolved the way the command resolves
+        // it: the registered package path, then the application's.
+        // Published and auto-loaded together, the migrator keys files
+        // by name, so each migration appears once — and the copy it
+        // resolves to is the application's, read last. That is why the
+        // warning is about renaming a copy, not about running twice.
+        $migrator = $this->app->make('migrator');
+        $files = $migrator->getMigrationFiles(array_merge($migrator->paths(), [$this->app->databasePath('migrations')]));
+        $laraflow = array_filter($files, fn (string $name): bool => str_contains($name, '_laraflow_'), ARRAY_FILTER_USE_KEY);
+
+        $this->assertCount($package, $laraflow, 'Each migration resolves once, none twice.');
+
+        foreach ($laraflow as $name => $path) {
+            $this->assertContains($path, $copies, "{$name} resolves to the published copy.");
+        }
     }
 
     public function test_an_already_published_configuration_is_kept_unless_forced(): void

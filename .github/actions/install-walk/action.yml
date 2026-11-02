@@ -1,0 +1,130 @@
+# The install walk: the Milestone 0 exit criterion, held for good and
+# restated by Milestone 8. A new application goes from `composer require`
+# to a persisted, recoverable execution using only the commands the
+# documentation gives a user — laraflow:install, the make:* generators,
+# laraflow:start — against whatever database the DB_* environment of the
+# calling step names. A real `laravel/laravel` skeleton, the package
+# required from a path repository, and every assertion a command an
+# actual user would run.
+#
+# One definition, run by the SQLite install job and as the final stage
+# of every engine job, so the walk cannot drift between them.
+name: Install walk
+description: Build a fresh Laravel application, install Laraflow into it, and run a generated workflow to a persisted execution.
+
+inputs:
+  laravel:
+    description: The Laravel major to create the application from.
+    required: true
+  package:
+    description: Path to the Laraflow checkout the application requires.
+    default: ${{ github.workspace }}
+  app:
+    description: Where to create the application.
+    default: ${{ runner.temp }}/app
+
+runs:
+  using: composite
+  steps:
+    - name: Create a fresh Laravel application
+      shell: bash
+      run: composer create-project "laravel/laravel:^${{ inputs.laravel }}.0" "${{ inputs.app }}" --no-interaction --no-progress
+
+    - name: Require Laraflow from the local path
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        composer config repositories.laraflow path "${{ inputs.package }}"
+        composer require "laraflow/laraflow:@dev" --no-interaction --no-progress
+
+    # Counted from the package rather than written down: the generators
+    # are the three make:* commands, and the laraflow:* commands are the
+    # classes directly under src/Console.
+    - name: Auto-discovery registered the provider and every command
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan package:discover | grep -q "laraflow/laraflow"
+        php artisan list --raw > commands.txt
+        test "$(grep -c '^laraflow:' commands.txt)" -eq "$(ls "${{ inputs.package }}"/src/Console/*.php | wc -l)"
+        test "$(grep -c '^make:\(workflow\|step\|connector\) ' commands.txt)" -eq 3
+
+    # The schema freeze means the migration count only ever grows, one
+    # migration at a time, so it too is counted from the package. The
+    # published copies and the package's share names, so Laravel runs
+    # each migration once — the install command says so.
+    - name: laraflow:install publishes, migrates, and says what to do next
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        MIGRATIONS="$(ls "${{ inputs.package }}"/database/migrations | wc -l)"
+        php artisan laraflow:install --publish-migrations | tee install.log
+        test -f config/laraflow.php
+        test "$(ls database/migrations | grep -c laraflow)" -eq "$MIGRATIONS"
+        test "$(grep -c '_laraflow_.*DONE' install.log)" -eq "$MIGRATIONS"
+        grep -q 'make:workflow' install.log
+        grep -q 'laraflow:start' install.log
+
+    - name: The generators write a workflow, two steps, and a connector
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan make:workflow FulfilOrder
+        php artisan make:step ReserveInventory
+        php artisan make:step ChargePayment
+        php artisan make:connector StripeConnector
+        test -f app/Workflows/FulfilOrder.php
+        test -f app/Workflows/Steps/ReserveInventory.php
+        test -f app/Workflows/Steps/ChargePayment.php
+        test -f app/Connectors/StripeConnector.php
+        grep -q 'laraflow.integrations.stripe' app/Connectors/StripeConnector.php
+
+    # The edits a developer makes, and no more: the steps named in the
+    # plan, one step reading the input, and one with a side effect that
+    # fails on its first attempt the way a payment gateway might.
+    - name: The three edits a developer makes
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        sed -i 's#^            //$#            \\App\\Workflows\\Steps\\ReserveInventory::class,\n            \\App\\Workflows\\Steps\\ChargePayment::class,#' app/Workflows/FulfilOrder.php
+        sed -i "s#return null;#return ['reserved' => \$context->get('order_id')];#" app/Workflows/Steps/ReserveInventory.php
+        sed -i "s#return null;#if (! file_exists(storage_path('charged'))) { touch(storage_path('charged')); throw new \\\\RuntimeException('Simulated gateway timeout'); } return 'charged';#" app/Workflows/Steps/ChargePayment.php
+        php -l app/Workflows/FulfilOrder.php
+        php -l app/Workflows/Steps/ReserveInventory.php
+        php -l app/Workflows/Steps/ChargePayment.php
+        grep -q 'ReserveInventory::class' app/Workflows/FulfilOrder.php
+        grep -q 'Simulated gateway timeout' app/Workflows/Steps/ChargePayment.php
+
+    - name: A generated workflow runs, fails where told, and recovers from its checkpoint
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan laraflow:start FulfilOrder --input='{"order_id": 42}' | tee start.log && exit 1 || test $? -eq 1
+        grep -q 'laraflow:execute 1' start.log
+        php artisan laraflow:show 1 | tee show.log
+        grep -q failed show.log
+        grep -q 'Simulated gateway timeout' show.log
+        php artisan laraflow:execute 1 | grep -q 'Execution completed'
+        php artisan laraflow:show 1 | tee show.log
+        grep -q completed show.log
+        grep -q '"reserved":42' show.log
+        php artisan laraflow:list | grep -q '1 of 1'
+
+    # The skeleton's queue connection is the database, so this proves
+    # the dispatch path against the same engine, end to end.
+    - name: The same workflow runs on the queue
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan laraflow:start 'App\Workflows\FulfilOrder' --input='{"order_id": 43}' --queue | grep -q 'Queued as execution 2'
+        php artisan laraflow:list | grep -q pending
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:show 2 | grep -q completed
+        php artisan laraflow:list | grep -q '2 of 2'
+
+    - name: Connectors resolve and the schema rolls back
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan laraflow:connectors --check
+        php artisan migrate:rollback --force | grep -c '_laraflow_.*DONE' | grep -qx "$(ls "${{ inputs.package }}"/database/migrations | wc -l)"
