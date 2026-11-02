@@ -144,6 +144,131 @@ runs:
         grep -q stripe connectors.log
         php artisan laraflow:connectors stripe --check
 
+    # The dashboard is off until an application mounts it, and denied
+    # unless it says who may — the two claims docs/dashboard.md leads
+    # with. Proved here against a real application over real HTTP,
+    # because "no route is registered" and "production denies everyone"
+    # are exactly the things a unit test can assert about a fiction.
+    - name: The dashboard is absent until mounted, and denied by default
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        # Unmounted: not a disabled dashboard, an absent one. Nothing
+        # named laraflow.* is registered at all. (--json is one line,
+        # so this asks whether it matches, never how many times.)
+        php artisan route:list --json > routes.json
+        grep -q 'laraflow/executions' routes.json && exit 1 || true
+        grep -q '"name":"laraflow\.' routes.json && exit 1 || true
+        php artisan serve --port=8321 --no-reload > serve.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8321/up 2>/dev/null && break
+          sleep 0.5
+        done
+        code() { curl -s -o /tmp/body.html -w '%{http_code}' "$1"; }
+        test "$(code http://127.0.0.1:8321/laraflow)" = "404"
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
+    - name: Mounted, the dashboard answers and shows the executions
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        printf '\n\nLaraflow\\Dashboard\\Dashboard::routes();\n' >> routes/web.php
+        php -l routes/web.php
+        php artisan route:list --json | grep -q 'laraflow\.executions'
+
+        php artisan serve --port=8322 --no-reload > serve.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8322/up 2>/dev/null && break
+          sleep 0.5
+        done
+        code() { curl -s -o /tmp/body.html -w '%{http_code}' "$1"; }
+
+        # APP_ENV=local in a fresh skeleton, which the default rule
+        # allows: the two executions the walk made are listed, and the
+        # record of the one that failed and recovered is readable.
+        test "$(code http://127.0.0.1:8322/laraflow/executions)" = "200"
+        grep -q 'FulfilOrder' /tmp/body.html
+        grep -q '2 of 2' /tmp/body.html
+        test "$(code http://127.0.0.1:8322/laraflow/executions/1)" = "200"
+        grep -q 'ReserveInventory' /tmp/body.html
+        grep -q 'ChargePayment' /tmp/body.html
+
+        # The package serves its own stylesheet and script: nothing was
+        # published, built, or fetched from anywhere else.
+        test "$(code http://127.0.0.1:8322/laraflow/assets/dashboard.css)" = "200"
+        test "$(code http://127.0.0.1:8322/laraflow/assets/dashboard.js)" = "200"
+
+        # Anything else under the mount is still a 404.
+        test "$(code http://127.0.0.1:8322/laraflow/executions/9999)" = "404"
+
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
+    - name: Outside local, with no rule, everyone is denied
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        sed -i 's/^APP_ENV=.*/APP_ENV=production/' .env
+        sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env
+        php artisan config:clear > /dev/null
+
+        php artisan serve --port=8323 --no-reload > serve.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8323/up 2>/dev/null && break
+          sleep 0.5
+        done
+        code() { curl -s -o /tmp/body.html -w '%{http_code}' "$1"; }
+
+        # The failure mode that gets noticed and fixed, rather than the
+        # one that leaks: mounted in production without a rule, nobody
+        # gets in — not the pages, not the assets.
+        test "$(code http://127.0.0.1:8323/laraflow)" = "403"
+        test "$(code http://127.0.0.1:8323/laraflow/executions)" = "403"
+        test "$(code http://127.0.0.1:8323/laraflow/executions/1)" = "403"
+        test "$(code http://127.0.0.1:8323/laraflow/assets/dashboard.css)" = "403"
+
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
+    - name: An explicit rule lets an operator in, in production
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat >> routes/web.php <<'RULE'
+
+        Laraflow\Dashboard\Dashboard::auth(fn ($request) => $request->query('operator') === 'yes');
+        RULE
+        php -l routes/web.php
+        php artisan config:clear > /dev/null
+
+        php artisan serve --port=8324 --no-reload > serve.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8324/up 2>/dev/null && break
+          sleep 0.5
+        done
+        code() { curl -s -o /tmp/body.html -w '%{http_code}' "$1"; }
+
+        test "$(code 'http://127.0.0.1:8324/laraflow/executions?operator=yes')" = "200"
+        grep -q 'FulfilOrder' /tmp/body.html
+        # The rule replaces the default entirely: without it, still out.
+        test "$(code http://127.0.0.1:8324/laraflow/executions)" = "403"
+
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
+        # Back to local for the steps that follow.
+        sed -i 's/^APP_ENV=.*/APP_ENV=local/' .env
+        php artisan config:clear > /dev/null
+
     - name: Connectors resolve and the schema rolls back
       shell: bash
       working-directory: ${{ inputs.app }}
