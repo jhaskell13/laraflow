@@ -9,19 +9,25 @@
     nothing happens on a stray click either way.
 
     @var \Laraflow\Workflow\WorkflowExecution $execution
-    @var array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}|null $waiting
+    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
     @var bool $queueIsSync
 --}}
 @php
     $canExecute = $execution->isPending() || $execution->isFailed() || $execution->isRetrying() || $execution->isWaiting();
     $canCancel = ! $execution->isCompleted() && ! $execution->isCancelled();
-    $canSignal = $waiting !== null && in_array($waiting['kind'], ['signal', 'signal-indefinite'], true);
-    $early = $execution->isRetrying() || ($waiting !== null && $waiting['kind'] === 'timed');
+    // Every signallable wait gets its own form: an execution parked
+    // on two of them needs two (Milestone 8.5 audit).
+    $signallable = array_values(array_filter(
+        $waits,
+        fn (array $wait): bool => in_array($wait['kind'], ['signal', 'signal-indefinite'], true),
+    ));
+    $canSignal = $signallable !== [];
+    $early = $execution->isRetrying() || array_filter($waits, fn (array $w): bool => $w['kind'] === 'timed') !== [];
 @endphp
 
 @if ($canExecute || $canCancel || $canSignal)
     <details class="lf-card lf-actions"{{ $canSignal ? ' open' : '' }}>
-        <summary class="lf-card__title lf-actions__summary">Actions</summary>
+        <summary class="lf-card__title lf-disclosure">Actions</summary>
 
         <div class="lf-actions__grid">
             @if ($canExecute)
@@ -54,16 +60,16 @@
                 </form>
             @endif
 
-            @if ($canSignal)
+            @foreach ($signallable as $wait)
                 <form method="post" action="{{ route('laraflow.actions.signal', $execution->id) }}" class="lf-action" data-lf-confirm="Record this signal for the waiting step?">
                     @csrf
-                    <h3 class="lf-action__title">Signal</h3>
+                    <h3 class="lf-action__title">Signal <span class="lf-muted">{{ class_basename($wait['step']->step) }}</span></h3>
                     <p class="lf-muted lf-action__help">
                         The waiting step resumes with the payload as its output, under the signal's name in the context. The browser form of <code>WorkflowRunner::signal()</code>.
                     </p>
                     <label class="lf-field">
                         <span class="lf-filters__label">Signal</span>
-                        <input type="text" name="signal" value="{{ $waiting['step']->waitSignal }}" required spellcheck="false">
+                        <input type="text" name="signal" value="{{ $wait['step']->waitSignal }}" required spellcheck="false">
                     </label>
                     <label class="lf-field">
                         <span class="lf-filters__label">Payload <span class="lf-muted">(JSON object, optional)</span></span>
@@ -75,7 +81,7 @@
                     </label>
                     <button type="submit" class="lf-button lf-button--primary">Signal</button>
                 </form>
-            @endif
+            @endforeach
 
             @if ($canCancel)
                 <form method="post" action="{{ route('laraflow.actions.cancel', $execution->id) }}" class="lf-action" data-lf-confirm="Cancel this execution? Completed steps are kept; this cannot be undone.">

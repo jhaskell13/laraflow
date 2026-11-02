@@ -10,6 +10,7 @@ use Laraflow\Tests\Support\ApprovalWorkflow;
 use Laraflow\Tests\Support\ParentWorkflow;
 use Laraflow\Tests\Support\RememberingStep;
 use Laraflow\Tests\Support\RememberingWorkflow;
+use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
@@ -26,6 +27,8 @@ use RuntimeException;
  */
 class ExecutionPageTest extends TestCase
 {
+    use RunsArtisanCommands;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -171,6 +174,57 @@ class ExecutionPageTest extends TestCase
         $this->get('/laraflow/executions/999')->assertNotFound();
         $this->get('/laraflow/executions/abc')->assertNotFound();
         $this->get('/laraflow/executions/-1')->assertNotFound();
+    }
+
+    /**
+     * "The same view with a different renderer" (docs/dashboard.md),
+     * tested as parity rather than asserted: whatever laraflow:show
+     * says a waiting execution is parked on, the page says too. The
+     * Milestone 8.5 audit found the two had diverged — the console
+     * loops over every waiting step and the page returned the first.
+     */
+    public function test_the_page_says_what_the_console_says_about_a_wait(): void
+    {
+        ApprovalStep::$timeoutSeconds = 3600;
+
+        $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
+
+        ['output' => $console] = $this->callCommand('laraflow:show', ['execution' => '1']);
+        $page = (string) $this->get('/laraflow/executions/1')->getContent();
+
+        foreach (['ApprovalStep', 'manager-approval'] as $fact) {
+            $this->assertStringContainsString($fact, $console, "The console names {$fact}.");
+            $this->assertStringContainsString($fact, $page, "The page names {$fact}.");
+        }
+
+        // Both say it is waiting, and neither says it is done.
+        $this->assertStringContainsString('waiting', $console);
+        $this->assertStringContainsString('lf-status--waiting', $page);
+        $this->assertStringNotContainsString('Execution completed', $page);
+    }
+
+    /**
+     * The payloads are shown in full — that is what the page is for —
+     * but behind a click, because an application that puts a secret in
+     * its workflow input would otherwise put it on screen.
+     */
+    public function test_input_and_context_are_shown_in_full_but_collapsed(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new TwoStepWorkflow, ['order_id' => 42, 'note' => str_repeat('x', 300)]);
+
+        $response = $this->get('/laraflow/executions/1');
+
+        $response->assertOk();
+        // In full: the console truncates its one line at 100 characters.
+        $response->assertSee(str_repeat('x', 300));
+        $response->assertSee('"order_id": 42');
+
+        // Collapsed: a <details> with no `open`, so nothing is rendered
+        // expanded on an operator's screen by default.
+        $html = (string) $response->getContent();
+        $this->assertStringContainsString('<details class="lf-payload">', $html);
+        $this->assertStringNotContainsString('<details class="lf-payload" open>', $html);
+        $response->assertSee('2 keys');
     }
 
     /**

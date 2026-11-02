@@ -26,6 +26,20 @@ final readonly class FilterRequest
     public const FIELDS = ['status', 'workflow', 'correlation', 'tenant', 'since', 'until'];
 
     /**
+     * How many values one repeatable field may carry.
+     *
+     * A filter is typed by a person, and the form offers seven statuses
+     * and one workflow at a time. A crafted URL, though, can carry as
+     * many as it likes — and each workflow becomes two more scans on
+     * the overview (AttentionScan runs per workflow) and a wider IN
+     * clause everywhere, so one shareable link could pin a connection
+     * for minutes (Milestone 8.5 audit). Past this the extras are
+     * dropped and said so, rather than the page refusing: the filter a
+     * person meant is in the first few.
+     */
+    private const MAX_VALUES = 20;
+
+    /**
      * @param  list<string>  $problems  What could not be read, in words.
      * @param  array<string, string|list<string>>  $values  What was read, as typed, for the form to show back.
      */
@@ -42,7 +56,7 @@ final readonly class FilterRequest
 
         $statuses = [];
 
-        foreach (self::list($request, 'status') as $status) {
+        foreach (self::list($request, 'status', $problems) as $status) {
             try {
                 $statuses[] = FilterInput::status($status);
             } catch (InvalidArgumentException $exception) {
@@ -54,7 +68,7 @@ final readonly class FilterRequest
             $values['status'] = array_map(fn (ExecutionStatus $status): string => $status->value, $statuses);
         }
 
-        $workflows = self::list($request, 'workflow');
+        $workflows = self::list($request, 'workflow', $problems);
 
         if ($workflows !== []) {
             $values['workflow'] = $workflows;
@@ -137,9 +151,10 @@ final readonly class FilterRequest
      * single `?status=failed`, or a comma-separated `?status=failed,retrying`
      * — all three are what a person or a link might produce.
      *
+     * @param  list<string>  $problems  Added to when values past the cap are dropped.
      * @return list<string>
      */
-    private static function list(Request $request, string $name): array
+    private static function list(Request $request, string $name, array &$problems): array
     {
         $value = $request->query($name);
         $values = is_array($value) ? $value : [$value];
@@ -160,7 +175,20 @@ final readonly class FilterRequest
             }
         }
 
-        return array_values(array_unique($out));
+        $out = array_values(array_unique($out));
+
+        if (count($out) > self::MAX_VALUES) {
+            $problems[] = sprintf(
+                'Only the first %d %s values were applied; the request carried %d.',
+                self::MAX_VALUES,
+                $name,
+                count($out),
+            );
+
+            $out = array_slice($out, 0, self::MAX_VALUES);
+        }
+
+        return $out;
     }
 
     private static function string(Request $request, string $name): ?string

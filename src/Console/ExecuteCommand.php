@@ -70,11 +70,14 @@ class ExecuteCommand extends Command
 
                 return self::FAILURE;
             } catch (Throwable $exception) {
-                // A sync queue connection runs the job inside the dispatch
-                // call, so a step failure surfaces here instead of on a
-                // worker. Any other driver throwing here is the push
-                // itself failing — a different subsystem, said plainly.
-                if (! $this->queueDriverIsSync()) {
+                // Did the job run, or did the push fail? Judged from the
+                // record, never from the configured driver, which cannot
+                // answer it — a broker refusing a connection under a
+                // nominally sync connection would otherwise be reported
+                // as a step failure with every step untouched. The
+                // success path below has asked this way since Phase C;
+                // this path was missed by that change.
+                if (! Outcome::ranInline($execution, $repository->find($id))) {
                     $this->components->error('The execution could not be queued: '.$exception->getMessage());
 
                     return self::FAILURE;

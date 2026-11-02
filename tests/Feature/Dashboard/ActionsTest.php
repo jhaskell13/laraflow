@@ -284,6 +284,49 @@ class ActionsTest extends TestCase
             ->assertSee('name="signal"', false)->assertSee('value="manager-approval"', false);
     }
 
+    /**
+     * The Milestone 8.5 audit: a POST with no session is a POST with
+     * nothing checking where it came from, so the dashboard refuses it
+     * loudly rather than acting on it.
+     */
+    public function test_an_action_mounted_without_a_session_is_refused_rather_than_performed(): void
+    {
+        $this->failedExecution();
+
+        // A bare mount: no `web`, so no session and no CSRF check. The
+        // contract allows this for mounting inside a group that already
+        // supplies them — outside one, the actions must not run.
+        Dashboard::routes(path: 'bare', middleware: []);
+
+        $response = $this->post('/bare/executions/1/execute');
+
+        $response->assertStatus(500);
+        $this->assertStringContainsString('has no session', $response->exception?->getMessage() ?? '');
+        $this->assertStringContainsString('read-only', $response->exception?->getMessage() ?? '');
+
+        $this->assertSame(
+            ExecutionStatus::Failed->value,
+            WorkflowExecutionModel::query()->sole()->status,
+            'Nothing was performed.',
+        );
+
+        // Looking is unaffected: the pages carry no such risk.
+        $this->get('/bare/executions/1')->assertOk();
+    }
+
+    public function test_every_signallable_wait_gets_its_own_form(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
+
+        $response = $this->get('/laraflow/executions/1');
+
+        $response->assertOk();
+        // One wait here, so one form — the shape the audit's finding
+        // was about is held by the console-parity test below.
+        $this->assertSame(1, substr_count((string) $response->getContent(), 'name="signal"'));
+        $response->assertSee('value="manager-approval"', false);
+    }
+
     private function failedExecution(): void
     {
         StepTwo::$failTimes = max(1, StepTwo::$failTimes);

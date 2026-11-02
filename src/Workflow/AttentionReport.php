@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 /**
+ * @internal Implementation detail; not covered by the compatibility policy.
+ *
  * What an AttentionScan found: the four conditions worth an operator's
  * attention, and the one execution that has been unfinished longest.
  * A value object the console prints and the dashboard renders, so the

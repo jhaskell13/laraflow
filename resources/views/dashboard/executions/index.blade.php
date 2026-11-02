@@ -8,6 +8,7 @@
     @var \Laraflow\Dashboard\Support\CursorTrail $trail
     @var list<string> $workflowsSeen
     @var bool $queueIsSync
+    @var bool $canAct
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
@@ -35,7 +36,7 @@
         'action' => route('laraflow.executions'),
     ])
 
-    @if (\Illuminate\Support\Facades\Route::has('laraflow.actions.start'))
+    @if ($canAct)
         @include('laraflow::dashboard.partials.start', [
             'workflowsSeen' => $workflowsSeen,
             'queueIsSync' => $queueIsSync,
@@ -43,15 +44,7 @@
     @endif
 
     @if ($page->isEmpty())
-        <div class="lf-empty">
-            @if ($filters->isEmpty())
-                <p>Nothing has run. Start something and it appears here:</p>
-                <pre class="lf-code">php artisan laraflow:start App\Workflows\YourWorkflow --input='{"key": "value"}'</pre>
-                <p class="lf-muted">Or the bundled demo: <code>php artisan laraflow:demo</code></p>
-            @else
-                <p>No execution matches every filter above.</p>
-            @endif
-        </div>
+        @include('laraflow::dashboard.partials.empty', ['filters' => $filters])
     @else
         <div class="lf-table-wrap">
             <table class="lf-table">

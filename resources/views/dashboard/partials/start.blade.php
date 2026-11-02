@@ -14,7 +14,7 @@
 @endphp
 
 <details class="lf-card lf-start"{{ $reopen ? ' open' : '' }}>
-    <summary class="lf-card__title lf-actions__summary">Start a workflow</summary>
+    <summary class="lf-card__title lf-disclosure">Start a workflow</summary>
 
     <form method="post" action="{{ route('laraflow.actions.start') }}" class="lf-action lf-start__form" data-lf-confirm="Start a new execution of this workflow?">
         @csrf

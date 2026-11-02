@@ -104,6 +104,8 @@ The filter form filters as it is typed. With script, a change loads the filtered
 
 The executions page filters by exactly what `ExecutionFilter` offers — status, workflow, correlation id, tenant id, and a creation window — because those are the criteria the schema serves from an index, and an unindexed filter on a high-volume table is how observability tooling takes an application down ([inspection-and-observability.md](inspection-and-observability.md), *Filtering*). The filter form's workflow field is free text, as `laraflow:list --workflow=` is: the contract has no method that lists distinct workflow classes, and one would be a scan over the table. The field suggests the workflows visible on the current page. If that proves insufficient, the method is added to `ExecutionRepository` as a public change with its own index justification, not slipped in for the dashboard.
 
+A repeatable filter takes at most twenty values and a pagination trail at most fifty cursors; past that the extras are dropped and the page says so. A filter is typed by a person, but a crafted URL is not, and each workflow named in a filter becomes two more scans on the overview.
+
 ### Pagination
 
 `ExecutionRepository::list()` paginates by keyset: a cursor names the last row of a page and the next page starts strictly after it. That is stable under concurrent inserts and costs the same on page 1000 as on page 1, and it is one-directional on purpose. The dashboard offers *next* and *first*; *previous* works by carrying the cursors already visited in the query string, so stepping back replays a cursor the repository issued rather than inventing an offset. There is no "page 7 of 40" — a count of pages over a table being written to would be wrong before it was rendered.
@@ -116,7 +118,7 @@ Four, each the browser form of a console command, each through the same service:
 |---|---|---|
 | Execute / recover | `laraflow:execute {id}` and `--now` | `WorkflowRunner::execute()`, or `WorkflowDispatcher::dispatchExecution()` when queued |
 | Cancel | `laraflow:cancel {id} --reason=` | `WorkflowRunner::cancel()` |
-| Signal | — (the application calls `signal()`) | `WorkflowRunner::signal()` |
+| Signal | — (the application calls `signal()`) | `WorkflowRunner::signal()`, then `WorkflowDispatcher::dispatchExecution()` when asked to deliver |
 | Start | `laraflow:start {workflow} --input=` | the same resolution and validation, then `WorkflowRunner` or `WorkflowDispatcher` |
 
 Every action is a `POST` with CSRF protection from the application's middleware and passes the same authorization check as every page. Confirmation is two-layered: with script, a dialog before the post; without, each action sits behind a disclosure and its own labelled button, so nothing happens on a stray click either way. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it, from the same `Outcome` definition — a wait as a wait, a retry as a retry, never a parked execution as "done". Whether a dispatch ran the job in the request (a `sync` connection does) is judged from the record, not from configuration, for the reason the Phase C audit recorded.
@@ -139,12 +141,13 @@ Every page refreshes itself on an interval — `laraflow.dashboard.refresh` seco
 
 ## Enforcement
 
-- `tests/Feature/Dashboard/MountingTest.php` — unmounted means absent; mounted means present at the configured path; the dependency guard names what is missing.
-- `tests/Feature/Dashboard/AuthorizationTest.php` — the default rule in `local` and outside it; the callback; the gate; the stylesheet behind the same check.
+- `tests/Feature/Dashboard/MountingTest.php` — unmounted means absent; mounted means present at the configured path; the configured middleware running first; the dependency guard naming `illuminate/view` when the view factory is not bound.
+- `tests/Feature/Dashboard/AuthorizationTest.php` — the default rule in `local` and outside it; the callback; the gate; the rule belonging to one application instance.
 - `tests/Feature/Dashboard/ExecutionsPageTest.php` — the list renders what the repository returns; the filters are the console's and mean the same; an unreadable filter is reported and the rest hold; pages follow the cursor forward and the trail back, carrying the filters.
 - `tests/Feature/Dashboard/ExecutionPageTest.php` — the record, steps, attempts, wait, lineage; remembered keys and never their values; an unknown or malformed id is not found.
 - `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
-- `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state.
+- `tests/Unit/Dashboard/CursorTrailTest.php` — *previous* replays a cursor the repository issued, never an offset, and a tampered trail is read as strings only.
+- `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state; an action mounted without a session refused rather than performed.
 - `tests/Feature/Dashboard/ReadOnlyTest.php` — the action routes absent and the forms unrendered.
 - `tests/Feature/Dashboard/AssetTest.php` — one stylesheet and one script, served by the package behind the check, with validators; the page links nothing else and carries nothing inline; the filter form is a working `GET` form without script and live with it; the refresh interval is the page's to declare and configuration turns it off.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

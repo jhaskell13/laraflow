@@ -75,13 +75,29 @@
             return null;
         }
 
-        var state = { name: active.name, value: active.value, start: null, end: null };
+        // A checkbox or radio carries its identity in its value —
+        // seven filter checkboxes all answer to name="status[]" — so
+        // the value is part of finding it again, never something to
+        // write back. Writing it back renamed one status to another
+        // and left the first unfilterable (Milestone 8.5 audit).
+        var fixed = active.type === 'checkbox' || active.type === 'radio';
 
-        try {
-            state.start = active.selectionStart;
-            state.end = active.selectionEnd;
-        } catch (e) {
-            // Checkboxes and the like have no selection; focus is enough.
+        var state = {
+            name: active.name,
+            value: active.value,
+            identifiedByValue: fixed,
+            restoreValue: !fixed,
+            start: null,
+            end: null
+        };
+
+        if (!fixed) {
+            try {
+                state.start = active.selectionStart;
+                state.end = active.selectionEnd;
+            } catch (e) {
+                // Not a field with a caret; focus alone is enough.
+            }
         }
 
         return state;
@@ -92,7 +108,13 @@
             return;
         }
 
-        var field = document.querySelector('main.lf-main [name="' + state.name.replace(/"/g, '\\"') + '"]');
+        var selector = 'main.lf-main [name="' + state.name.replace(/"/g, '\\"') + '"]';
+
+        if (state.identifiedByValue) {
+            selector += '[value="' + String(state.value).replace(/"/g, '\\"') + '"]';
+        }
+
+        var field = document.querySelector(selector);
 
         if (!field) {
             return;
@@ -100,7 +122,7 @@
 
         // The server echoed what was typed; if the operator has typed
         // further since the request went out, theirs wins.
-        if (state.value !== undefined && field.value !== state.value) {
+        if (state.restoreValue && state.value !== undefined && field.value !== state.value) {
             field.value = state.value;
         }
 
@@ -389,6 +411,15 @@
         if (!document.hidden) {
             scheduleRefresh();
         }
+    });
+
+    // A post unloads the page, so `submitting` is normally never read
+    // again — except when the browser restores this page from its
+    // back-forward cache, where the flag would survive and hold the
+    // refresh for good while the Live badge still claimed otherwise.
+    window.addEventListener('pageshow', function () {
+        submitting = false;
+        scheduleRefresh();
     });
 
     renderToggle();

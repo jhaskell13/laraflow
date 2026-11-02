@@ -83,10 +83,15 @@ final class Dashboard
             // Mounted read-only, the action routes are absent — not
             // hidden, not refused: there is nothing to find.
             if (! self::readOnly()) {
-                $router->post('executions', [ActionController::class, 'start'])->name('actions.start');
-                $router->post('executions/{id}/execute', [ActionController::class, 'execute'])->whereNumber('id')->name('actions.execute');
-                $router->post('executions/{id}/cancel', [ActionController::class, 'cancel'])->whereNumber('id')->name('actions.cancel');
-                $router->post('executions/{id}/signal', [ActionController::class, 'signal'])->whereNumber('id')->name('actions.signal');
+                // RequiresSession on these alone: a session is what the
+                // application's CSRF protection is built on, and these
+                // are the four routes that change something.
+                $router->middleware(RequiresSession::class)->group(function (Router $router): void {
+                    $router->post('executions', [ActionController::class, 'start'])->name('actions.start');
+                    $router->post('executions/{id}/execute', [ActionController::class, 'execute'])->whereNumber('id')->name('actions.execute');
+                    $router->post('executions/{id}/cancel', [ActionController::class, 'cancel'])->whereNumber('id')->name('actions.cancel');
+                    $router->post('executions/{id}/signal', [ActionController::class, 'signal'])->whereNumber('id')->name('actions.signal');
+                });
             }
         });
 

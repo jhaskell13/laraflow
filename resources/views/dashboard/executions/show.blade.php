@@ -8,12 +8,12 @@
     @var \Laraflow\Workflow\IdempotencyRecord[] $remembered
     @var \Laraflow\Workflow\ExecutionPage $children
     @var \Laraflow\Workflow\StepExecution[] $overdue
-    @var array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}|null $waiting
+    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
     @var bool $queueIsSync
+    @var bool $canAct
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
-@use('Laraflow\Workflow\IdempotencyStatus')
 
 @extends('laraflow::dashboard.layout')
 
@@ -36,15 +36,15 @@
 
     @include('laraflow::dashboard.partials.notices', [
         'execution' => $execution,
-        'waiting' => $waiting,
+        'waits' => $waits,
         'overdue' => $overdue,
         'now' => $now,
     ])
 
-    @if (\Illuminate\Support\Facades\Route::has('laraflow.actions.execute'))
+    @if ($canAct)
         @include('laraflow::dashboard.partials.actions', [
             'execution' => $execution,
-            'waiting' => $waiting,
+            'waits' => $waits,
             'queueIsSync' => $queueIsSync,
         ])
     @endif
@@ -170,14 +170,23 @@
         </section>
     @endunless
 
+    {{-- Shown in full, unlike the console's one truncated line, because
+         reading a payload is what an operator opens this page for. Both
+         are collapsed: they are also where an application that puts a
+         secret in its workflow input would put it on screen, and that
+         should take a deliberate click. See docs/dashboard.md. --}}
     <div class="lf-grid">
         <section class="lf-card">
-            <h2 class="lf-card__title">Input</h2>
-            @include('laraflow::dashboard.partials.json', ['value' => $execution->input === [] ? null : $execution->input])
+            <details class="lf-payload">
+                <summary class="lf-card__title lf-disclosure">Input <span class="lf-muted lf-count">{{ $execution->input === [] ? 'none' : count($execution->input).' key'.(count($execution->input) === 1 ? '' : 's') }}</span></summary>
+                @include('laraflow::dashboard.partials.json', ['value' => $execution->input === [] ? null : $execution->input])
+            </details>
         </section>
         <section class="lf-card">
-            <h2 class="lf-card__title">Context</h2>
-            @include('laraflow::dashboard.partials.json', ['value' => $execution->context === [] ? null : $execution->context])
+            <details class="lf-payload">
+                <summary class="lf-card__title lf-disclosure">Context <span class="lf-muted lf-count">{{ $execution->context === [] ? 'none' : count($execution->context).' key'.(count($execution->context) === 1 ? '' : 's') }}</span></summary>
+                @include('laraflow::dashboard.partials.json', ['value' => $execution->context === [] ? null : $execution->context])
+            </details>
         </section>
     </div>
 @endsection

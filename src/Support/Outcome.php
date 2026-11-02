@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Support;
 
+use Illuminate\Contracts\Config\Repository as Config;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -99,5 +100,23 @@ final class Outcome
     public static function ranInline(WorkflowExecution $before, WorkflowExecution $after): bool
     {
         return $after->status !== $before->status || $after->finishedAt != $before->finishedAt;
+    }
+
+    /**
+     * Whether Laraflow's queue connection (or the application default)
+     * is the sync driver, which runs a job inside the dispatch call.
+     *
+     * The other half of ranInline()'s question, and the weaker half:
+     * this says what was configured, that says what happened. Use it
+     * to decide what to offer an operator — a queue checkbox is
+     * pointless without a queue — never to decide what became of a
+     * dispatch that has already returned.
+     */
+    public static function queueIsSync(Config $config): bool
+    {
+        $connection = $config->get('laraflow.queue.connection');
+        $connection = is_string($connection) && $connection !== '' ? $connection : (string) $config->get('queue.default');
+
+        return $config->get("queue.connections.{$connection}.driver") === 'sync';
     }
 }

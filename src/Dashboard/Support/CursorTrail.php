@@ -19,6 +19,15 @@ use Illuminate\Http\Request;
 final readonly class CursorTrail
 {
     /**
+     * How many visited cursors a trail may carry. Every page link
+     * re-emits the whole trail, so an unbounded one from a crafted URL
+     * becomes an unbounded page (Milestone 8.5 audit). Past this the
+     * oldest are forgotten: "previous" keeps working, and "first page"
+     * — which needs no cursor at all — is always one click away.
+     */
+    private const MAX_VISITED = 50;
+
+    /**
      * @param  string|null  $current  The cursor this page was fetched with; null on the first page.
      * @param  list<string>  $visited  The cursors of the pages before this one, oldest first, not including the first page.
      */
@@ -42,7 +51,7 @@ final readonly class CursorTrail
 
         return new self(
             is_string($cursor) && $cursor !== '' ? $cursor : null,
-            $visited,
+            array_slice($visited, -self::MAX_VISITED),
         );
     }
 
@@ -63,6 +72,8 @@ final readonly class CursorTrail
         if ($this->current !== null) {
             $visited[] = $this->current;
         }
+
+        $visited = array_slice($visited, -self::MAX_VISITED);
 
         return array_filter(['cursor' => $nextCursor, 'trail' => $visited], fn (mixed $value): bool => $value !== []);
     }

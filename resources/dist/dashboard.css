@@ -139,12 +139,14 @@
     text-decoration: none;
 }
 
+/* Three stacked marks read as a plan: steps in order. */
 .lf-brand__mark {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
     background: var(--lf-accent);
-    transform: rotate(45deg);
+    box-shadow: 5px 5px 0 -1px var(--lf-accent), 10px 10px 0 -2px var(--lf-accent);
+    margin-right: 12px;
 }
 
 .lf-nav {
@@ -714,25 +716,27 @@
 
 /* ---- Actions ---------------------------------------------------------- */
 
-.lf-actions__summary {
+/* The summary of any disclosure: the actions card, the start form,
+   and the input and context payloads. */
+.lf-disclosure {
     cursor: pointer;
     list-style: none;
     margin: 0;
 }
 
-.lf-actions__summary::-webkit-details-marker {
+.lf-disclosure::-webkit-details-marker {
     display: none;
 }
 
-.lf-actions__summary::before {
+.lf-disclosure::before {
     content: "▸ ";
 }
 
-details[open] > .lf-actions__summary::before {
+details[open] > .lf-disclosure::before {
     content: "▾ ";
 }
 
-details[open] > .lf-actions__summary {
+details[open] > .lf-disclosure {
     margin-bottom: 0.75rem;
 }
 
@@ -890,16 +894,6 @@ details[open] > .lf-actions__summary {
 
 .lf-header {
     box-shadow: var(--lf-shadow);
-}
-
-.lf-brand__mark {
-    /* Three stacked marks read as a plan: steps in order. */
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    box-shadow: 5px 5px 0 -1px var(--lf-accent), 10px 10px 0 -2px var(--lf-accent);
-    transform: none;
-    margin-right: 12px;
 }
 
 /* ---- Tables ----------------------------------------------------------- */
@@ -1156,4 +1150,12 @@ a.lf-id::before {
         max-height: none;
         white-space: pre-wrap;
     }
+}
+
+.lf-payload > summary {
+    margin: 0;
+}
+
+.lf-payload[open] > summary {
+    margin-bottom: 0.75rem;
 }

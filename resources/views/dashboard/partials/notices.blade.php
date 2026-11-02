@@ -4,13 +4,13 @@
     retry with when, an overdue step as hung-not-dead.
 
     @var \Laraflow\Workflow\WorkflowExecution $execution
-    @var array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}|null $waiting
+    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
     @var \Laraflow\Workflow\StepExecution[] $overdue
     @var \DateTimeImmutable $now
 --}}
 @use('Laraflow\Support\Formats')
 
-@if ($waiting !== null)
+@foreach ($waits as $waiting)
     <div class="lf-notice lf-notice--info">
         <strong>Waiting.</strong>
         {{ class_basename($waiting['step']->step) }}
@@ -31,7 +31,7 @@
                 is waiting for signal <code>{{ $waiting['step']->waitSignal }}</code>, indefinitely; nothing but <code>WorkflowRunner::signal()</code> wakes it.
         @endswitch
     </div>
-@endif
+@endforeach
 
 @if ($execution->isRetrying())
     <div class="lf-notice lf-notice--info">

@@ -272,6 +272,46 @@ class ExecutionsPageTest extends TestCase
             ->assertDontSee('<option value="'.TwoStepWorkflow::class.'">', false);
     }
 
+    /**
+     * The Milestone 8.5 audit: a crafted URL could carry thousands of
+     * workflow names, and the overview runs two scans per workflow. The
+     * extras are dropped and said, rather than the page refusing.
+     */
+    public function test_a_filter_carrying_more_values_than_a_person_would_type_is_bounded(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new TwoStepWorkflow);
+
+        $many = implode(',', array_map(fn (int $i): string => "App\\Workflows\\W{$i}", range(1, 500)));
+
+        $response = $this->get('/laraflow/executions?workflow='.urlencode($many));
+
+        $response->assertOk();
+        $response->assertSee('Only the first 20 workflow values were applied; the request carried 500.');
+
+        // The overview runs its scans per workflow, so it is bounded too.
+        $this->get('/laraflow?workflow='.urlencode($many))->assertOk()->assertSee('Only the first 20');
+    }
+
+    public function test_a_trail_longer_than_any_operator_walked_is_bounded(): void
+    {
+        config()->set('laraflow.dashboard.per_page', 1);
+
+        $runner = $this->app->make(WorkflowRunner::class);
+        $runner->run(new TwoStepWorkflow);
+        $runner->run(new TwoStepWorkflow);
+
+        $trail = array_map(fn (int $i): string => "cursor-{$i}", range(1, 500));
+
+        $response = $this->get('/laraflow/executions?'.http_build_query(['trail' => $trail]));
+
+        $response->assertOk();
+
+        // Every page link re-emits the trail, so an unbounded trail is
+        // an unbounded page. Fifty is kept, and the first page needs no
+        // cursor at all, so nothing is unreachable.
+        $this->assertSame(50, substr_count((string) $response->getContent(), 'trail%5B'));
+    }
+
     private function idLink(int $id): string
     {
         return 'class="lf-id" href="http://localhost/laraflow/executions/'.$id.'">'.$id.'</a>';

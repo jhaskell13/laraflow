@@ -6,6 +6,7 @@ namespace Laraflow\Console\Concerns;
 
 use DateTimeInterface;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
 use Laraflow\Support\Outcome;
@@ -228,16 +229,9 @@ trait DisplaysExecutions
         };
     }
 
-    /**
-     * Whether Laraflow's queue connection (or the application default)
-     * is the sync driver, which runs a job inside the dispatch call.
-     */
     protected function queueDriverIsSync(): bool
     {
-        $connection = config('laraflow.queue.connection');
-        $connection = is_string($connection) && $connection !== '' ? $connection : (string) config('queue.default');
-
-        return config("queue.connections.{$connection}.driver") === 'sync';
+        return Outcome::queueIsSync(app(Config::class));
     }
 
     // The three formatters below are the console's names for the shared

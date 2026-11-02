@@ -9,10 +9,12 @@ use Illuminate\Contracts\View\Factory as ViewFactory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Router;
 use InvalidArgumentException;
 use Laraflow\Dashboard\Support\CursorTrail;
 use Laraflow\Dashboard\Support\FilterRequest;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Support\Outcome;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
@@ -52,6 +54,7 @@ final class ExecutionController
         private readonly ViewFactory $views,
         private readonly Config $config,
         private readonly ClockInterface $clock,
+        private readonly Router $router,
     ) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -84,7 +87,8 @@ final class ExecutionController
                 fn (WorkflowExecution $execution): string => $execution->workflow,
                 $page->executions,
             ))),
-            'queueIsSync' => $this->queueIsSync(),
+            'queueIsSync' => Outcome::queueIsSync($this->config),
+            'canAct' => $this->router->has('laraflow.actions.start'),
             'now' => $this->clock->now(),
         ]);
     }
@@ -125,8 +129,9 @@ final class ExecutionController
             'remembered' => $this->idempotency->records($execution->id),
             'children' => $children,
             'overdue' => array_filter($steps, fn ($step): bool => AttentionScan::isOverdue($step, $now)),
-            'waiting' => $this->waitingOn($steps),
-            'queueIsSync' => $this->queueIsSync(),
+            'waits' => $this->waitingOn($steps),
+            'queueIsSync' => Outcome::queueIsSync($this->config),
+            'canAct' => $this->router->has('laraflow.actions.execute'),
             'now' => $now,
         ]);
     }
@@ -136,42 +141,43 @@ final class ExecutionController
      * signal and its deadline, or the resume instant — "indefinitely"
      * said out loud when nothing but a signal can wake it.
      *
+     * Every waiting step, not the first: laraflow:show loops, and an
+     * execution parked on two waits would otherwise show both in the
+     * console and one in the browser — and offer a signal form for one
+     * of them (Milestone 8.5 audit).
+     *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
-     * @return array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}|null
+     * @return list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>
      */
-    private function waitingOn(array $steps): ?array
+    private function waitingOn(array $steps): array
     {
+        $waits = [];
+
         foreach ($steps as $step) {
             if (! $step->isWaiting()) {
                 continue;
             }
 
             if (Wait::isChildSignal($step->waitSignal)) {
+                // A child wait is never indefinite: the parent checks on
+                // the child at every heartbeat, recorded on the execution.
                 $childId = Wait::childIdFrom((string) $step->waitSignal);
 
-                return ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId];
+                $waits[] = ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId];
+
+                continue;
             }
 
             if ($step->waitSignal === null) {
-                return ['step' => $step, 'kind' => 'timed', 'childId' => null];
+                $waits[] = ['step' => $step, 'kind' => 'timed', 'childId' => null];
+
+                continue;
             }
 
-            return ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null];
+            $waits[] = ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null];
         }
 
-        return null;
-    }
-
-    /**
-     * Whether a dispatch would run in this request: the action forms
-     * default to the queue only when there is one.
-     */
-    private function queueIsSync(): bool
-    {
-        $connection = $this->config->get('laraflow.queue.connection');
-        $connection = is_string($connection) && $connection !== '' ? $connection : (string) $this->config->get('queue.default');
-
-        return $this->config->get("queue.connections.{$connection}.driver") === 'sync';
+        return $waits;
     }
 
     private function perPage(): int
