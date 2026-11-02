@@ -43,6 +43,11 @@
         "orchestra/testbench": "^10.12|^11.0",
         "phpunit/phpunit": "^11.0"
     },
+    "suggest": {
+        "illuminate/routing": "Required to mount the inspection dashboard (Dashboard::routes()).",
+        "illuminate/view": "Required to mount the inspection dashboard.",
+        "illuminate/session": "Required for the dashboard's action forms (CSRF protection)."
+    },
     "autoload": {
         "psr-4": {
             "Laraflow\\": "src/"

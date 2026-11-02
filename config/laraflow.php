@@ -458,6 +458,36 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard
+    |--------------------------------------------------------------------------
+    |
+    | The inspection dashboard is off unless the application mounts it by
+    | calling Laraflow\Dashboard\Dashboard::routes(); these are the
+    | defaults it mounts with. Who may use it is decided by
+    | Dashboard::auth(), or a `viewLaraflow` gate, or — with neither — the
+    | local environment alone. See docs/dashboard.md.
+    |
+    */
+
+    'dashboard' => [
+        // Where the dashboard answers once mounted.
+        'path' => env('LARAFLOW_DASHBOARD_PATH', 'laraflow'),
+
+        // The middleware every dashboard route runs through before the
+        // dashboard's own authorization check. `web` supplies the session
+        // and CSRF protection the action forms depend on.
+        'middleware' => ['web'],
+
+        // Mount a dashboard that can only look: the action routes are
+        // absent, not hidden.
+        'read_only' => env('LARAFLOW_DASHBOARD_READ_ONLY', false),
+
+        // Executions per list page, up to the repository's own ceiling.
+        'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
+    ],
+
     'integrations' => [
         'github' => [
             'connector' => Laraflow\Integration\Github\GithubConnector::class,
