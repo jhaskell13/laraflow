@@ -44,7 +44,7 @@
     @if ($canAct)
         @include('laraflow::dashboard.partials.actions', [
             'execution' => $execution,
-            'waits' => $waits,
+            'offers' => $offers,
             'queueIsSync' => $queueIsSync,
         ])
     @endif
@@ -149,7 +149,7 @@
     @if ($remembered !== [])
         <section class="lf-card">
             <h2 class="lf-card__title">Remembered work <span class="lf-muted lf-count">{{ count($remembered) }}</span></h2>
-            @include('laraflow::dashboard.partials.remembered', ['remembered' => $remembered, 'steps' => $steps])
+            @include('laraflow::dashboard.partials.remembered', ['remembered' => $remembered, 'stepNamesByPosition' => $stepNamesByPosition])
         </section>
     @endif
 

@@ -40,6 +40,8 @@
         @include('laraflow::dashboard.partials.start', [
             'workflowsSeen' => $workflowsSeen,
             'queueIsSync' => $queueIsSync,
+            'oldInput' => $oldInput,
+            'reopenStart' => $reopenStart,
         ])
     @endif
 

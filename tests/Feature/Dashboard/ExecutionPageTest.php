@@ -71,7 +71,11 @@ class ExecutionPageTest extends TestCase
         $response->assertSee('{"n":2}');
 
         // The attempt history: three attempts, one of them failed.
-        $response->assertSee('Attempts <span class="lf-muted lf-count">3</span>', false);
+        // Three attempts recorded, counted in the Attempts section
+        // itself rather than from the markup around the number
+        // (Milestone 8.5 audit).
+        $attempts = $this->section($response->getContent(), 'Attempts');
+        $this->assertSame(3, substr_count($attempts, '<tr>') - 1, 'Three attempt rows, past the header.');
         $response->assertSee('step two blew up');
         $response->assertSee('lf-status--failed', false);
 
@@ -229,11 +233,19 @@ class ExecutionPageTest extends TestCase
 
     /**
      * The markup of one card, from its title to the end of its section.
+     *
+     * Anchored on the card's heading, not on the word: "Attempts" is
+     * also a column in the step table above it, and scoping to the
+     * first occurrence scoped to the wrong card.
      */
     private function section(string|false $html, string $title): string
     {
         $html = (string) $html;
-        $start = strpos($html, $title);
+        $start = strpos($html, 'lf-card__title">'.$title);
+
+        if ($start === false) {
+            $start = strpos($html, $title);
+        }
         $this->assertNotFalse($start, "The page has a [{$title}] section.");
         $end = strpos($html, '</section>', $start);
         $this->assertNotFalse($end);

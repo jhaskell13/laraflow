@@ -9,28 +9,17 @@
     nothing happens on a stray click either way.
 
     @var \Laraflow\Workflow\WorkflowExecution $execution
-    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
+    @var array{execute: bool, cancel: bool, early: bool, signallable: list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>} $offers
     @var bool $queueIsSync
 --}}
-@php
-    $canExecute = $execution->isPending() || $execution->isFailed() || $execution->isRetrying() || $execution->isWaiting();
-    $canCancel = ! $execution->isCompleted() && ! $execution->isCancelled();
-    // Every signallable wait gets its own form: an execution parked
-    // on two of them needs two (Milestone 8.5 audit).
-    $signallable = array_values(array_filter(
-        $waits,
-        fn (array $wait): bool => in_array($wait['kind'], ['signal', 'signal-indefinite'], true),
-    ));
-    $canSignal = $signallable !== [];
-    $early = $execution->isRetrying() || array_filter($waits, fn (array $w): bool => $w['kind'] === 'timed') !== [];
-@endphp
+@php($canSignal = $offers['signallable'] !== [])
 
-@if ($canExecute || $canCancel || $canSignal)
+@if ($offers['execute'] || $offers['cancel'] || $canSignal)
     <details class="lf-card lf-actions"{{ $canSignal ? ' open' : '' }}>
         <summary class="lf-card__title lf-disclosure">Actions</summary>
 
         <div class="lf-actions__grid">
-            @if ($canExecute)
+            @if ($offers['execute'])
                 <form method="post" action="{{ route('laraflow.actions.execute', $execution->id) }}" class="lf-action" data-lf-confirm="{{ $execution->isFailed() ? 'Recover this execution from its checkpoint? Completed steps are skipped; the failed step runs again.' : 'Run this execution now?' }}">
                     @csrf
                     <h3 class="lf-action__title">{{ $execution->isFailed() ? 'Recover' : 'Execute' }}</h3>
@@ -50,7 +39,7 @@
                         Dispatch to the queue instead of running in this request
                         @if ($queueIsSync)<span class="lf-muted">(the queue connection is <code>sync</code>, so it would run here anyway)</span>@endif
                     </label>
-                    @if ($early)
+                    @if ($offers['early'])
                         <label class="lf-check">
                             <input type="checkbox" name="now" value="1" checked>
                             Ignore the schedule and run immediately
@@ -60,7 +49,7 @@
                 </form>
             @endif
 
-            @foreach ($signallable as $wait)
+            @foreach ($offers['signallable'] as $wait)
                 <form method="post" action="{{ route('laraflow.actions.signal', $execution->id) }}" class="lf-action" data-lf-confirm="Record this signal for the waiting step?">
                     @csrf
                     <h3 class="lf-action__title">Signal <span class="lf-muted">{{ class_basename($wait['step']->step) }}</span></h3>
@@ -83,7 +72,7 @@
                 </form>
             @endforeach
 
-            @if ($canCancel)
+            @if ($offers['cancel'])
                 <form method="post" action="{{ route('laraflow.actions.cancel', $execution->id) }}" class="lf-action" data-lf-confirm="Cancel this execution? Completed steps are kept; this cannot be undone.">
                     @csrf
                     <h3 class="lf-action__title">Cancel</h3>

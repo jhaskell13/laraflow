@@ -6,11 +6,11 @@ namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
 use InvalidArgumentException;
-use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
+use Laraflow\Console\Concerns\StartsExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
-use Laraflow\Support\Outcome;
+use Laraflow\Support\Handoff;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
@@ -27,8 +27,8 @@ use Throwable;
  */
 class ExecuteCommand extends Command
 {
-    use DisplaysExecutions;
     use ParsesExecutionId;
+    use StartsExecutions;
 
     protected $signature = 'laraflow:execute
         {execution : The id of the execution to run or recover}
@@ -63,61 +63,10 @@ class ExecuteCommand extends Command
         }
 
         if ((bool) $this->option('queue')) {
-            try {
-                $dispatcher->dispatchExecution($execution->id);
-            } catch (WorkflowException $exception) {
-                $this->components->error($exception->getMessage());
-
-                return self::FAILURE;
-            } catch (Throwable $exception) {
-                // Did the job run, or did the push fail? Judged from the
-                // record, never from the configured driver, which cannot
-                // answer it — a broker refusing a connection under a
-                // nominally sync connection would otherwise be reported
-                // as a step failure with every step untouched. The
-                // success path below has asked this way since Phase C;
-                // this path was missed by that change.
-                if (! Outcome::ranInline($execution, $repository->find($id))) {
-                    $this->components->error('The execution could not be queued: '.$exception->getMessage());
-
-                    return self::FAILURE;
-                }
-
-                $this->reportFailedRun(
-                    $repository,
-                    $id,
-                    $exception,
-                    'The queue connection ran the job in this process (sync driver) and a step failed: ',
-                );
-
-                return self::FAILURE;
-            }
-
-            // A sync queue connection runs the job inside the dispatch
-            // call, so by here it may already have run. "Still pending"
-            // cannot say so — this command dispatches failed and
-            // retrying executions too — so the record is compared with
-            // the one read before the push: a run that completed changed
-            // the status, and a run that failed again moved finished_at.
-            $before = $execution;
-            $execution = $repository->find($id);
-
-            if (Outcome::ranInline($before, $execution)) {
-                $this->components->info(
-                    'The queue connection ran the job in this process (sync driver).'
-                );
-
-                $this->displayExecution($execution, $repository->steps($execution));
-
-                return $this->reportOutcome($execution);
-            }
-
-            $this->components->info(
-                "Execution [{$id}] queued. A queue worker will pick it up; "
-                ."inspect progress with: laraflow:show {$id}"
+            return $this->reportHandoff(
+                Handoff::attempt($dispatcher, $repository, $execution),
+                $repository,
             );
-
-            return self::SUCCESS;
         }
 
         $this->components->info(

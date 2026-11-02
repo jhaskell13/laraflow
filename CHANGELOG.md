@@ -8,7 +8,11 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Nothing yet.
+Milestone 9, in progress: parallelism and compensation.
+
+### Changed
+
+- **What became of handing an execution to the queue is decided once.** A sync queue connection runs the job *inside* the dispatch call, so a call that returns may mean "queued" or "already finished", and a call that throws may mean "the broker refused" or "a step failed" — a distinction the configured driver cannot make and the record can. That decision had been written out three times, and two of the copies disagreed (Milestone 8.5 audit). `Laraflow\Support\Handoff` now makes it once for `laraflow:start`, `laraflow:demo`, `laraflow:execute --queue`, and the dashboard's execute, start, and signal actions; each renders the result rather than re-deriving it, so the console and the browser report a handoff in the same words. `laraflow:execute --queue`'s "queued" message now names the execution and `queue:work`, as the other commands' already did.
 
 ## [0.4.0] - 2026-11-02
 

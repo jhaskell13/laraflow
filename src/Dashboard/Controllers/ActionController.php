@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
 use Laraflow\Support\Outcome;
 use Laraflow\Support\WorkflowName;
@@ -209,44 +210,14 @@ final class ActionController
     }
 
     /**
-     * Hand an execution to the queue, and say what actually happened:
-     * a sync connection runs the job inside the dispatch call, so the
-     * record is read back rather than the configuration consulted
-     * (the Phase C audit's first and third findings).
+     * Hand an execution to the queue. What became of it is Handoff's
+     * decision, shared with the console; this only flashes it.
      */
     private function dispatch(Request $request, WorkflowExecution $before): RedirectResponse
     {
-        try {
-            $this->dispatcher->dispatchExecution($before->id);
-        } catch (WorkflowException $exception) {
-            return $this->toExecution($request, $before->id, Outcome::ERROR, $exception->getMessage());
-        } catch (Throwable $exception) {
-            $after = $this->repository->find($before->id);
+        $handoff = Handoff::attempt($this->dispatcher, $this->repository, $before);
 
-            if (! Outcome::ranInline($before, $after)) {
-                return $this->toExecution(
-                    $request,
-                    $before->id,
-                    Outcome::ERROR,
-                    'The execution could not be queued: '.$exception->getMessage().' It is persisted; run it here instead.',
-                );
-            }
-
-            return $this->toExecution(
-                $request,
-                $before->id,
-                Outcome::ERROR,
-                'The queue connection ran the job in this process (sync driver) and a step failed: '.$exception->getMessage(),
-            );
-        }
-
-        $after = $this->repository->find($before->id);
-
-        if (Outcome::ranInline($before, $after)) {
-            return $this->toOutcome($request, $after);
-        }
-
-        return $this->toExecution($request, $before->id, Outcome::INFO, 'Queued. A worker will pick it up; this page shows its progress.');
+        return $this->toExecution($request, $before->id, $handoff->level, $handoff->message);
     }
 
     private function toOutcome(Request $request, WorkflowExecution $execution): RedirectResponse

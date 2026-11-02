@@ -6,14 +6,12 @@
 
     @var list<string> $workflowsSeen
     @var bool $queueIsSync
+    @var array<string, mixed> $oldInput
+    @var bool $reopenStart
 --}}
-@php
-    $hasSession = request()->hasSession();
-    $reopen = request()->query('start') !== null;
-    $old = fn (string $key, string $default = ''): string => $hasSession ? (string) old($key, $default) : $default;
-@endphp
+@php($old = fn (string $key): string => is_scalar($oldInput[$key] ?? null) ? (string) $oldInput[$key] : '')
 
-<details class="lf-card lf-start"{{ $reopen ? ' open' : '' }}>
+<details class="lf-card lf-start"{{ $reopenStart ? ' open' : '' }}>
     <summary class="lf-card__title lf-disclosure">Start a workflow</summary>
 
     <form method="post" action="{{ route('laraflow.actions.start') }}" class="lf-action lf-start__form" data-lf-confirm="Start a new execution of this workflow?">
@@ -40,7 +38,7 @@
             <textarea name="input" rows="3" placeholder='{"order_id": 42}' spellcheck="false">{{ $old('input') }}</textarea>
         </label>
         <label class="lf-check">
-            <input type="checkbox" name="queue" value="1" @checked($hasSession && old('queue') !== null ? (bool) old('queue') : ! $queueIsSync)>
+            <input type="checkbox" name="queue" value="1" @checked(array_key_exists('queue', $oldInput) ? (bool) $oldInput['queue'] : ! $queueIsSync)>
             Dispatch to the queue instead of running in this request
         </label>
         <div class="lf-filters__actions">

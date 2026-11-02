@@ -89,6 +89,8 @@ final class ExecutionController
             ))),
             'queueIsSync' => Outcome::queueIsSync($this->config),
             'canAct' => $this->router->has('laraflow.actions.start'),
+            'oldInput' => $request->hasSession() ? $request->session()->getOldInput() : [],
+            'reopenStart' => $request->query('start') !== null,
             'now' => $this->clock->now(),
         ]);
     }
@@ -105,9 +107,11 @@ final class ExecutionController
         $now = $this->clock->now();
 
         $names = [];
+        $byPosition = [];
 
         foreach ($steps as $step) {
             $names[$step->id] = $step->step;
+            $byPosition[$step->position] = $step->step;
         }
 
         // Children through the public filter, the way a listing would
@@ -129,11 +133,41 @@ final class ExecutionController
             'remembered' => $this->idempotency->records($execution->id),
             'children' => $children,
             'overdue' => array_filter($steps, fn ($step): bool => AttentionScan::isOverdue($step, $now)),
-            'waits' => $this->waitingOn($steps),
+            'waits' => $waits = $this->waitingOn($steps),
+            'offers' => $this->offers($execution, $waits),
+            // Keyed by position for the remembered-work table, as
+            // $stepNames is keyed by id for the attempts table: both
+            // maps are the controller's to build.
+            'stepNamesByPosition' => $byPosition,
             'queueIsSync' => Outcome::queueIsSync($this->config),
             'canAct' => $this->router->has('laraflow.actions.execute'),
             'now' => $now,
         ]);
+    }
+
+    /**
+     * Which actions this execution's state admits, and what the
+     * signal forms are for. A view renders them; it does not work
+     * them out (Milestone 8.5 audit).
+     *
+     * @param  list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>  $waits
+     * @return array{execute: bool, cancel: bool, early: bool, signallable: list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>}
+     */
+    private function offers(WorkflowExecution $execution, array $waits): array
+    {
+        $signallable = array_values(array_filter(
+            $waits,
+            fn (array $wait): bool => in_array($wait['kind'], ['signal', 'signal-indefinite'], true),
+        ));
+
+        $timed = array_filter($waits, fn (array $wait): bool => $wait['kind'] === 'timed');
+
+        return [
+            'execute' => $execution->isPending() || $execution->isFailed() || $execution->isRetrying() || $execution->isWaiting(),
+            'cancel' => ! $execution->isCompleted() && ! $execution->isCancelled(),
+            'early' => $execution->isRetrying() || $timed !== [],
+            'signallable' => $signallable,
+        ];
     }
 
     /**

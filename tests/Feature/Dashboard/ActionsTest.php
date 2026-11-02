@@ -59,7 +59,9 @@ class ActionsTest extends TestCase
         $response = $this->followingRedirects()->post('/laraflow/executions/1/execute', ['queue' => '1']);
 
         $response->assertOk();
-        $response->assertSee('Queued. A worker will pick it up');
+        // The same sentence the console prints: one decision, one wording.
+        $response->assertSee('Queued as execution 1');
+        $response->assertSee('A worker will pick it up');
 
         Queue::assertPushed(ExecuteWorkflowJob::class, fn (ExecuteWorkflowJob $job): bool => $job->executionId === 1);
         $this->assertSame(1, StepTwo::$runs, 'Nothing ran in this request: only the attempt that failed.');
@@ -214,7 +216,7 @@ class ActionsTest extends TestCase
         Queue::fake();
 
         $this->followingRedirects()->post('/laraflow/executions', ['workflow' => TwoStepWorkflow::class, 'queue' => '1'])
-            ->assertOk()->assertSee('Queued. A worker will pick it up');
+            ->assertOk()->assertSee('Queued as execution 1');
 
         $this->assertSame(ExecutionStatus::Pending->value, WorkflowExecutionModel::query()->sole()->status);
         Queue::assertPushed(ExecuteWorkflowJob::class);
