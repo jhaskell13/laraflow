@@ -258,6 +258,18 @@ The debt that must be gone before any API is frozen: the design findings the Mil
 
 Phase B's two capabilities had their semantics decided before any code, as Milestone 7's did: `docs/workflow-versioning.md` and `docs/idempotency.md` (step 8). The two decisions that shape everything downstream — a plan migration may rewrite only the undecided tail of a plan, because a `pending` step row has no output, no attempt history, and no context contribution; and `remember()` commits a marker *before* the work runs, so a crash leaves positive evidence that the work started and the ambiguity is raised rather than guessed.
 
+#### Where Milestone 8 stands (paused 1 November 2026, after step 11)
+
+Phases A and B are complete and audited; Phase C has one step done. **The next session begins here — step 0 is to finish Milestone 8 before any Milestone 8.5 (dashboard) or Milestone 9 work starts.** Remaining, in order, as planned at the start of the milestone:
+
+- **Step 12 — `laraflow:start {workflow} {--input=} {--queue}`.** Runs an arbitrary workflow class, with JSON input, inline or dispatched; refuses a class that is not a `Workflow` by name. The primitive the install walk needs to use the generators alone, and the same service the dashboard's start button will call in Milestone 10.
+- **Step 13 — CI.** Decided at planning: full coverage over CI weight. Every engine job (MySQL 8.0, MariaDB 10.6, PostgreSQL 13, SQL Server 2019) gains a Laravel 12 + `prefer-lowest` cell on PHP 8.2 alongside today's Laravel 13 cell, and the install walk moves into each engine job as its final stage, rewritten to use `laraflow:install`, the `make:*` generators, and `laraflow:start` rather than `laraflow:demo` — that is the third exit criterion.
+- **Step 14 — the Phase C audit**, three hostile reviews as Phases A and B had (concurrency, code quality, contract alignment) over steps 11–13; every real finding fixed with a regression test.
+- **Step 15 — what CI found**, as its own commit if the matrix finds anything, which it has every time new code first met the engines.
+- **Step 16 — closure.** README, `CHANGELOG.md` converted to **0.3.0** with its *Breaking* section (Milestone 8 changed Public signatures), the Milestone 8 record written into this roadmap in the form the earlier milestones use, Milestone 8.5 (the inspection dashboard) inserted before Milestone 9, `laraflow/dashboard` removed from Milestone 11's optional-packages list, workflow authoring recorded as post-1.0, and the first exit criterion checked by grepping the contract documents for *known limit* and *deferred*.
+
+Two engine-only fixes from the Phase B audit — the PostgreSQL savepoint in `EloquentIdempotencyStore::begin()` and the collation-collision refusal — are confirmed by CI since; nothing from Phase B is outstanding.
+
 #### Exit criteria
 
 - No *known limit* or *deferred* section remains in any contract document.
