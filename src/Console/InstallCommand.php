@@ -65,7 +65,8 @@ class InstallCommand extends Command
             'php artisan make:workflow FulfilOrder            a workflow in app/Workflows',
             'php artisan make:step ReserveInventory           a step in app/Workflows/Steps (--conditional, --sub-workflow)',
             'php artisan make:connector StripeConnector       an HTTP connector in app/Connectors',
-            'php artisan laraflow:demo                        run the bundled demo and inspect it with laraflow:show 1',
+            'php artisan laraflow:start FulfilOrder           run a workflow you wrote, and inspect it with laraflow:show 1',
+            'php artisan laraflow:demo                        or run the bundled demo first',
             'vendor/laraflow/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',
         ]);
 

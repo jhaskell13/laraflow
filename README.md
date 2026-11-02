@@ -60,6 +60,16 @@ php artisan laraflow:install
 
 That publishes `config/laraflow.php`, runs the migrations, and prints what to do next. It does nothing `vendor:publish` and `migrate` would not, so the two sections below are the same thing by hand.
 
+From there, the whole first workflow is three commands and one edit:
+
+```bash
+php artisan make:workflow FulfilOrder          # app/Workflows/FulfilOrder.php
+php artisan make:step ReserveInventory         # app/Workflows/Steps/ReserveInventory.php
+# name the step in the workflow's steps() list, then:
+php artisan laraflow:start FulfilOrder --input='{"order_id": 42}'
+php artisan laraflow:show 1
+```
+
 ### Database tables
 
 Laraflow stores executions in four tables: `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts` (the append-only per-attempt history), and `laraflow_idempotency_keys` (what steps have remembered). The package loads its own migrations, so you only need to run:
@@ -583,6 +593,12 @@ Creation and execution are separate when you need them to be:
 $execution = $runner->start(new SyncCustomerWorkflow(), ['customer_id' => 42]);
 // ...persisted as pending with its full step plan; nothing has run...
 $execution = $runner->execute($execution->id, new SyncCustomerWorkflow());
+```
+
+The same from the console, without writing a caller — the class fully qualified or by its bare name under `App\Workflows`, the input as a JSON object, `--queue` to dispatch instead:
+
+```bash
+php artisan laraflow:start SyncCustomerWorkflow --input='{"customer_id": 42}'
 ```
 
 ### Failure and recovery

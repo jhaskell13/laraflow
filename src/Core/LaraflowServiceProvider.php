@@ -24,6 +24,7 @@ use Laraflow\Console\ListCommand;
 use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ShowCommand;
+use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\LifecycleLogger;
@@ -319,6 +320,7 @@ class LaraflowServiceProvider extends ServiceProvider
             PruneCommand::class,
             RecoverCommand::class,
             ShowCommand::class,
+            StartCommand::class,
             SummaryCommand::class,
         ]);
     }
