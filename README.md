@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), or run another workflow as a child ([docs/advanced-workflows.md](docs/advanced-workflows.md)). Executions are inspected and operated from the console or from an opt-in [dashboard](#the-dashboard). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching, fan-out/fan-in, and compensation are **not** implemented ([ROADMAP.md](ROADMAP.md)). Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), run another workflow as a child, run many of them in parallel and wait for all of them, or declare how to undo itself when the workflow fails ([docs/advanced-workflows.md](docs/advanced-workflows.md)). Executions are inspected and operated from the console or from an opt-in [dashboard](#the-dashboard). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching is **not** implemented and is out of scope through 1.0 ([ROADMAP.md](ROADMAP.md)): a fan-out is one step whose members are child executions, and the plan stays a flat, validated list. Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -17,6 +17,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Your first workflow](#your-first-workflow)
 - [Retries, timeouts, and cancellation](#retries-timeouts-and-cancellation)
 - [Conditions, waits, and sub-workflows](#conditions-waits-and-sub-workflows)
+- [Parallelism and compensation](#parallelism-and-compensation)
 - [Changing a deployed workflow](#changing-a-deployed-workflow)
 - [Running on a queue](#running-on-a-queue)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
@@ -51,7 +52,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.4.0
+composer require laraflow/laraflow:^0.5.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
@@ -363,7 +364,7 @@ Publish the configuration file if you need to change defaults:
 php artisan vendor:publish --tag=laraflow-config
 ```
 
-This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector, the `workflows.max_depth` bound on sub-workflow nesting, and carries a documenting comment block per section):
+This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector, the `workflows.max_depth` and `workflows.max_members` bounds on sub-workflow nesting and fan-out width, and carries a documenting comment block per section):
 
 ```php
 return [
@@ -626,8 +627,8 @@ A step that repeats this way may re-perform external side effects — that is th
 
 | Record | Fields |
 |--------|--------|
-| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `waiting`, `cancelled`), input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry/resume time, cancellation request/time/reason, parent linkage for sub-workflows |
-| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`, `skipped`, `waiting`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's (or signal wait's) deadline, next retry/resume time, awaited signal name |
+| Workflow execution | workflow class, status (`pending`, `running`, `completed`, `failed`, `retrying`, `waiting`, `compensating`, `cancelled`), plan version, input, context snapshot, error message and class, claim token/time, started/completed/failed timestamps, next retry/resume time, cancellation request/time/reason, parent linkage for sub-workflows and fan-out members |
+| Step execution | step class, position, status (`pending`, `running`, `completed`, `failed`, `retrying`, `skipped`, `waiting`), attempts, output, error message and class, started/completed/failed timestamps, current attempt's (or signal wait's) deadline, next retry/resume time, awaited signal name, and — on a compensation row — the step it undoes |
 | Step attempt | attempt number, outcome (`completed`, `failed`, `timed_out`, `interrupted`), error message and class, started/ended timestamps, duration, scheduled retry time |
 
 After every completed step, its output and the full context snapshot are checkpointed in one transaction. Input, outputs, and context values must be JSON-serializable (scalars and arrays); anything else is rejected with a clear exception naming the offending key.
@@ -740,6 +741,65 @@ class SyncSubsidiary extends SubWorkflowStep
 ```
 
 The child inherits the parent's correlation and tenant identifiers, runs like any other execution, and its outcome — identity and status, never its context — becomes the parent step's output. A failed child fails the parent step under the step's retry policy, and a retry resumes the *same* child from its own checkpoints rather than starting over. Cancelling a parent cascades to its unfinished children; nesting is bounded by `laraflow.workflows.max_depth`; and the parent checks on its child every `stale_after` seconds, so a lost signal or a lost dispatch heals instead of hanging.
+
+## Parallelism and compensation
+
+Two capabilities that run a workflow wider and unwind it when it fails. Both are composition and step rows rather than new machinery, and both are specified in the same document as the rest: [docs/advanced-workflows.md](docs/advanced-workflows.md).
+
+### Fan-out and fan-in
+
+A step extending `FanOutStep` runs many workflows in parallel as child executions and parks until every one of them has finished:
+
+```php
+use Laraflow\Workflow\{FanOut, FanOutStep};
+
+class NotifySubscribers extends FanOutStep
+{
+    public function members(WorkflowContext $context): iterable
+    {
+        foreach ($context->get('subscriber_ids') as $id) {
+            yield new FanOut(new NotifySubscriber, ['subscriber_id' => $id]);
+        }
+    }
+}
+```
+
+A member is a child execution, with the same linkage, depth bound, cancellation cascade, and retention rules a sub-workflow's child has — everything the section above says about a child is true of a member. **The plan is untouched:** `NotifySubscribers` is one class at one position and `steps()` still returns a flat list.
+
+`members()` is read **once** and what it yielded is recorded on the step row before any member is created, so a worker that dies part-way through leaves a remainder the next claim computes rather than a group it builds twice. Members are delivered as they are created; the step then parks on a reserved join signal, which the last member to rest records. The join heartbeats on `stale_after` like a single child's park, and when it wakes it asks for the group's progress in **one indexed query** — so deciding about a thousand members costs exactly what deciding about three does. A lost join signal or a lost member dispatch heals through `laraflow:recover` with no new scan.
+
+**The join waits for every member** (`JoinPolicy::WaitAll`, the only policy that ships). All completed, and the step completes with a summary of the group — total, completed, and the first member ids, never a member's context. Anything else, and the step fails with `FanOutFailedException` naming how many ended in each state — an ordinary step failure under the step's own retry policy. **A retry resumes the members that did not complete** rather than creating a second group; a cancelled member cannot be resumed, so a group containing one reports the same outcome until an operator intervenes. An empty `members()` completes the step at once rather than parking.
+
+Width is bounded by `laraflow.workflows.max_members` (default 1000), refused with `FanOutTooWideException` before anything is created, and depth by `max_depth` as before. Laraflow does not aggregate member outputs — the join describes the group, and reduction is the step that follows.
+
+### Compensation
+
+A step implementing `CompensatableStep` declares how to undo itself. When the execution fails terminally, Laraflow runs those declarations in reverse over the steps that **completed**:
+
+```php
+use Laraflow\Workflow\{Compensation, CompensatableStep};
+
+class ChargeCard implements Step, CompensatableStep
+{
+    public function handle(WorkflowContext $context): mixed
+    {
+        return ['charge_id' => $this->payments->charge(...)];
+    }
+
+    public function compensate(Compensation $compensation): void
+    {
+        $this->payments->refund($compensation->output()['charge_id']);
+    }
+}
+```
+
+**Opt-in by declaring it.** A workflow whose steps none of them do behaves exactly as it did before, with no policy to set and no rows appended. The undo receives the step's own recorded output — the charge id a refund needs — the context as it now stands, and the failure being compensated.
+
+A pass runs when the failing step's retries are exhausted (and, under `FailurePolicy::Continue`, after the remaining steps have run). It skips the step that failed: a step that threw is in a state only the application knows. The execution's status is `compensating` while the pass runs, and its resting state is `failed` either way — compensation changes what was left behind, not whether the execution failed.
+
+**Each compensation is an ordinary step row**, appended after the plan and linked to the row it undoes, so it has its own attempts, retries, timeout, and attempt history, and appears in `laraflow:show` and the dashboard like any other step. The saga is inspectable because it *is* steps. An undo is retried under **the compensated step's own policy**, and the pass **stops** at the first undo whose retries are exhausted rather than reaching past it to undo earlier work the failed one may have depended on; the rows then record which undos ran, which failed, and which were never reached. An interrupted pass is resumed by the next claim from those same rows.
+
+Compensations must be idempotent for the reason steps must, and `$compensation->context()->remember()` is available inside `compensate()` and is the answer. Neither a fan-out nor a sub-workflow compensates its children: members are separate executions with their own sagas, and reaching into them from the parent would be acting at a distance on records it does not own. A step that wants its members undone says so in its own `compensate()`, using the ids its output recorded.
 
 ## Changing a deployed workflow
 
@@ -1104,8 +1164,9 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 8.5; what comes next lives in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 9; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
+- **No graph branching, and none planned before 1.0.** A plan is a flat, validated list of steps. A fan-out runs many workflows in parallel, but it is one step at one position, and the plan either side of it is as linear as it was; Laraflow does not aggregate member outputs, and a member cannot add members. Reduction is the step that follows.
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
 - **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Wrap them in `$context->remember()` so they run once per execution and a crash inside the window is raised rather than repeated ([docs/idempotency.md](docs/idempotency.md)). Transport retries follow the same honesty: a `POST` is repeated only on 429 or when you mark it `asIdempotent()`.

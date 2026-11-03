@@ -8,7 +8,13 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Milestone 9, in progress: parallelism and compensation.
+## [0.5.0] - 2026-11-02
+
+Milestone 9: parallelism and compensation — the two capabilities Milestone 7 deferred, each specified in `docs/advanced-workflows.md` before a line of it was written. Both are additive and opt-in by declaration: a workflow that fans out nothing and undoes nothing behaves exactly as it did under 0.4.0. Two additive migrations and one new `ExecutionStatus` case; **breaking** for a custom `ExecutionRepository`, which gains three methods.
+
+### Removed
+
+- **The five `WorkflowExecutionRetryScheduled::REASON_*` constants.** Deprecated in 0.3.0 in favour of the `RecoveryReason` cases, announced there for removal in 0.4.0, and overdue by one minor — the removal was missed when 0.4.0 was cut and is taken here rather than left to drift further. Nothing in the package read them. Every string they carried is still the backing value of exactly one case, so a listener comparing `$event->reason->value` to the literal `'stale_claim'` is unaffected; one that referenced the constant by name uses `RecoveryReason::StaleClaim` (and `->value` for the string). A test now holds the class to carrying no `REASON_*` constant, since one reintroduced would be born deprecated.
 
 ### Added
 
@@ -505,7 +511,8 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jhaskell13/laraflow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jhaskell13/laraflow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jhaskell13/laraflow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jhaskell13/laraflow/compare/v0.1.0...v0.2.0

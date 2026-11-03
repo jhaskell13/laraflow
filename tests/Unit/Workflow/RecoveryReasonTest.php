@@ -12,22 +12,33 @@ use ReflectionClass;
 class RecoveryReasonTest extends TestCase
 {
     /**
-     * The deprecation contract: every REASON_* constant the event carried
-     * before Milestone 8 is the backing value of exactly one case, so a
-     * listener that kept comparing `$event->reason->value` to a constant
-     * keeps matching until the constants are removed in 0.4.0. One
-     * direction only — a case added before then needs no constant, which
-     * would be born deprecated.
+     * The deprecation window closed. The five REASON_* constants the
+     * event carried before Milestone 8 were deprecated in 0.3.0 for
+     * removal in 0.4.0 and removed in 0.5.0; the enum is the only way
+     * to name a reason. A constant reintroduced here would be born
+     * deprecated, so none may come back.
      */
-    public function test_every_deprecated_constant_is_the_value_of_exactly_one_case(): void
+    public function test_the_deprecated_constants_are_gone(): void
     {
         $constants = (new ReflectionClass(WorkflowExecutionRetryScheduled::class))->getConstants();
-        $constants = array_filter($constants, fn (string $name): bool => str_starts_with($name, 'REASON_'), ARRAY_FILTER_USE_KEY);
 
-        $this->assertCount(5, $constants, 'The five pre-Milestone 8 constants are the deprecation window.');
+        $this->assertSame(
+            [],
+            array_keys(array_filter($constants, fn (string $name): bool => str_starts_with($name, 'REASON_'), ARRAY_FILTER_USE_KEY)),
+            'The REASON_* constants were removed in 0.5.0; RecoveryReason is the only way to name a reason.',
+        );
+    }
 
-        foreach ($constants as $name => $value) {
-            $this->assertInstanceOf(RecoveryReason::class, RecoveryReason::tryFrom($value), "{$name} no longer matches a case.");
+    /**
+     * What the removal was safe against: every string the constants
+     * carried is still the backing value of exactly one case, so a
+     * listener that compared `$event->reason->value` to the literal
+     * keeps matching. Only the constants went.
+     */
+    public function test_every_string_the_constants_carried_is_still_a_case(): void
+    {
+        foreach (['stale_claim', 'never_dispatched', 'retry_due', 'step_timeout', 'wait_due'] as $value) {
+            $this->assertInstanceOf(RecoveryReason::class, RecoveryReason::tryFrom($value), "'{$value}' no longer matches a case.");
         }
     }
 
