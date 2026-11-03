@@ -115,7 +115,19 @@ class ParentNotifier
         try {
             $parent = $this->repository->find($child->parentExecutionId ?? 0);
         } catch (ExecutionNotFoundException) {
-            return $childSignal;
+            // Pruned. Nothing to tell, and nothing to say about it.
+            return [null, []];
+        }
+
+        // A parent that is not parked cannot receive a signal: it has
+        // not parked yet (the race the heartbeat heals), or it is
+        // cancelled, or it finished without us. Asking anyway costs a
+        // refusal and a log line — per member, and a group may be a
+        // thousand wide, so cancelling one would be a thousand lines
+        // and three thousand queries. The heartbeat covers every case
+        // this skips.
+        if (! $parent->isWaiting()) {
+            return [null, []];
         }
 
         $stepRow = null;
