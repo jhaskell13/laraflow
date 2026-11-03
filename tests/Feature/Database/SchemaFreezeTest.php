@@ -54,6 +54,16 @@ class SchemaFreezeTest extends TestCase
             'created_at', 'error_class', 'id', 'key', 'settled_at', 'started_at', 'status',
             'step_position', 'updated_at', 'value', 'workflow_execution_id',
         ],
+        'laraflow_schedules' => [
+            'created_at', 'cron', 'declared_at', 'id', 'last_tick_at',
+            'missed_tick_policy', 'paused_at', 'tenant_id', 'timezone',
+            'updated_at', 'version', 'without_overlapping', 'workflow',
+        ],
+        'laraflow_schedule_ticks' => [
+            'created_at', 'id', 'missed', 'missed_from', 'outcome',
+            'overlapped_execution_id', 'schedule_id', 'tick_at',
+            'workflow_execution_id',
+        ],
     ];
 
     /**
@@ -92,6 +102,16 @@ class SchemaFreezeTest extends TestCase
             ['id'],
             ['workflow_execution_id', 'step_position', 'key'],
         ],
+        'laraflow_schedules' => [
+            ['id'],
+            ['workflow'],
+        ],
+        'laraflow_schedule_ticks' => [
+            ['created_at'],
+            ['id'],
+            ['schedule_id', 'tick_at'],
+            ['workflow_execution_id'],
+        ],
     ];
 
     private const EXPLANATION = 'The shipped migrations are frozen: an installed application must be able '
@@ -119,6 +139,8 @@ class SchemaFreezeTest extends TestCase
         '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => 'e46ed7c81eae3ab357d97f509ab5832deb859caa5322373180c0b8463372df15',
         '2026_11_02_000000_add_join_index_to_laraflow_workflow_executions.php' => '4350920429f896d783ad80b8f8327a847940de5e4731e04a7edd38f3d2ca788a',
         '2026_11_02_000001_add_compensation_link_to_laraflow_step_executions.php' => '8fe8ffa21720edfd96285be64bba807022f7967a6a2a409d3747a1406a15c707',
+        '2026_11_03_000000_create_laraflow_schedules_table.php' => '5bd71e00353881c7bfa628b22ea347d796e74c15452048b494c01971647503da',
+        '2026_11_03_000001_create_laraflow_schedule_ticks_table.php' => '3f836914fcea61aa9bee7a0ba783922da00c67b2ecac489baedb2066c529ae7c',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void
@@ -170,8 +192,8 @@ class SchemaFreezeTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "[{$table}] is missing. ".self::EXPLANATION);
         }
 
-        // A fifth Laraflow table is a schema change like any other, and
-        // the queue tables this suite creates are Laravel's, not ours.
+        // A seventh Laraflow table is a schema change like any other,
+        // and the queue tables this suite creates are Laravel's, not ours.
         $laraflow = collect(Schema::getTableListing())
             // SQL Server reports tables schema-qualified (dbo.foo).
             ->map(fn (string $table): string => (string) (strrchr($table, '.') ?: '.'.$table))

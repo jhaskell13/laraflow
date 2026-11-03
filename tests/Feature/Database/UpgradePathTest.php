@@ -112,20 +112,22 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7, 8, and 9 migrations, exercised the way an
-        // installed application meets them: rows written under the
+        // The Milestone 7, 8, 9, and 10 migrations, exercised the way
+        // an installed application meets them: rows written under the
         // frozen schema, then the new migrations applied — simulated by
         // rolling them back first, since the harness installs every
         // migration up front. One rollback step per post-freeze
-        // migration — nine.
+        // migration — eleven.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 9, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 11, '--force' => true])->assertSuccessful();
 
+        $this->assertFalse(Schema::hasTable('laraflow_schedule_ticks'));
+        $this->assertFalse(Schema::hasTable('laraflow_schedules'));
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
         $this->assertNotContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
@@ -150,6 +152,8 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasTable('laraflow_idempotency_keys'));
         $this->assertContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index is back.');
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
+        $this->assertTrue(Schema::hasTable('laraflow_schedules'));
+        $this->assertTrue(Schema::hasTable('laraflow_schedule_ticks'));
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so
