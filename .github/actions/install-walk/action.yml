@@ -149,6 +149,133 @@ runs:
     # with. Proved here against a real application over real HTTP,
     # because "no route is registered" and "production denies everyone"
     # are exactly the things a unit test can assert about a fiction.
+    # Milestone 9's two capabilities, in a real application: a step
+    # that fans out to child executions and joins them, and a step that
+    # undoes itself when the workflow fails. Written by hand rather than
+    # generated — there is no make:fan-out — so this also checks the
+    # classes an author writes against the published base and interface.
+    - name: A fan-out runs its members in parallel and joins them
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        mkdir -p app/Workflows/Steps
+        cat > app/Workflows/Steps/NotifyEach.php <<'STEP'
+        <?php
+
+        namespace App\Workflows\Steps;
+
+        use App\Workflows\NotifyOne;
+        use Laraflow\Workflow\FanOut;
+        use Laraflow\Workflow\FanOutStep;
+        use Laraflow\Workflow\WorkflowContext;
+
+        class NotifyEach extends FanOutStep
+        {
+            public function members(WorkflowContext $context): iterable
+            {
+                foreach ([1, 2, 3] as $id) {
+                    yield new FanOut(new NotifyOne, ['subscriber_id' => $id]);
+                }
+            }
+        }
+        STEP
+        cat > app/Workflows/NotifyOne.php <<'WF'
+        <?php
+
+        namespace App\Workflows;
+
+        use App\Workflows\Steps\ReserveInventory;
+        use Laraflow\Workflow\Workflow;
+
+        class NotifyOne extends Workflow
+        {
+            public function steps(): array
+            {
+                return [ReserveInventory::class];
+            }
+        }
+        WF
+        php artisan make:workflow Broadcast
+        sed -i 's#^            //$#            \\App\\Workflows\\Steps\\NotifyEach::class,#' app/Workflows/Broadcast.php
+        php -l app/Workflows/Broadcast.php
+        php -l app/Workflows/Steps/NotifyEach.php
+        php -l app/Workflows/NotifyOne.php
+
+        # The skeleton's queue connection is the database, so the
+        # members go to a worker and the parent parks on the join.
+        php artisan laraflow:start Broadcast | tee fanout.log
+        grep -q 'parked the execution on a wait' fanout.log
+        php artisan laraflow:list --status=waiting | grep -q '1 of 1'
+
+        # The worker runs the members; the last to rest signals the
+        # join and asks for the parent, which the same run picks up.
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:list --workflow='App\Workflows\NotifyOne' --status=completed | grep -q '3 of 3'
+        php artisan laraflow:list --workflow='App\Workflows\Broadcast' --status=completed | grep -q '1 of 1'
+
+    - name: A failing workflow undoes the step that completed
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat > app/Workflows/Steps/Book.php <<'STEP'
+        <?php
+
+        namespace App\Workflows\Steps;
+
+        use Laraflow\Workflow\CompensatableStep;
+        use Laraflow\Workflow\Compensation;
+        use Laraflow\Workflow\Step;
+        use Laraflow\Workflow\WorkflowContext;
+
+        class Book implements CompensatableStep, Step
+        {
+            public function handle(WorkflowContext $context): mixed
+            {
+                return ['booking_id' => 'BK-1'];
+            }
+
+            public function compensate(Compensation $compensation): void
+            {
+                file_put_contents(storage_path('undone'), $compensation->output()['booking_id']);
+            }
+        }
+        STEP
+        cat > app/Workflows/Steps/AlwaysFails.php <<'STEP'
+        <?php
+
+        namespace App\Workflows\Steps;
+
+        use Laraflow\Workflow\Step;
+        use Laraflow\Workflow\WorkflowContext;
+
+        class AlwaysFails implements Step
+        {
+            public function handle(WorkflowContext $context): mixed
+            {
+                throw new \RuntimeException('the supplier cancelled');
+            }
+        }
+        STEP
+        php artisan make:workflow BookTrip
+        sed -i 's#^            //$#            \\App\\Workflows\\Steps\\Book::class,\n            \\App\\Workflows\\Steps\\AlwaysFails::class,#' app/Workflows/BookTrip.php
+        php -l app/Workflows/BookTrip.php
+        php -l app/Workflows/Steps/Book.php
+
+        php artisan laraflow:start BookTrip | tee saga.log && exit 1 || test $? -eq 1
+        grep -q 'the supplier cancelled' saga.log
+
+        # The undo ran, with the completed step's own recorded output.
+        test "$(cat storage/undone)" = "BK-1"
+
+        # And the record says what was undone: the id comes from the
+        # recovery hint the failure printed, not from counting rows.
+        SAGA="$(grep -oE 'laraflow:execute [0-9]+' saga.log | head -1 | grep -oE '[0-9]+')"
+        test -n "$SAGA"
+        php artisan laraflow:show "$SAGA" | tee show.log
+        grep -q 'the supplier cancelled' show.log
+        grep -q 'undo' show.log
+        php artisan laraflow:list --workflow='App\Workflows\BookTrip' --status=failed | grep -q '1 of 1'
+
     - name: The dashboard is absent until mounted, and denied by default
       shell: bash
       working-directory: ${{ inputs.app }}
@@ -193,7 +320,17 @@ runs:
         # record of the one that failed and recovered is readable.
         test "$(code http://127.0.0.1:8322/laraflow/executions)" = "200"
         grep -q 'FulfilOrder' /tmp/body.html
-        grep -q '2 of 2' /tmp/body.html
+        # Every workflow the walk ran is listed. Not a total: the
+        # stages before this one decide how many executions exist, and
+        # a count here would break whenever one of them gains a step.
+        grep -q 'Broadcast' /tmp/body.html
+        grep -q 'BookTrip' /tmp/body.html
+
+        # The saga is legible from the browser too: the compensation
+        # row is marked as an undo rather than looking like a repeat.
+        SAGA="$(grep -oE 'laraflow:execute [0-9]+' saga.log | head -1 | grep -oE '[0-9]+')"
+        test "$(code "http://127.0.0.1:8322/laraflow/executions/${SAGA}")" = "200"
+        grep -q 'undoes the step it names' /tmp/body.html
         test "$(code http://127.0.0.1:8322/laraflow/executions/1)" = "200"
         grep -q 'ReserveInventory' /tmp/body.html
         grep -q 'ChargePayment' /tmp/body.html
