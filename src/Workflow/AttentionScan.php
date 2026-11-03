@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
+use Laraflow\Workflow\Scheduling\ScheduledWorkflow;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
+use Laraflow\Workflow\Scheduling\ScheduleStatus;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
  *
  * Finds what needs an operator: retries and waits past due, running
- * steps past their deadline, and the oldest unfinished execution.
+ * steps past their deadline, stalled schedules, and the oldest
+ * unfinished execution.
  * Extracted from laraflow:summary so the dashboard's overview computes
  * the same answer by calling the same code, rather than a second copy
  * that could drift (docs/dashboard.md).
@@ -26,6 +30,7 @@ final class AttentionScan
 {
     public function __construct(
         private readonly ExecutionRepository $repository,
+        private readonly ScheduleRepository $schedules,
     ) {}
 
     public function scan(ExecutionFilter $filter, DateTimeImmutable $now): AttentionReport
@@ -55,6 +60,7 @@ final class AttentionScan
             dueRetries: $dueRetries,
             dueWaits: $dueWaits,
             overdueSteps: $this->overdueSteps($filter, $now),
+            stalledSchedules: $this->stalledSchedules($filter, $now),
             oldestUnfinished: $unfinished->isEmpty() ? null : $unfinished->executions[0],
         );
     }
@@ -104,6 +110,36 @@ final class AttentionScan
         }
 
         return $overdue;
+    }
+
+    /**
+     * Schedules whose due ticks stand unclaimed — the scheduler stopped
+     * running. Scoped like everything else here: a tenant's health
+     * check must not fail for another tenant's schedule. Bounded by how
+     * many schedules exist, which is the registration count, not
+     * history.
+     *
+     * @return list<ScheduledWorkflow>
+     */
+    private function stalledSchedules(ExecutionFilter $filter, DateTimeImmutable $now): array
+    {
+        $stalled = [];
+
+        foreach ($this->schedules->all() as $row) {
+            if ($filter->workflows !== null && ! in_array($row->workflow, $filter->workflows, true)) {
+                continue;
+            }
+
+            if ($filter->tenantId !== null && $row->tenantId !== $filter->tenantId) {
+                continue;
+            }
+
+            if (ScheduleStatus::stalled($row, $now)) {
+                $stalled[] = $row;
+            }
+        }
+
+        return $stalled;
     }
 
     /**

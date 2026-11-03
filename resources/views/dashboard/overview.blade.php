@@ -60,7 +60,7 @@
                 </h2>
 
                 @if (! $report->needsAttention())
-                    <p class="lf-muted">No retries or waits due and no step past its deadline.</p>
+                    <p class="lf-muted">No retries or waits due, no step past its deadline, no schedule stalled.</p>
                 @endif
 
                 @if ($report->dueRetries !== [])
@@ -87,6 +87,17 @@
                         @endforeach
                         @if (count($report->overdueSteps) > 5) and more. @endif
                         Laraflow does not interrupt running PHP; these are bounded by your queue worker timeout.
+                    </div>
+                @endif
+
+                @if ($report->stalledSchedules !== [])
+                    <div class="lf-notice lf-notice--warn">
+                        <strong>{{ count($report->stalledSchedules) }} schedule{{ count($report->stalledSchedules) === 1 ? ' is' : 's are' }} stalled</strong> — due ticks stand unclaimed:
+                        @foreach (array_slice($report->stalledSchedules, 0, 5) as $row)
+                            <span class="lf-mono">{{ class_basename($row->workflow) }}</span>@if (! $loop->last), @endif
+                        @endforeach
+                        @if (count($report->stalledSchedules) > 5) and more. @endif
+                        Is the scheduler running <code>laraflow:schedule</code> every minute?
                     </div>
                 @endif
 

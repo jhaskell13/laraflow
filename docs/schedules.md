@@ -2,7 +2,7 @@
 
 > This document is the design contract for Milestone 10's schedules, written before any of it is built. The enforcing suites will be `tests/Feature/Workflow/ScheduleTest.php` and `tests/Feature/Console/ScheduleCommandsTest.php`, with the three-scheduler race in both and in the install walk. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 >
-> Planned commands are named by verb here and in full in [public-api.md](public-api.md) as each ships; planned configuration keys are written without the `laraflow.` prefix for the same reason — the contracts test holds every full name a document uses to something that exists.
+> The commands and configuration this document names are shipped and held to it by the contracts test; the console rows live in [public-api.md](public-api.md).
 
 ## The problem this solves
 
@@ -82,7 +82,12 @@ The list is the application's statement of what runs in this environment — sta
 
 ## The tick
 
-The scheduler is one command — *schedule*, by verb, named in full when it ships — run every minute by the application's scheduler exactly as the recover command is today: `Schedule::command(…)->everyMinute()`. (`withoutOverlapping()` on that line is harmless but unnecessary: two tick runs racing is the designed case, not a hazard.) One run does the following, per registered schedule, inside the configured limits:
+The scheduler is one command, run every minute by the application's scheduler exactly as the recover command is today:
+
+```php
+Schedule::command('laraflow:schedule')->everyMinute();
+```
+ (`withoutOverlapping()` on that line is harmless but unnecessary: two tick runs racing is the designed case, not a hazard.) One run does the following, per registered schedule, inside the configured limits:
 
 1. **Synchronise** the declaration to its row: cron, timezone, policy, and overlap flag are written from code on every run, so the row is a cache of the class and never the authority. A row with no class behind it is left standing and reported ([Removal and renaming](#removal-and-renaming)).
 2. **Name the due tick.** The tick instant is the cron's most recent instant at or before *now* in the schedule's timezone, expressed in UTC. It is a function of the expression and the clock alone, so every scheduler host that reads the same minute names the same instant — that determinism is what makes the uniqueness guarantee mean anything. A run at `02:00:40` names `02:00:00`; a run at `02:01:00` on a schedule that does not fire at `02:01` names `02:00:00` again, and finds it already taken.
@@ -165,7 +170,7 @@ Two tables, additive, arriving as dated migrations under the freeze and through 
 ## Observability
 
 - **Events.** `WorkflowScheduleTicked` after the commit that claimed a tick and started its execution — schedule, workflow, tick instant, execution id, the `missed` count — and `WorkflowScheduleSkipped` when a tick was claimed and no execution started (overlap), naming the execution that was still running. Identifiers and instants only, as every event carries; the tick's input is the execution's and is never on an event.
-- **The listing** (`schedules`, by verb) prints every registered schedule with its cron, timezone, policy, next due instant, last tick and its outcome, the lag the last tick was claimed with, and whether it is paused or orphaned; `--pause=`, `--resume=`, and `--forget=` take a class name. **It exits non-zero when any schedule is orphaned or stalled** — a live, unpaused schedule whose most recent due instant is more than two intervals behind, which is a scheduler that stopped running — so the same scheduled health check that runs `laraflow:summary` can run it.
+- **The listing**, `laraflow:schedules`, prints every registered schedule with its cron, timezone, policy, next due instant, last tick and its outcome, the lag the last tick was claimed with, and whether it is paused or orphaned; `--pause=`, `--resume=`, and `--forget=` take a class name. **It exits non-zero when any schedule is orphaned or stalled** — a live, unpaused schedule whose most recent due instant is more than two intervals behind, which is a scheduler that stopped running — so the same scheduled health check that runs `laraflow:summary` can run it.
 - **`laraflow:summary`** gains one attention line for the same stalled condition, so an operator looking at the overview sees it without knowing to ask.
 - **`laraflow:show`** and the dashboard's execution page say what started an execution a tick started — the schedule and the tick instant, with the catch-up and missed counts when they apply — read through the schedule repository's origin lookup by execution id. Nothing on the executions table changes to make this possible; the tick row is the record.
 - **The tick run's report** is a table like `laraflow:recover`'s: one row per schedule with what happened — `started`, `caught up ×3`, `skipped (overlap)`, `not due`, `taken (another scheduler)`, `re-dispatched`, `orphaned`, `failed: {message}` — and a summary line. Exit code 1 when any schedule is orphaned or any start failed, including under `--dry-run`, which names the ticks it would claim and claims none.
@@ -184,7 +189,7 @@ Two tables, additive, arriving as dated migrations under the freeze and through 
 
 - `Workflow::schedule(): ?Schedule` is a new optional override returning null; an existing workflow is unchanged. `Schedule` and `MissedTickPolicy` are new public classes; the registry and the schedule repository are new public contracts, the latter bound by interface so an application may replace the persistence exactly as it may replace `ExecutionRepository`.
 - Two new tables and a new retention bound, each arriving in the step that uses it: `prune_ticks_after_days` under `retention`, and a `schedules` configuration section — `enabled`, `workflows`, `max_catch_up`, `catch_up_window`, `redispatch_after`, `limit`.
-- Two new events. Two new commands, named in full in [public-api.md](public-api.md) when they ship, and one new attention line in `laraflow:summary`.
+- Two new events. Two new commands — `laraflow:schedule`, the tick run, and `laraflow:schedules`, the listing with `--pause`, `--resume`, and `--forget` — and one new attention line in `laraflow:summary` (and the dashboard overview it shares its scan with) for the stalled condition.
 - `dragonmantank/cron-expression` becomes a declared dependency ([compatibility.md](compatibility.md)); every Laravel application already has it.
 - Nothing on the executions table changes.
 

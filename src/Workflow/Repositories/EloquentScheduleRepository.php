@@ -145,6 +145,35 @@ class EloquentScheduleRepository implements ScheduleRepository
         return $model === null ? null : $this->tickToDomain($model);
     }
 
+    public function lastTick(int $scheduleId): ?ScheduleTick
+    {
+        $model = ScheduleTickModel::query()
+            ->where('schedule_id', $scheduleId)
+            ->orderByDesc('tick_at')
+            ->first();
+
+        return $model === null ? null : $this->tickToDomain($model);
+    }
+
+    public function tickForExecution(int $executionId): ?ScheduleTick
+    {
+        $model = ScheduleTickModel::query()
+            ->where('workflow_execution_id', $executionId)
+            ->first();
+
+        return $model === null ? null : $this->tickToDomain($model);
+    }
+
+    public function forget(string $workflow): void
+    {
+        $model = $this->modelFor($workflow);
+
+        $this->transaction(function () use ($model): void {
+            ScheduleTickModel::query()->where('schedule_id', $model->id)->delete();
+            ScheduleModel::query()->whereKey($model->id)->delete();
+        });
+    }
+
     public function redispatchCandidates(DateTimeImmutable $before, int $limit): array
     {
         // Executions the scheduler's own ticks started, read through the

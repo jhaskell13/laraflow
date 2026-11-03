@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
+use Laraflow\Workflow\AttentionReport;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
@@ -18,9 +19,10 @@ use Psr\Clock\ClockInterface;
  * @experimental Console tooling is still evolving; see docs/public-api.md.
  *
  * One screen answering "is anything wrong right now?": how many
- * executions are in each status for a given scope, and the three
- * conditions that warrant a look — retries that are due, steps past
- * their deadline, and the oldest execution still unfinished.
+ * executions are in each status for a given scope, and the conditions
+ * that warrant a look — retries and waits that are due, steps past
+ * their deadline, stalled schedules, and the oldest execution still
+ * unfinished.
  *
  * Deliberately not a per-workflow breakdown. That needs a GROUP BY,
  * which the repository contract does not expose and should not gain for
@@ -52,8 +54,13 @@ class SummaryCommand extends Command
         }
 
         $total = $repository->count($filter);
+        $report = $scan->scan($filter, $clock->now());
 
-        if ($total === 0) {
+        // An empty table is only quiet when nothing else is wrong: a
+        // stalled schedule with no executions yet is exactly the state
+        // a dead scheduler leaves, and the one this check must not
+        // sleep through.
+        if ($total === 0 && ! $report->needsAttention()) {
             $this->components->info(
                 $filter->isEmpty()
                     ? 'No executions found. Try: laraflow:demo'
@@ -63,9 +70,11 @@ class SummaryCommand extends Command
             return self::SUCCESS;
         }
 
-        $this->displayCounts($repository, $filter, $total);
+        if ($total > 0) {
+            $this->displayCounts($repository, $filter, $total);
+        }
 
-        return $this->displayAttention($scan, $filter, $clock);
+        return $this->displayAttention($report);
     }
 
     /**
@@ -97,18 +106,13 @@ class SummaryCommand extends Command
     }
 
     /**
-     * The four conditions worth an operator's attention, found by the
-     * same scan the dashboard's overview runs. Exits non-zero when any
-     * is present, so this command can be used as a health check by a
+     * The conditions worth an operator's attention, found by the same
+     * scan the dashboard's overview runs. Exits non-zero when any is
+     * present, so this command can be used as a health check by a
      * scheduler or a deploy gate.
      */
-    protected function displayAttention(
-        AttentionScan $scan,
-        ExecutionFilter $filter,
-        ClockInterface $clock,
-    ): int {
-        $report = $scan->scan($filter, $clock->now());
-
+    protected function displayAttention(AttentionReport $report): int
+    {
         if ($report->dueRetries !== []) {
             $oldest = $report->dueRetries[0];
 
@@ -145,6 +149,19 @@ class SummaryCommand extends Command
             ));
         }
 
+        if ($report->stalledSchedules !== []) {
+            $this->components->warn(sprintf(
+                '%d schedule%s stalled — due ticks stand unclaimed: %s. '
+                .'Is the scheduler running laraflow:schedule every minute? Inspect with: laraflow:schedules',
+                count($report->stalledSchedules),
+                count($report->stalledSchedules) === 1 ? ' is' : 's are',
+                implode(', ', array_map(
+                    fn ($row): string => class_basename($row->workflow),
+                    array_slice($report->stalledSchedules, 0, 5),
+                )),
+            ));
+        }
+
         if ($report->oldestUnfinished !== null) {
             $this->components->info(sprintf(
                 'Oldest unfinished execution: [%s] %s, created %s.',
@@ -155,7 +172,7 @@ class SummaryCommand extends Command
         }
 
         if (! $report->needsAttention()) {
-            $this->components->info('Nothing needs attention: no retries or waits due and no step past its deadline.');
+            $this->components->info('Nothing needs attention: no retries or waits due, no step past its deadline, no schedule stalled.');
         }
 
         $this->newLine();

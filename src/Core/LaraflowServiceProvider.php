@@ -23,6 +23,8 @@ use Laraflow\Console\InstallCommand;
 use Laraflow\Console\ListCommand;
 use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
+use Laraflow\Console\ScheduleCommand;
+use Laraflow\Console\SchedulesCommand;
 use Laraflow\Console\ShowCommand;
 use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
@@ -279,6 +281,7 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->app->singleton(AttentionScan::class, fn (Container $app): AttentionScan => new AttentionScan(
             repository: $app->make(ExecutionRepository::class),
+            schedules: $app->make(ScheduleRepository::class),
         ));
 
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
@@ -400,6 +403,8 @@ class LaraflowServiceProvider extends ServiceProvider
             MakeWorkflowCommand::class,
             PruneCommand::class,
             RecoverCommand::class,
+            ScheduleCommand::class,
+            SchedulesCommand::class,
             ShowCommand::class,
             StartCommand::class,
             SummaryCommand::class,

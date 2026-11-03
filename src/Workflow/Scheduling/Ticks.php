@@ -41,6 +41,24 @@ final class Ticks
     }
 
     /**
+     * The expression's first instant strictly after $after, or null when
+     * the library's search horizon finds none — an expression whose next
+     * match is years away.
+     */
+    public static function nextAfter(string $expression, string $timezone, DateTimeImmutable $after): ?DateTimeImmutable
+    {
+        $local = DateTime::createFromImmutable($after->setTimezone(new DateTimeZone($timezone)));
+
+        try {
+            $next = (new CronExpression($expression))->getNextRunDate($local, 0, false, $timezone);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        return DateTimeImmutable::createFromMutable($next)->setTimezone(new DateTimeZone('UTC'));
+    }
+
+    /**
      * The expression's instants strictly after $after and at or before
      * $until, oldest first, at most $cap of them — the gap a scheduler
      * came back to.

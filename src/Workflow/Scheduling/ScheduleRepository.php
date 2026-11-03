@@ -79,6 +79,29 @@ interface ScheduleRepository
     public function lastFiredTick(int $scheduleId): ?ScheduleTick;
 
     /**
+     * The most recent tick of $scheduleId, whatever became of it — what
+     * the listing shows beside the schedule.
+     */
+    public function lastTick(int $scheduleId): ?ScheduleTick;
+
+    /**
+     * The tick that started $executionId, or null when nothing did —
+     * the origin lookup behind the show command and the dashboard's
+     * execution page. One indexed read.
+     */
+    public function tickForExecution(int $executionId): ?ScheduleTick;
+
+    /**
+     * Delete a schedule row and its tick history — an operator's
+     * decision about an orphan, never the package's. Explicit deletes,
+     * not cascades, in one transaction; executions the ticks started
+     * are untouched, as ever.
+     *
+     * @throws ScheduleNotFoundException
+     */
+    public function forget(string $workflow): void;
+
+    /**
      * Executions started by ticks that are still `pending` after the
      * cutoff — never dispatched, or dispatched before it and never
      * claimed — oldest first. A scheduled execution is never work the

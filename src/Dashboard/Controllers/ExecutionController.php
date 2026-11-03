@@ -20,6 +20,7 @@ use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\IdempotencyStore;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
@@ -52,6 +53,7 @@ final class ExecutionController
     public function __construct(
         private readonly ExecutionRepository $repository,
         private readonly IdempotencyStore $idempotency,
+        private readonly ScheduleRepository $schedules,
         private readonly ViewFactory $views,
         private readonly Config $config,
         private readonly ClockInterface $clock,
@@ -126,6 +128,7 @@ final class ExecutionController
 
         return $this->views->make('laraflow::dashboard.executions.show', [
             'execution' => $execution,
+            'tick' => $this->schedules->tickForExecution($execution->id),
             'steps' => $steps,
             'attempts' => $this->repository->attemptHistory($execution),
             'stepNames' => $names,

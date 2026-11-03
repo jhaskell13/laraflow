@@ -12,6 +12,8 @@ use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\IdempotencyStatus;
 use Laraflow\Workflow\IdempotencyStore;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
+use Laraflow\Workflow\Scheduling\TickOutcome;
 use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -29,7 +31,7 @@ class ShowCommand extends Command
 
     protected $description = 'Inspect a workflow execution and its steps';
 
-    public function handle(ExecutionRepository $repository, IdempotencyStore $idempotency): int
+    public function handle(ExecutionRepository $repository, IdempotencyStore $idempotency, ScheduleRepository $schedules): int
     {
         try {
             $id = $this->executionIdArgument();
@@ -55,6 +57,19 @@ class ShowCommand extends Command
             $this->components->twoColumnDetail(
                 '<fg=gray>Parent</>',
                 "execution {$execution->parentExecutionId} (this is a sub-workflow)",
+            );
+            $this->newLine();
+        }
+
+        if (($tick = $schedules->tickForExecution($execution->id)) !== null) {
+            $this->components->twoColumnDetail(
+                '<fg=gray>Started by</>',
+                sprintf(
+                    'schedule tick %s UTC%s%s',
+                    $tick->tickAt->format('Y-m-d H:i'),
+                    $tick->outcome === TickOutcome::CaughtUp ? ' (caught up)' : '',
+                    $tick->missed > 0 ? " ({$tick->missed} missed before it)" : '',
+                ),
             );
             $this->newLine();
         }
