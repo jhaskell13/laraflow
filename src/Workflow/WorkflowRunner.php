@@ -19,6 +19,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidSignalException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
 use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
@@ -223,6 +224,7 @@ class WorkflowRunner
      * @throws InvalidSignalException for an empty, over-long, or reserved name.
      * @throws SignalRefusedException when the execution is not waiting on this signal.
      * @throws UnserializableValueException if the payload is not JSON-serializable.
+     * @throws PayloadTooLargeException if the payload exceeds execution.max_payload_bytes.
      */
     public function signal(int $executionId, string $signal, array $payload = []): WorkflowExecution
     {

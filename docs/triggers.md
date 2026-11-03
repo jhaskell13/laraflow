@@ -2,7 +2,7 @@
 
 > This document is the design contract for Milestone 10's triggers, written before any of it is built. The enforcing suites will be `tests/Feature/Triggers/`, and the install walk will drive the endpoint over real HTTP. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 >
-> Planned commands are named by verb here and in full in [public-api.md](public-api.md) as each ships; planned configuration keys are written without the `laraflow.` prefix for the same reason.
+> The configuration this document names is shipped and held to it by the contracts test. The one command it mentions, the console form of a signal, ships with the operator ergonomics and is named by verb until then.
 
 ## The problem this solves
 
@@ -144,7 +144,23 @@ $headers = TriggerSignature::sign(executionId: 42, signal: 'manager-approval', b
 // ['X-Laraflow-Timestamp' => '1762159200', 'X-Laraflow-Signature' => 'v1=…']
 ```
 
-It reads the current key from configuration and the time from Laraflow's clock. The same class is what the endpoint verifies with, so the two cannot drift. For a signer that is not PHP, the scheme is three lines of any language with an HMAC, and the documentation that ships with the step gives the `openssl` recipe the install walk uses.
+It reads the current key from configuration and the time from Laraflow's clock. The same class is what the endpoint verifies with, so the two cannot drift. For a signer that is not PHP, the scheme is three lines of any language with an HMAC — this is the `openssl` recipe the install walk uses:
+
+```bash
+TS=$(date +%s)
+BODY='{"approved_by":"ops@example.com"}'
+HASH=$(printf '%s' "$BODY" | sha256sum | cut -d' ' -f1)
+SIG=$(printf 'v1\n%s\n%s\n%s\n%s' "$TS" "$EXECUTION_ID" "manager-approval" "$HASH" \
+      | openssl dgst -sha256 -hmac "$LARAFLOW_TRIGGERS_KEY" | awk '{print $NF}')
+
+curl -X POST "https://app.example.com/laraflow/triggers/executions/$EXECUTION_ID/signals/manager-approval" \
+     -H 'Content-Type: application/json' \
+     -H "X-Laraflow-Timestamp: $TS" \
+     -H "X-Laraflow-Signature: v1=$SIG" \
+     --data "$BODY"
+```
+
+During a rotation, `LARAFLOW_TRIGGERS_PREVIOUS_KEYS` takes the old keys comma-separated, so a rotation needs no published configuration file.
 
 An approval **page** is the application's. Laraflow does not serve one, and does not accept a signal by `GET`: a link in an email that changes the state of a workflow when a mail client prefetches it is a bug the web learned about long ago. The pattern is a page the application renders that posts to the signed endpoint — or, more simply, a controller action of the application's own that calls `signal()` directly, which has always been available and still is. Triggers exist for the caller that is *not* the application: the provider, the relay, the other service.
 
@@ -160,7 +176,7 @@ An approval **page** is the application's. Laraflow does not serve one, and does
 - **Not an inbox.** Inbound requests are not stored, replayed, or listed. The signal they deliver is durable; the request is not, and a webhook archive is an application concern with its own retention.
 - **Not a webhook router.** A named trigger resolves to one `SignalIntent` or nothing. An event that should do three things is a workflow, and the trigger signals the step that starts it.
 - **Not a way to start a workflow.** Triggers deliver signals to executions that are waiting. Starting one from an inbound request is the application's `start()` or `dispatch()` call in a controller of its own, where the application decides the input.
-- **Not a `GET`.** State changes on a `GET` are refused as a route that does not exist.
+- **Not a `GET`.** The routes exist for `POST` alone; a `GET` to either path is `405 Method Not Allowed`, the router's own answer, and changes nothing.
 
 ## Compatibility notes
 

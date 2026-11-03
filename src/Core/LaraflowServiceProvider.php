@@ -47,6 +47,8 @@ use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
 use Laraflow\Support\SystemSleeper;
+use Laraflow\Triggers\TriggerRegistry;
+use Laraflow\Triggers\TriggerReporter;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
@@ -311,6 +313,16 @@ class LaraflowServiceProvider extends ServiceProvider
             clock: $app->make(ClockInterface::class),
             logger: $app->make(LoggerInterface::class),
             options: $app->make(SchedulerOptions::class),
+        ));
+
+        // Triggers: the registry of named endpoints lives on the container
+        // so it belongs to one application instance; the reporter is the
+        // one place a trigger's outcome is logged and announced.
+        $this->app->singleton(TriggerRegistry::class);
+
+        $this->app->singleton(TriggerReporter::class, fn (Container $app): TriggerReporter => new TriggerReporter(
+            $app->make(EventEmitter::class),
+            $app->make(LoggerInterface::class),
         ));
 
         $this->app->singleton(RecoveryService::class, fn (Container $app): RecoveryService => new RecoveryService(

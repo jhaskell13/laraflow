@@ -554,6 +554,45 @@ return [
         'refresh' => env('LARAFLOW_DASHBOARD_REFRESH', 10),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Triggers
+    |--------------------------------------------------------------------------
+    |
+    | Signals over HTTP, off unless the application mounts them by calling
+    | Laraflow\Triggers\Triggers::routes(); these are the defaults it
+    | mounts with. Every request to the signed endpoint is verified
+    | against `key` — HMAC-SHA256 over the timestamp, execution id,
+    | signal, and body — before anything is read, and there is no
+    | environment bypass. Mounting with no key refuses at the mount.
+    | See docs/triggers.md.
+    |
+    */
+
+    'triggers' => [
+        // Where the endpoints answer once mounted.
+        'path' => env('LARAFLOW_TRIGGERS_PATH', 'laraflow/triggers'),
+
+        // The middleware every trigger route runs through. `api` carries
+        // no session — the signature is the whole identity — and is where
+        // an application puts a rate limit (`throttle:…`) for these.
+        'middleware' => ['api'],
+
+        // The shared secret the signed endpoint verifies against. At
+        // least 32 bytes; `openssl rand -hex 32`. From the environment,
+        // never a committed file.
+        'key' => env('LARAFLOW_TRIGGERS_KEY'),
+
+        // Keys still accepted during a rotation: set the new key above,
+        // list the old one here (comma-separated in the environment),
+        // remove it once every signer has moved.
+        'previous_keys' => array_values(array_filter(array_map('trim', explode(',', (string) env('LARAFLOW_TRIGGERS_PREVIOUS_KEYS', ''))))),
+
+        // Seconds a request's timestamp may differ from this server's
+        // clock, either way, before it is refused as stale.
+        'tolerance' => env('LARAFLOW_TRIGGERS_TOLERANCE', 300),
+    ],
+
     'integrations' => [
         'github' => [
             'connector' => Laraflow\Integration\Github\GithubConnector::class,

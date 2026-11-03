@@ -1,0 +1,184 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Laraflow\Triggers;
+
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use InvalidArgumentException;
+use Laraflow\Exceptions\TriggerRefusedException;
+use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
+use Laraflow\Exceptions\Workflow\InvalidSignalException;
+use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
+use Laraflow\Exceptions\Workflow\SignalRefusedException;
+use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Handoff;
+use Laraflow\Support\JsonObject;
+use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\WorkflowRunner;
+use LogicException;
+use Throwable;
+
+/**
+ * @internal The two trigger endpoints. Both end in deliver(): the same
+ * `signal()` and the same `Handoff` the console and the dashboard use,
+ * answered in the runtime's own words. No privileged path.
+ */
+final class TriggerController
+{
+    public function __construct(
+        private WorkflowRunner $runner,
+        private WorkflowDispatcher $dispatcher,
+        private ExecutionRepository $repository,
+        private TriggerRegistry $registry,
+        private TriggerReporter $reporter,
+        private Container $container,
+    ) {}
+
+    /**
+     * The signed endpoint. VerifyTriggerSignature has already run: the
+     * request is genuine, and this is the first thing that reads the
+     * database.
+     */
+    public function signal(Request $request, int $id, string $signal): JsonResponse
+    {
+        try {
+            $payload = JsonObject::parse($request->getContent(), 'signal payload');
+        } catch (InvalidArgumentException $exception) {
+            return $this->refusal(VerifyTriggerSignature::TRIGGER, $id, $signal, TriggerRefusalReason::InvalidPayload, 422, 'invalid', $exception->getMessage());
+        }
+
+        return $this->deliver(VerifyTriggerSignature::TRIGGER, new SignalIntent($id, $signal, $payload));
+    }
+
+    /**
+     * A named trigger: the provider's verification, the application's
+     * resolution, then the shared path.
+     */
+    public function named(Request $request, string $trigger): JsonResponse
+    {
+        $definition = $this->registry->find($trigger);
+
+        if ($definition === null) {
+            return new JsonResponse([
+                'status' => 'not_found',
+                'trigger' => $trigger,
+                'message' => "No trigger named [{$trigger}] is registered.",
+            ], 404);
+        }
+
+        $verifier = $this->container->make($definition->verifier);
+
+        if (! $verifier instanceof TriggerVerifier) {
+            // The registry checked the class; this checks what the
+            // container bound to it. Misconfiguration is loud.
+            throw new LogicException("The container resolved [{$definition->verifier}] to something that is not a ".TriggerVerifier::class.'.');
+        }
+
+        try {
+            $verifier->verify($request);
+        } catch (TriggerRefusedException $exception) {
+            $this->reporter->refused($trigger, $exception->reason, null, null);
+
+            return new JsonResponse(['status' => 'refused'], 401);
+        }
+
+        try {
+            $intent = ($definition->resolver)($request);
+        } catch (Throwable $exception) {
+            return $this->resolverFailed($trigger, $exception);
+        }
+
+        if ($intent === null) {
+            return new JsonResponse(['status' => 'ignored', 'trigger' => $trigger], 200);
+        }
+
+        if (! $intent instanceof SignalIntent) {
+            return $this->resolverFailed($trigger, new LogicException(
+                'A trigger resolver must return a '.SignalIntent::class.' or null, got '.get_debug_type($intent).'.'
+            ));
+        }
+
+        return $this->deliver($trigger, $intent);
+    }
+
+    /**
+     * Record the signal and attempt delivery — the dashboard's signal
+     * action, answered as JSON. Existence is checked explicitly so an
+     * unknown execution is `404` rather than the `409` the signal
+     * primitive would give it, and checked only here, after
+     * verification, so an unsigned caller cannot enumerate.
+     */
+    private function deliver(string $trigger, SignalIntent $intent): JsonResponse
+    {
+        try {
+            $this->repository->find($intent->executionId);
+            $execution = $this->runner->signal($intent->executionId, $intent->signal, $intent->payload);
+        } catch (ExecutionNotFoundException $exception) {
+            return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::UnknownExecution, 404, 'not_found', $exception->getMessage());
+        } catch (SignalRefusedException $exception) {
+            return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::NotWaiting, 409, 'not_waiting', $exception->getMessage());
+        } catch (PayloadTooLargeException $exception) {
+            return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::TooLarge, 413, 'too_large', $exception->getMessage());
+        } catch (InvalidSignalException|UnserializableValueException $exception) {
+            return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::InvalidPayload, 422, 'invalid', $exception->getMessage());
+        }
+
+        $this->reporter->accepted($trigger, $execution->id, $intent->signal);
+
+        $handoff = Handoff::attempt($this->dispatcher, $this->repository, $execution);
+
+        [$delivery, $message] = match ($handoff->outcome) {
+            Handoff::QUEUED => ['queued', null],
+            Handoff::RAN, Handoff::STEP_FAILED => ['ran', $handoff->ok ? null : $handoff->message],
+            // Refused or the push failed: recorded, and laraflow:recover
+            // is the contractual delivery.
+            default => ['pending', $handoff->message],
+        };
+
+        $body = [
+            'status' => 'recorded',
+            'trigger' => $trigger,
+            'execution' => $execution->id,
+            'signal' => $intent->signal,
+            'delivery' => $delivery,
+        ];
+
+        if ($delivery === 'ran') {
+            $body['execution_status'] = $handoff->execution->status->value;
+        }
+
+        if ($message !== null) {
+            $body['message'] = $message;
+        }
+
+        return new JsonResponse($body, 202);
+    }
+
+    private function refusal(string $trigger, int $executionId, string $signal, TriggerRefusalReason $reason, int $status, string $label, string $message): JsonResponse
+    {
+        $this->reporter->refused($trigger, $reason, $executionId, $signal);
+
+        return new JsonResponse([
+            'status' => $label,
+            'trigger' => $trigger,
+            'execution' => $executionId,
+            'signal' => $signal,
+            'message' => $message,
+        ], $status);
+    }
+
+    private function resolverFailed(string $trigger, Throwable $exception): JsonResponse
+    {
+        $this->reporter->resolverFailed($trigger, $exception);
+
+        return new JsonResponse([
+            'status' => 'error',
+            'trigger' => $trigger,
+            'message' => 'The trigger\'s resolver failed; the application log has the exception class.',
+        ], 500);
+    }
+}
