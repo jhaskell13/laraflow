@@ -179,14 +179,10 @@ class WorkflowExecution
     }
 
     /**
-     * Cancellation is terminal and valid from every non-terminal state.
-     * A `running` execution reaches here cooperatively: the owning
-     * worker notices the request at a step boundary and transitions.
-     */
-    /**
      * The execution failed terminally and is undoing what completed.
      * Reached from Running — the claim that ran the failing step keeps
-     * it — and left only by markFailed() when the pass is over.
+     * it — and left only by markFailed() when the pass is over, or by
+     * markRetrying() when an undo is scheduled to be tried again.
      */
     public function markCompensating(string $error, string $errorClass): void
     {
@@ -208,6 +204,11 @@ class WorkflowExecution
         return $this->status === ExecutionStatus::Compensating;
     }
 
+    /**
+     * Cancellation is terminal and valid from every non-terminal state.
+     * A `running` execution reaches here cooperatively: the owning
+     * worker notices the request at a step boundary and transitions.
+     */
     public function markCancelled(DateTimeImmutable $at, ?string $reason = null): void
     {
         $this->assertTransition(ExecutionStatus::Cancelled, [

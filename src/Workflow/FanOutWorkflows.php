@@ -65,7 +65,7 @@ class FanOutWorkflows
             throw new LogicException('FanOutStep ran outside a workflow execution.');
         }
 
-        $group = new FanOutGroup($this->repository, $parent, $stepRow);
+        $group = new FanOutGroup($this->repository, $parent, $stepRow, $step->joinPolicy());
         $progress = $group->progress();
         $declared = $this->declaration($stepRow);
 
@@ -79,6 +79,15 @@ class FanOutWorkflows
             }
 
             $declared = $this->declare($context, $step, $parent, $stepRow);
+        }
+
+        if ($declared === []) {
+            // A fan-out over an empty collection — "notify every
+            // subscriber", with none — is done, not broken. Parking on
+            // a join with no members would wait a whole heartbeat and
+            // then fail blaming retention for members that never
+            // existed, which is a wrong diagnosis of an ordinary day.
+            return ['total' => 0, 'completed' => 0, 'members' => []];
         }
 
         // Create the remainder, delivering each as it exists. Every
@@ -135,13 +144,15 @@ class FanOutWorkflows
                 members: count($declared),
                 // A sample, not a census: the event is a notification,
                 // and a thousand ids on one is a payload.
-                memberIds: $group->memberIds(100),
+                memberIds: $group->memberIds(FanOutGroup::IDS_IN_SUMMARY),
             ));
-        } elseif ($created > 0) {
-            // A retry of the step: the members exist, and the ones that
-            // did not complete — and can be resumed — are handed back to
-            // a worker. A failed member resumes from its own checkpoints,
-            // the package's ordinary recovery path.
+        } else {
+            // Every member already existed, so this is a retry of the
+            // step — the empty group returned above, so there is at
+            // least one. The members that did not complete, and can be
+            // resumed, are handed back to a worker; a failed member
+            // resumes from its own checkpoints, the package's ordinary
+            // recovery path.
             $group->redeliver($this->delivery, $this->logger);
         }
 

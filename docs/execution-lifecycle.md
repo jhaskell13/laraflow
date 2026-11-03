@@ -29,7 +29,11 @@ running ──→ retrying ──→ running    (scheduled retry, once next_retr
 running ──→ waiting  ──→ running    (a step's wait: resolved, due, or heartbeat)
 running ──→ running                 (stale reclaim by another worker)
 
-pending | running | failed | retrying | waiting ──→ cancelled   (terminal)
+running ──→ compensating ──→ failed (a terminal failure with steps to undo)
+compensating ──→ retrying ──→ compensating   (an undo's own retry)
+compensating ──→ compensating       (stale reclaim: the pass resumes)
+
+pending | running | failed | retrying | waiting | compensating ──→ cancelled   (terminal)
 ```
 
 ### Step
@@ -70,7 +74,7 @@ A workflow that declares a `version()` and a matching plan migration carries its
 
 `execute()` claims the execution with a single compare-and-set `UPDATE`:
 
-- Claimable: status `pending`, `failed`, `retrying` whose `next_retry_at` is due (or with the `ignoreRetrySchedule` override), `waiting` whose `next_retry_at` is non-null and due — a null instant is an indefinite signal wait, claimable only once a signal sets one (or under the override) — or `running` with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds). `completed` and `cancelled` are terminal and never claimable.
+- Claimable: status `pending`, `failed`, `retrying` whose `next_retry_at` is due (or with the `ignoreRetrySchedule` override), `waiting` whose `next_retry_at` is non-null and due — a null instant is an indefinite signal wait, claimable only once a signal sets one (or under the override) — or `running` **or `compensating`** with `claimed_at` older than the configured `laraflow.execution.stale_after` (default 300 seconds). A compensating execution is claimed work like a running one: the undo pass runs under a claim, and a worker that dies mid-pass leaves the same stale mark. `completed` and `cancelled` are terminal and never claimable.
 - The update sets `status = running`, a random 32-hex-char `claim_token`, `claimed_at = now`, and clears `next_retry_at`.
 - Zero affected rows means the claim failed; the repository then reports *why*: `ExecutionNotFoundException`, `ExecutionAlreadyClaimedException` (fresh claim held elsewhere), `RetryNotDueException` (retrying, but not yet due), `ExecutionStillWaitingException` (parked on a wait that is not due — indefinitely, for an unsignalled signal wait), or `ExecutionNotRunnableException` (terminal status).
 
@@ -182,6 +186,8 @@ If persisting the failure *itself* fails (storage down), the storage exception i
 | `waiting`, due (timed resume, signal delivered, deadline, or heartbeat) | Claims it and resolves the wait: completes the step, charges the timeout, or parks again. |
 | `waiting`, not due or indefinite | `ExecutionStillWaitingException` (`--now` resumes a timed wait early; a signal wait has nothing to resume with and parks again). |
 | `running`, fresh claim | `ExecutionAlreadyClaimedException`. |
+| `compensating`, stale claim | Reclaims and **resumes the compensation pass** rather than the plan: the plan is finished with, and what remains is undoing it. Which undos already ran is on the compensation rows. See [advanced-workflows.md](advanced-workflows.md#compensation). |
+| `compensating`, fresh claim | `ExecutionAlreadyClaimedException`, as for `running`. |
 | `running`, stale claim | Reclaims and continues from durable state. An interrupted step past its deadline is charged as a timeout rather than re-run free; see [retry-and-failure-policy.md](retry-and-failure-policy.md#timeouts). |
 | `completed` or `cancelled` execution | `ExecutionNotRunnableException`. |
 | Cancellation requested mid-run | The step in flight finishes and checkpoints; the execution is marked `cancelled` at the next step boundary. |

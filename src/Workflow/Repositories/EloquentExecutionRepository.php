@@ -159,8 +159,18 @@ class EloquentExecutionRepository implements ExecutionRepository
                         }
                     })
                     ->orWhere(function ($query) use ($staleBefore) {
+                        // Compensating is claimed work like running is:
+                        // the pass runs under a claim, and a worker that
+                        // dies mid-undo leaves the same stale mark. The
+                        // stale *scan* has always returned these rows;
+                        // without them here, recovery found them,
+                        // dispatched them, and the claim refused them —
+                        // forever (Milestone 9 audit).
                         $query
-                            ->where('status', ExecutionStatus::Running->value)
+                            ->whereIn('status', [
+                                ExecutionStatus::Running->value,
+                                ExecutionStatus::Compensating->value,
+                            ])
                             ->where(function ($query) use ($staleBefore) {
                                 $query
                                     ->whereNull('claimed_at')
@@ -439,7 +449,13 @@ class EloquentExecutionRepository implements ExecutionRepository
                 if ($staleBefore !== null) {
                     $query->orWhere(function ($query) use ($staleBefore) {
                         $query
-                            ->where('status', ExecutionStatus::Running->value)
+                            // Compensating is claimed work, and an
+                            // abandoned pass must be cancellable by an
+                            // operator like an abandoned run is.
+                            ->whereIn('status', [
+                                ExecutionStatus::Running->value,
+                                ExecutionStatus::Compensating->value,
+                            ])
                             ->where(function ($query) use ($staleBefore) {
                                 $query
                                     ->whereNull('claimed_at')
@@ -470,7 +486,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         // boundary rather than rewriting state underneath it.
         $requested = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->where('status', ExecutionStatus::Running->value)
+            ->whereIn('status', [ExecutionStatus::Running->value, ExecutionStatus::Compensating->value])
             ->update($this->counted([
                 'cancel_requested_at' => $at,
                 'cancel_reason' => $reason,

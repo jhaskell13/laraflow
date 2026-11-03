@@ -37,6 +37,9 @@ class RefundableStep implements CompensatableStep, HasStepPolicy, Step
     /** The failure message the last compensate() was told. */
     public static ?string $seenFailure = null;
 
+    /** Whether the undo wraps its work in remember(). */
+    public static bool $rememberUndo = false;
+
     public static function reset(): void
     {
         static::$policy = null;
@@ -44,6 +47,7 @@ class RefundableStep implements CompensatableStep, HasStepPolicy, Step
         static::$undone = [];
         static::$failUndoTimes = 0;
         static::$seenFailure = null;
+        static::$rememberUndo = false;
     }
 
     public function stepPolicy(): StepPolicy
@@ -64,6 +68,10 @@ class RefundableStep implements CompensatableStep, HasStepPolicy, Step
             static::$failUndoTimes--;
 
             throw new RuntimeException('the refund gateway is down');
+        }
+
+        if (static::$rememberUndo) {
+            $compensation->context()->remember('refund', fn (): string => 'refunded');
         }
 
         static::$seenFailure = $compensation->failure();

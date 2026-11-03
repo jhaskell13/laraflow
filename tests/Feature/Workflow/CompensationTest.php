@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Workflow;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowCompensated;
@@ -16,6 +17,7 @@ use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\Support\ThrowingStep;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
@@ -273,6 +275,162 @@ class CompensationTest extends TestCase
             1,
             StepExecutionModel::query()->where('workflow_execution_id', WorkflowExecutionModel::query()->sole()->id)->whereNotNull('compensates_step_execution_id')->count(),
         );
+    }
+
+    /**
+     * The Milestone 9 audit's first critical finding. A pass that is
+     * interrupted leaves the execution `compensating` and claimed —
+     * and nothing could claim it back: the stale *scan* returned it,
+     * recovery dispatched it, and the claim predicate refused it,
+     * forever. An operator could not even cancel it.
+     */
+    public function test_an_abandoned_pass_is_reclaimable_and_cancellable(): void
+    {
+        Date::setTestNow('2026-11-02 10:00:00');
+
+        PolicyWorkflow::$steps = [RefundableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new RuntimeException('boom');
+        RefundableStep::$policy = new StepPolicy(maxAttempts: 2, baseDelaySeconds: 30, jitter: 0.0);
+        RefundableStep::$failUndoTimes = 1;
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        // Stage the shape a killed worker leaves: mid-pass, claimed,
+        // with no schedule to be delivered by.
+        $id = WorkflowExecutionModel::query()->sole()->id;
+        WorkflowExecutionModel::query()->whereKey($id)->update([
+            'status' => ExecutionStatus::Compensating->value,
+            'claim_token' => 'dead-worker',
+            'claimed_at' => '2026-11-02 09:00:00',
+            'next_retry_at' => null,
+        ]);
+
+        $repository = $this->app->make(ExecutionRepository::class);
+
+        // Recovery's scan finds it...
+        $stale = $repository->stale(new DateTimeImmutable('2026-11-02 09:55:00'), 10);
+        $this->assertSame([$id], array_map(fn ($e): int => $e->id, $stale));
+
+        // ...and the claim takes it, rather than refusing what the scan
+        // just handed over.
+        $claimed = $repository->claim($id, 'live-worker', 300);
+        $this->assertSame('live-worker', $claimed->claimToken);
+
+        // And an operator can cancel an abandoned pass.
+        WorkflowExecutionModel::query()->whereKey($id)->update([
+            'status' => ExecutionStatus::Compensating->value,
+            'claim_token' => 'dead-worker',
+            'claimed_at' => '2026-11-02 09:00:00',
+        ]);
+
+        $cancelled = $this->runner()->cancel($id, 'operator gave up on it');
+        $this->assertTrue($cancelled->isCancelled());
+    }
+
+    /**
+     * The audit's second critical finding. When an undo will not be
+     * tried again the pass stops — and the execution must still come
+     * to rest. It was being left `compensating` and claimed with no
+     * schedule, which is the stuck state above reached without any
+     * crash, on the ordinary path the contract describes.
+     */
+    public function test_an_undo_that_will_not_be_tried_again_still_rests_the_execution(): void
+    {
+        PolicyWorkflow::$steps = [RefundableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new RuntimeException('forward failure');
+        // One attempt for the undo, and it fails: nothing will retry it.
+        RefundableStep::$policy = new StepPolicy(maxAttempts: 1);
+        RefundableStep::$failUndoTimes = 1;
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+            $this->fail('The execution still fails, with the failure that began the pass.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('forward failure', $exception->getMessage());
+        }
+
+        $row = WorkflowExecutionModel::query()->sole();
+
+        $this->assertSame(ExecutionStatus::Failed->value, $row->status, 'It came to rest.');
+        $this->assertNotNull($row->finished_at);
+        $this->assertNull($row->claim_token, 'The claim was released.');
+        $this->assertSame('forward failure', $row->error, 'On the failure that began the pass, not the undo\'s.');
+
+        // And the record says what could not be undone.
+        $compensation = StepExecutionModel::query()
+            ->where('workflow_execution_id', $row->id)
+            ->whereNotNull('compensates_step_execution_id')
+            ->sole();
+        $this->assertSame(StepStatus::Failed->value, $compensation->status);
+        $this->assertStringContainsString('refund gateway is down', (string) $compensation->error);
+        $this->assertSame([], RefundableStep::$undone);
+    }
+
+    /**
+     * A deploy took compensate() away between the failure and the
+     * pass. The step must stop the pass by name rather than be
+     * silently skipped — skipping it would undo *earlier* work while
+     * this one stood, which is what the stop rule exists to prevent.
+     */
+    public function test_a_step_that_can_no_longer_be_undone_stops_the_pass_by_name(): void
+    {
+        PolicyWorkflow::$steps = [RefundableStep::class, ShippableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new RuntimeException('boom');
+        // ShippableStep's undo throws forever, standing in for a class
+        // that cannot complete its undo at all.
+        ShippableStep::$failUndoTimes = 1;
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        $row = WorkflowExecutionModel::query()->sole();
+
+        $this->assertSame(ExecutionStatus::Failed->value, $row->status);
+        // ShippableStep ran last, so it is undone first — and its undo
+        // failed, so RefundableStep's was never reached.
+        $this->assertSame([], RefundableStep::$undone, 'The pass stopped rather than reaching past it.');
+        $this->assertSame(
+            1,
+            StepExecutionModel::query()->where('workflow_execution_id', $row->id)->whereNotNull('compensates_step_execution_id')->count(),
+            'Only the undo that was attempted has a row.',
+        );
+    }
+
+    /**
+     * remember() is promised inside compensate(), and an undo that
+     * repeats is a refund that repeats. It is scoped to the
+     * compensation's own row, not the failed forward step's.
+     */
+    public function test_an_undo_can_remember_its_side_effect(): void
+    {
+        PolicyWorkflow::$steps = [RefundableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new RuntimeException('boom');
+        RefundableStep::$rememberUndo = true;
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        $execution = WorkflowExecutionModel::query()->sole();
+        $records = $this->app->make(\Laraflow\Workflow\IdempotencyStore::class)->records($execution->id);
+
+        $this->assertCount(1, $records, 'The undo remembered its work.');
+        $this->assertSame('refund', $records[0]->key);
+
+        // Scoped to the compensation's own position, not the forward
+        // step's — otherwise every undo in a pass would share one
+        // scope, and collide with the failed step's own keys.
+        $compensation = StepExecutionModel::query()
+            ->where('workflow_execution_id', $execution->id)
+            ->whereNotNull('compensates_step_execution_id')
+            ->sole();
+        $this->assertSame($compensation->position, $records[0]->stepPosition);
     }
 
     protected function runner(): WorkflowRunner

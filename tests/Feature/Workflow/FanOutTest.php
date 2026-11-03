@@ -248,6 +248,25 @@ class FanOutTest extends TestCase
         );
     }
 
+    public function test_a_fan_out_over_nothing_completes_rather_than_parking(): void
+    {
+        Queue::fake();
+
+        // "Notify every subscriber", with none: an ordinary day, not a
+        // broken group. Parking would wait out a heartbeat and then
+        // fail blaming retention for members that never existed.
+        NotifyMembersStep::$inputs = [];
+
+        $parent = $this->runner()->run(new FanOutWorkflow);
+
+        $this->assertTrue($parent->isCompleted());
+        $this->assertSame(0, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count());
+
+        $output = StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole()->output;
+        $this->assertSame(['total' => 0, 'completed' => 0, 'members' => []], $output);
+        Queue::assertNothingPushed();
+    }
+
     protected function runner(): WorkflowRunner
     {
         return $this->app->make(WorkflowRunner::class);

@@ -19,6 +19,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidSignalException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
@@ -323,7 +324,7 @@ class WorkflowRunner
 
         do {
             $page = $this->repository->list(new ExecutionFilter(
-                status: [ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting],
+                status: [ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting, ExecutionStatus::Compensating],
                 parentId: $parentId,
             ), ExecutionRepository::MAX_PAGE_SIZE, $cursor);
 
@@ -455,7 +456,7 @@ class WorkflowRunner
                 $step = $this->steps->make($stepExecution->step);
                 $policy = $this->policies->forStep($step, $workflow);
             } catch (Throwable $exception) {
-                $this->failDefinition($execution, $stepExecution, $context, $startedAt, $exception);
+                return $this->failDefinition($execution, $workflow, $stepExecution, $context, $startedAt, $exception);
             }
 
             // The condition is consulted at the start of every attempt
@@ -470,7 +471,7 @@ class WorkflowRunner
                 try {
                     $shouldRun = $step->shouldRun($context);
                 } catch (Throwable $exception) {
-                    $this->failDefinition($execution, $stepExecution, $context, $startedAt, $exception);
+                    return $this->failDefinition($execution, $workflow, $stepExecution, $context, $startedAt, $exception);
                 }
 
                 if (! $shouldRun) {
@@ -681,13 +682,23 @@ class WorkflowRunner
         );
 
         // The exception object is gone — the pass may have spanned
-        // claims — but its message was recorded with the status.
-        $failure = new WorkflowException($execution->error ?? 'The execution failed.');
+        // claims — but its message and class were recorded with the
+        // status, and the class must survive being rebuilt or a
+        // resumed pass would rest the execution as a WorkflowException
+        // rather than as what actually failed (Milestone 9 audit).
+        $failure = new RecordedFailure(
+            $execution->error ?? 'The execution failed.',
+            $execution->errorClass ?? WorkflowException::class,
+        );
 
-        if (! $this->compensator->compensate($execution, $workflow, $context, $rows, $failure)) {
+        $outcome = $this->compensator->compensate($execution, $workflow, $context, $rows, $failure);
+
+        if ($outcome === CompensationOutcome::Scheduled) {
             return $this->repository->find($execution->id);
         }
 
+        // Complete or stopped, the execution rests: a pass that cannot
+        // finish still ends, and the rows say how far it got.
         $this->outcomes->failRecorded($execution);
 
         return $execution;
@@ -716,11 +727,24 @@ class WorkflowRunner
         $rows = $this->repository->steps($execution);
 
         if ($this->compensator->hasWork($rows)) {
-            if (! $this->compensator->compensate($execution, $workflow, $context, $rows, $failure)) {
-                // The pass stopped: a compensation's own retries were
-                // exhausted, or it scheduled one. Either way this claim
-                // is finished and the execution's state says which.
+            $outcome = $this->compensator->compensate($execution, $workflow, $context, $rows, $failure);
+
+            if ($outcome === CompensationOutcome::Scheduled) {
+                // An undo is due again later: scheduleRetry released
+                // the claim and the due-retry scan will deliver it.
                 return $this->repository->find($execution->id);
+            }
+
+            if ($outcome === CompensationOutcome::Stopped) {
+                // An undo will not be tried again. The execution must
+                // still come to rest on the failure that began the
+                // pass — it was left claimed and `compensating`, which
+                // nothing could claim and no operator could cancel
+                // (Milestone 9 audit). What was undone and what was
+                // not is on the compensation rows.
+                $this->outcomes->failRecorded($execution);
+
+                throw $failure;
             }
         }
 
@@ -738,18 +762,25 @@ class WorkflowRunner
      */
     protected function failDefinition(
         WorkflowExecution $execution,
+        Workflow $workflow,
         StepExecution $stepExecution,
         WorkflowContext $context,
         DateTimeImmutable $startedAt,
         Throwable $exception,
-    ): never {
+    ): WorkflowExecution {
         if (! $stepExecution->isWaiting()) {
             $this->startStep($execution, $stepExecution, $context, $startedAt, null);
         }
 
-        $this->outcomes->failure($execution, $stepExecution, $exception);
+        // The step's failure, then the same terminal path an ordinary
+        // throw takes — including the compensation pass. A step class
+        // that cannot be built is still a failure the steps before it
+        // should be undone for; routing it past compensation would
+        // have made the undo depend on *how* the workflow broke
+        // (Milestone 9 audit).
+        $this->outcomes->stepFailure($execution, $stepExecution, $exception);
 
-        throw $exception;
+        return $this->failTerminally($execution, $workflow, $context, $exception);
     }
 
     /**

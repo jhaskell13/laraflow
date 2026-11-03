@@ -23,9 +23,6 @@ use Throwable;
  */
 final class FanOutGroup
 {
-    /** How many members that did not complete a failure names. */
-    private const NAMED_IN_FAILURE = 5;
-
     /**
      * How many member ids a completed group's summary carries.
      *
@@ -36,12 +33,16 @@ final class FanOutGroup
      * query per page, which a thousand members made visible and three
      * did not (the Milestone 9 scale test).
      */
-    private const IDS_IN_SUMMARY = 100;
+    public const IDS_IN_SUMMARY = 100;
+
+    /** How many members that did not complete a failure names. */
+    private const NAMED_IN_FAILURE = 5;
 
     public function __construct(
         private readonly ExecutionRepository $repository,
         private readonly WorkflowExecution $parent,
         private readonly StepExecution $stepRow,
+        private readonly JoinPolicy $policy = JoinPolicy::WaitAll,
     ) {}
 
     public function progress(): ChildProgress
@@ -100,28 +101,12 @@ final class FanOutGroup
      */
     public function outcome(ChildProgress $progress): ?array
     {
-        if (! $progress->allFinished()) {
-            return null;
-        }
-
-        if ($progress->allCompleted()) {
-            return [
-                'total' => $progress->total(),
-                'completed' => $progress->completed(),
-                'members' => $this->memberIds(self::IDS_IN_SUMMARY),
-            ];
-        }
-
-        if ($progress->failed() > 0 && $this->staleFailures() !== []) {
-            return null;
-        }
-
-        $notCompleted = array_slice(array_map(
-            fn (WorkflowExecution $member): int => $member->id,
-            $this->members([ExecutionStatus::Failed, ExecutionStatus::Cancelled]),
-        ), 0, self::NAMED_IN_FAILURE);
-
-        throw FanOutFailedException::forOutcome($this->stepRow->step, $this->stepRow->position, $progress, $notCompleted);
+        // Exhaustive over the enum, so a policy added later is a
+        // compile-time obligation here rather than silence: one case
+        // ships, and this is the thing it governs.
+        return match ($this->policy) {
+            JoinPolicy::WaitAll => $this->waitForAll($progress),
+        };
     }
 
     /**
@@ -186,6 +171,37 @@ final class FanOutGroup
         }
 
         return $delivered;
+    }
+
+    /**
+     * @return array{total: int, completed: int, members: list<int>}|null
+     *
+     * @throws FanOutFailedException
+     */
+    private function waitForAll(ChildProgress $progress): ?array
+    {
+        if (! $progress->allFinished()) {
+            return null;
+        }
+
+        if ($progress->allCompleted()) {
+            return [
+                'total' => $progress->total(),
+                'completed' => $progress->completed(),
+                'members' => $this->memberIds(self::IDS_IN_SUMMARY),
+            ];
+        }
+
+        if ($progress->failed() > 0 && $this->staleFailures() !== []) {
+            return null;
+        }
+
+        $notCompleted = array_slice(array_map(
+            fn (WorkflowExecution $member): int => $member->id,
+            $this->members([ExecutionStatus::Failed, ExecutionStatus::Cancelled]),
+        ), 0, self::NAMED_IN_FAILURE);
+
+        throw FanOutFailedException::forOutcome($this->stepRow->step, $this->stepRow->position, $progress, $notCompleted);
     }
 
     /**

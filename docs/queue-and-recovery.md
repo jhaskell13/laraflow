@@ -157,7 +157,7 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 
 | Reason | Criteria | Default |
 |---|---|---|
-| `stale claim` | `running`, with `claimed_at` older than `stale_after` (or null) | Always scanned |
+| `stale claim` | `running` **or `compensating`**, with `claimed_at` older than `stale_after` (or null) | Always scanned |
 | `step timeout` | A stale claim whose interrupted step had also passed its deadline; the recovering worker charges that attempt to the step's retry policy | Always scanned |
 | `retry due` | `retrying`, with `next_retry_at` at or before now | Scanned unless `--skip-retries` |
 | `wait due` | `waiting`, with `next_retry_at` at or before now — a timed resume, a signal deadline, a recorded signal, or a sub-workflow heartbeat | Scanned unless `--skip-retries` |
@@ -243,6 +243,9 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionFailed` | The execution was marked failed. **Terminal only** — never for a scheduled retry. |
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
 | `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
+| `WorkflowFanOutStarted` | A fan-out created and delivered every member it declared and is about to park on the join; carries the group's size and a sample of member ids, never their inputs. |
+| `WorkflowCompensationStarted` | An execution failed terminally and has steps to undo; fired after it is durably `compensating`. |
+| `WorkflowCompensated` | A compensation pass finished — or stopped, in which case `remaining` is non-zero. Fired once per pass *attempt*, so a pass resumed on a later claim fires it again. |
 | `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is a `RecoveryReason` (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
 | `WorkflowPlanMigrated` | A declared plan migration carried the execution to a newer plan version, and the rewrite committed (`fromVersion`, `toVersion`, step count). |
 

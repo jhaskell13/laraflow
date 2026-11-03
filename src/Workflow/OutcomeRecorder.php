@@ -12,6 +12,7 @@ use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
+use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
@@ -373,6 +374,12 @@ class OutcomeRecorder
      */
     public function errorClass(Throwable $exception): string
     {
+        // A failure rebuilt for a resumed compensation pass reports the
+        // class it stands for, so error_class survives the rebuild.
+        if ($exception instanceof RecordedFailure) {
+            return $exception->recordedClass();
+        }
+
         $class = $exception::class;
         $anonymous = strpos($class, '@anonymous');
 

@@ -31,6 +31,14 @@ use Throwable;
  */
 class Compensator
 {
+    /**
+     * Step ids that already have a compensation row, seen while
+     * selecting what is pending.
+     *
+     * @var array<int, true>|null
+     */
+    private ?array $appended = null;
+
     public function __construct(
         private readonly ExecutionRepository $repository,
         private readonly StepResolver $steps,
@@ -75,12 +83,14 @@ class Compensator
     }
 
     /**
-     * Undo what completed, in reverse. Returns true when the pass
-     * finished — every compensation ran — and false when it stopped at
-     * one whose retries were exhausted.
+     * Undo what completed, in reverse.
      *
-     * The execution is left claimed either way: the caller records the
-     * terminal failure, which is what the execution rests as.
+     * Complete when every undo ran; Scheduled when one is due again
+     * later and the claim is already released; Stopped when one will
+     * not be tried again, in which case the caller rests the execution
+     * — the pass does not, because only the caller knows whether it is
+     * the original claim (which throws) or a resumed one (which does
+     * not).
      *
      * @param  StepExecution[]  $steps
      *
@@ -92,11 +102,11 @@ class Compensator
         WorkflowContext $context,
         array $steps,
         Throwable $failure,
-    ): bool {
+    ): CompensationOutcome {
         $pending = $this->pending($steps);
 
         if ($pending === []) {
-            return true;
+            return CompensationOutcome::Complete;
         }
 
         if (! $execution->isCompensating()) {
@@ -113,7 +123,9 @@ class Compensator
         $undone = 0;
 
         foreach ($pending as $completed) {
-            if (! $this->undo($execution, $workflow, $context, $completed, $failure)) {
+            $outcome = $this->undo($execution, $workflow, $context, $completed, $failure);
+
+            if ($outcome !== CompensationOutcome::Complete) {
                 $this->events->emit(new WorkflowCompensated(
                     ...$this->outcomes->identity($execution),
                     undone: $undone,
@@ -121,7 +133,7 @@ class Compensator
                     complete: false,
                 ));
 
-                return false;
+                return $outcome;
             }
 
             $undone++;
@@ -134,7 +146,7 @@ class Compensator
             complete: true,
         ));
 
-        return true;
+        return CompensationOutcome::Complete;
     }
 
     /**
@@ -142,9 +154,9 @@ class Compensator
      * worker that dies inside compensate() leaves evidence that it
      * began, exactly as a step does — then run, then settled.
      *
-     * Returns false when this compensation has failed for the last
-     * time: the pass stops rather than reaching past it to undo
-     * earlier work the failed one may have depended on.
+     * Stopped when this compensation has failed for the last time:
+     * the pass stops rather than reaching past it to undo earlier work
+     * the failed one may have depended on.
      */
     private function undo(
         WorkflowExecution $execution,
@@ -152,17 +164,19 @@ class Compensator
         WorkflowContext $context,
         StepExecution $completed,
         Throwable $failure,
-    ): bool {
+    ): CompensationOutcome {
         $row = $this->rowFor($execution, $completed);
         $step = $this->steps->make($completed->step);
 
         if (! $step instanceof CompensatableStep) {
             // The class stopped declaring compensate() since the step
             // ran — a deploy between the failure and the pass. Nothing
-            // can undo it, and guessing would be worse than stopping.
+            // can undo it, and the pass stops rather than reaching past
+            // it: undoing earlier work while this one stands would
+            // leave the saga in a state no code describes.
             $this->outcomes->stepFailure($execution, $row, CompensationFailedException::noLongerCompensatable($completed->step, $completed->position));
 
-            return false;
+            return CompensationOutcome::Stopped;
         }
 
         // The class is a Step as well as a CompensatableStep — the
@@ -174,6 +188,14 @@ class Compensator
 
         $row->markRunning($startedAt, $timeoutAt);
         $this->repository->saveStep($execution, $row);
+
+        // The context enters the *compensation's* row, not the step it
+        // undoes: remember() is promised inside compensate() and needs
+        // a position to scope its keys to, the deadline is this undo's,
+        // and without this the whole pass would have shared the failed
+        // forward step's idempotency scope — or, on a resumed pass,
+        // had none at all and refused (Milestone 9 audit).
+        $context->enterStep($row->position, $row->attempts, $timeoutAt, $row->step);
 
         try {
             $step->compensate(new Compensation(
@@ -195,12 +217,14 @@ class Compensator
             // due; an exhausted one stops the pass.
             $resolution = $this->outcomes->settle($execution, $row, $policy, FailurePolicy::Stop, $exception);
 
-            return $resolution->terminalFailure === null && $resolution->retryScheduled === false;
+            return $resolution->retryScheduled
+                ? CompensationOutcome::Scheduled
+                : CompensationOutcome::Stopped;
         }
 
         $this->outcomes->completeStep($execution, $row, $context, null);
 
-        return true;
+        return CompensationOutcome::Complete;
     }
 
     /**
@@ -219,6 +243,24 @@ class Compensator
     }
 
     /**
+     * Whether this step's class was compensatable when it ran.
+     *
+     * Read from the row rather than the class: a deploy may have taken
+     * the interface away, and that case must reach undo() to stop the
+     * pass by name rather than be silently skipped. The evidence is
+     * the compensation row itself — if one was ever appended, the step
+     * was compensatable — and otherwise the class as it stands now.
+     */
+    private function wasCompensatable(StepExecution $row): bool
+    {
+        if ($this->appended !== null && isset($this->appended[$row->id])) {
+            return true;
+        }
+
+        return is_a($row->step, CompensatableStep::class, true);
+    }
+
+    /**
      * The completed steps still to undo, newest first.
      *
      * Only steps that completed: a pending, skipped, or failed step did
@@ -233,9 +275,18 @@ class Compensator
     private function pending(array $steps): array
     {
         $done = [];
+        $this->appended = [];
 
         foreach ($steps as $row) {
-            if ($row->compensatesStepExecutionId !== null && $row->isCompleted()) {
+            if ($row->compensatesStepExecutionId === null) {
+                continue;
+            }
+
+            // A compensation row exists for this step, so it was
+            // compensatable when it ran, whatever its class says now.
+            $this->appended[$row->compensatesStepExecutionId] = true;
+
+            if ($row->isCompleted()) {
                 $done[$row->compensatesStepExecutionId] = true;
             }
         }
@@ -247,7 +298,13 @@ class Compensator
                 continue;
             }
 
-            if (! is_a($row->step, CompensatableStep::class, true)) {
+            // A class that no longer declares compensate() is *not*
+            // filtered out here: it must reach undo(), which stops the
+            // pass by name. Skipping it would undo earlier work while
+            // this one stood — the thing the stop rule exists to
+            // prevent (Milestone 9 audit). A class that was never
+            // compensatable has no row to undo and never had one.
+            if (! class_exists($row->step) || ! $this->wasCompensatable($row)) {
                 continue;
             }
 
