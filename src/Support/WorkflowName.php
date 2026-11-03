@@ -37,11 +37,17 @@ final class WorkflowName
             throw new InvalidArgumentException('The workflow must be named: a class, or a bare name under the application\'s Workflows namespace.');
         }
 
-        $candidates = [$name];
-
-        if (! str_contains($name, '\\')) {
-            $candidates[] = self::workflowsNamespace($app).$name;
-        }
+        // A bare name means the application's own Workflows namespace
+        // first, and only then the global one. Laravel registers class
+        // aliases for its facades — Broadcast, Queue, Log, Schema,
+        // Event, and a dozen more — so `laraflow:start Broadcast` for
+        // an App\Workflows\Broadcast would otherwise resolve to the
+        // facade and be refused as "not a workflow", blaming the user's
+        // class for a collision it did not cause. Found by the install
+        // walk, which is the only place a real alias list exists.
+        $candidates = str_contains($name, '\\')
+            ? [$name]
+            : [self::workflowsNamespace($app).$name, $name];
 
         foreach ($candidates as $candidate) {
             if (! class_exists($candidate)) {
@@ -60,7 +66,7 @@ final class WorkflowName
         throw new InvalidArgumentException(sprintf(
             'No workflow class named [%s] exists%s. Give the fully qualified class name, or generate one with make:workflow.',
             $name,
-            count($candidates) > 1 ? ' (also looked for '.$candidates[1].')' : '',
+            count($candidates) > 1 ? ' (also looked for '.$candidates[0].')' : '',
         ));
     }
 

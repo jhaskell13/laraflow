@@ -39,13 +39,20 @@ class ParentNotifier
             return;
         }
 
-        $signal = Wait::CHILD_PREFIX.$child->id;
+        [$signal, $payload] = $this->signalFor($child);
+
+        if ($signal === null) {
+            // One member of a group that is not done: the last one to
+            // rest signals the join. If two rest together and both see
+            // the group unfinished, the parent's heartbeat sees it done.
+            return;
+        }
 
         try {
             $this->repository->recordSignal(
                 $child->parentExecutionId,
                 $signal,
-                ['execution_id' => $child->id, 'status' => $child->status->value],
+                $payload,
                 $this->clock->now(),
             );
         } catch (SignalRefusedException|ExecutionNotFoundException $refusal) {
@@ -80,5 +87,69 @@ class ParentNotifier
                 'exception' => $deliveryFailure::class.': '.$deliveryFailure->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Which signal this child's resting outcome is, and its payload:
+     * the child signal for a sub-workflow's one child, carrying the
+     * child's identity and status; the join signal for the last member
+     * of a fan-out to rest, carrying the group's counts; and nothing
+     * for a member whose siblings are still going.
+     *
+     * Decided from the parent step's own wait, read from its row, so a
+     * member never has to know what kind of step made it. Two queries
+     * more than a single child needs; a member is one of many, and the
+     * alternative — trying the child signal and reading its refusal —
+     * would log a line per member.
+     *
+     * @return array{string|null, array<string, mixed>}
+     */
+    protected function signalFor(WorkflowExecution $child): array
+    {
+        $childSignal = [Wait::CHILD_PREFIX.$child->id, ['execution_id' => $child->id, 'status' => $child->status->value]];
+
+        if ($child->parentStepExecutionId === null) {
+            return $childSignal;
+        }
+
+        try {
+            $parent = $this->repository->find($child->parentExecutionId ?? 0);
+        } catch (ExecutionNotFoundException) {
+            // Pruned. Nothing to tell, and nothing to say about it.
+            return [null, []];
+        }
+
+        // A parent that is not parked cannot receive a signal: it has
+        // not parked yet (the race the heartbeat heals), or it is
+        // cancelled, or it finished without us. Asking anyway costs a
+        // refusal and a log line — per member, and a group may be a
+        // thousand wide, so cancelling one would be a thousand lines
+        // and three thousand queries. The heartbeat covers every case
+        // this skips.
+        if (! $parent->isWaiting()) {
+            return [null, []];
+        }
+
+        $stepRow = null;
+
+        foreach ($this->repository->steps($parent) as $candidate) {
+            if ($candidate->id === $child->parentStepExecutionId) {
+                $stepRow = $candidate;
+
+                break;
+            }
+        }
+
+        if ($stepRow === null || ! Wait::isJoinSignal($stepRow->waitSignal)) {
+            return $childSignal;
+        }
+
+        $progress = $this->repository->childProgress($stepRow->id);
+
+        if (! $progress->allFinished()) {
+            return [null, []];
+        }
+
+        return [(string) $stepRow->waitSignal, ['parent_step_execution_id' => $stepRow->id] + $progress->counts];
     }
 }

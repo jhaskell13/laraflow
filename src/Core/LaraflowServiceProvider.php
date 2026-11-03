@@ -48,6 +48,7 @@ use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\FanOutWorkflows;
 use Laraflow\Workflow\IdempotencyResolver;
 use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Policy\PolicyResolver;
@@ -218,6 +219,23 @@ class LaraflowServiceProvider extends ServiceProvider
                 delivery: $app->make(ChildDelivery::class),
                 // Blank means unset, as for every other setting.
                 maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
+            );
+        });
+
+        $this->app->singleton(FanOutWorkflows::class, function (Container $app): FanOutWorkflows {
+            $config = $app->make(Config::class);
+            $maxDepth = $config->get('laraflow.workflows.max_depth');
+            $maxMembers = $config->get('laraflow.workflows.max_members');
+
+            return new FanOutWorkflows(
+                repository: $app->make(ExecutionRepository::class),
+                container: $app,
+                delivery: $app->make(ChildDelivery::class),
+                events: $app->make(EventEmitter::class),
+                logger: $app->make(LoggerInterface::class),
+                // Blank means unset, as for every other setting.
+                maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
+                maxMembers: $maxMembers === null || $maxMembers === '' ? 1000 : (int) $maxMembers,
             );
         });
 

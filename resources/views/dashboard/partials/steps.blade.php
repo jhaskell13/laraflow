@@ -26,7 +26,12 @@
             @foreach ($steps as $step)
                 <tr>
                     <td class="lf-num">{{ $step->position }}</td>
-                    <td><span title="{{ $step->step }}">{{ class_basename($step->step) }}</span></td>
+                    <td>
+                        @if ($step->isCompensation())
+                            <span class="lf-tag lf-tag--undo" title="A compensation: this row undoes the step it names">undo</span>
+                        @endif
+                        <span title="{{ $step->step }}">{{ class_basename($step->step) }}</span>
+                    </td>
                     <td>
                         @include('laraflow::dashboard.partials.status', ['status' => $step->status])
                         @if (AttentionScan::isOverdue($step, $now))

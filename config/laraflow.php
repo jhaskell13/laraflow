@@ -267,10 +267,16 @@ return [
     | with WorkflowDepthExceededException, so mutual recursion between
     | workflow classes is one exception rather than an unbounded tree.
     |
+    | max_members: how many member executions one fan-out step may
+    | declare. A wider group is refused with FanOutTooWideException
+    | before any member is created — a group too wide to cancel is a
+    | group too wide to run.
+    |
     */
 
     'workflows' => [
         'max_depth' => env('LARAFLOW_WORKFLOWS_MAX_DEPTH', 8),
+        'max_members' => env('LARAFLOW_WORKFLOWS_MAX_MEMBERS', 1000),
     ],
 
     /*

@@ -5,17 +5,10 @@
     unresolved outcome, and is said so.
 
     @var \Laraflow\Workflow\IdempotencyRecord[] $remembered
-    @var \Laraflow\Workflow\StepExecution[] $steps
+    @var array<int, string> $stepNamesByPosition
 --}}
 @use('Laraflow\Support\Formats')
 @use('Laraflow\Workflow\IdempotencyStatus')
-
-@php
-    $byPosition = [];
-    foreach ($steps as $step) {
-        $byPosition[$step->position] = $step->step;
-    }
-@endphp
 
 <div class="lf-table-wrap">
     <table class="lf-table">
@@ -32,7 +25,7 @@
         <tbody>
             @foreach ($remembered as $record)
                 <tr>
-                    <td>{{ isset($byPosition[$record->stepPosition]) ? class_basename($byPosition[$record->stepPosition]) : 'position '.$record->stepPosition }}</td>
+                    <td>{{ isset($stepNamesByPosition[$record->stepPosition]) ? class_basename($stepNamesByPosition[$record->stepPosition]) : 'position '.$record->stepPosition }}</td>
                     <td class="lf-mono">{{ $record->key }}</td>
                     <td>
                         @if ($record->status === IdempotencyStatus::Pending)

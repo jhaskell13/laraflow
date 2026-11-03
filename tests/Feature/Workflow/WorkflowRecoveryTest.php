@@ -520,8 +520,13 @@ class WorkflowRecoveryTest extends TestCase
             $this->assertSame('step two blew up', $exception->getMessage());
         }
 
+        // The *step's* failure is what could not be persisted: the
+        // execution's comes after, through the compensation pass, and
+        // storage died before either. Milestone 9 split the two; the
+        // guarantee this test exists for — the original exception
+        // survives a dead database — is unchanged.
         $this->assertTrue(
-            $this->logger->hasRecordContaining('error', 'could not persist a workflow failure'),
+            $this->logger->hasRecordContaining('error', 'could not persist a step failure'),
             'The storage failure must be logged, not swallowed silently.'
         );
 

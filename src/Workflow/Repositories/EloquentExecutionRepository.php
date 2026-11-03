@@ -159,8 +159,18 @@ class EloquentExecutionRepository implements ExecutionRepository
                         }
                     })
                     ->orWhere(function ($query) use ($staleBefore) {
+                        // Compensating is claimed work like running is:
+                        // the pass runs under a claim, and a worker that
+                        // dies mid-undo leaves the same stale mark. The
+                        // stale *scan* has always returned these rows;
+                        // without them here, recovery found them,
+                        // dispatched them, and the claim refused them —
+                        // forever (Milestone 9 audit).
                         $query
-                            ->where('status', ExecutionStatus::Running->value)
+                            ->whereIn('status', [
+                                ExecutionStatus::Running->value,
+                                ExecutionStatus::Compensating->value,
+                            ])
                             ->where(function ($query) use ($staleBefore) {
                                 $query
                                     ->whereNull('claimed_at')
@@ -219,6 +229,41 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->get()
             ->map(fn (StepExecutionModel $model) => $this->stepToDomain($model))
             ->all();
+    }
+
+    public function appendCompensation(
+        WorkflowExecution $execution,
+        StepExecution $compensates
+    ): StepExecution {
+        return $this->transaction(function () use ($execution, $compensates): StepExecution {
+            $next = (int) StepExecutionModel::query()
+                ->where('workflow_execution_id', $execution->id)
+                ->max('position');
+
+            $model = StepExecutionModel::query()->create([
+                'workflow_execution_id' => $execution->id,
+                'step' => $compensates->step,
+                'position' => $next + 1,
+                'compensates_step_execution_id' => $compensates->id,
+                'status' => StepStatus::Pending->value,
+                'attempts' => 0,
+            ]);
+
+            $this->assertClaimHeld($execution, ['fruitless_claims' => 0]);
+
+            return $this->stepToDomain($model);
+        });
+    }
+
+    public function checkpointStatus(
+        WorkflowExecution $execution
+    ): void {
+        $this->transaction(function () use ($execution) {
+            $this->assertClaimHeld($execution, [
+                'status' => $execution->status->value,
+                'fruitless_claims' => 0,
+            ]);
+        });
     }
 
     public function saveStep(
@@ -404,7 +449,13 @@ class EloquentExecutionRepository implements ExecutionRepository
                 if ($staleBefore !== null) {
                     $query->orWhere(function ($query) use ($staleBefore) {
                         $query
-                            ->where('status', ExecutionStatus::Running->value)
+                            // Compensating is claimed work, and an
+                            // abandoned pass must be cancellable by an
+                            // operator like an abandoned run is.
+                            ->whereIn('status', [
+                                ExecutionStatus::Running->value,
+                                ExecutionStatus::Compensating->value,
+                            ])
                             ->where(function ($query) use ($staleBefore) {
                                 $query
                                     ->whereNull('claimed_at')
@@ -435,7 +486,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         // boundary rather than rewriting state underneath it.
         $requested = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->where('status', ExecutionStatus::Running->value)
+            ->whereIn('status', [ExecutionStatus::Running->value, ExecutionStatus::Compensating->value])
             ->update($this->counted([
                 'cancel_requested_at' => $at,
                 'cancel_reason' => $reason,
@@ -527,9 +578,17 @@ class EloquentExecutionRepository implements ExecutionRepository
 
     protected function writeStep(StepExecution $step): void
     {
+        // A step's input is written once, by the machinery that
+        // declares it (a fan-out's member list), and never erased. The
+        // runner holds its own handle for the same row, and its
+        // checkpoint of that handle — whose input is null — must not
+        // clobber what the machinery wrote under the same claim a
+        // moment earlier; so null here means "leave it", not "clear it".
+        $input = $step->input === null ? [] : ['input' => $this->asJson($step->input)];
+
         StepExecutionModel::query()
             ->whereKey($step->id)
-            ->update([
+            ->update($input + [
                 'status' => $step->status->value,
                 'attempts' => $step->attempts,
                 'output' => $this->asJson($step->output),
@@ -570,8 +629,14 @@ class EloquentExecutionRepository implements ExecutionRepository
 
         $status = ExecutionStatus::from($current->status);
 
-        if ($status === ExecutionStatus::Running) {
-            throw ExecutionAlreadyClaimedException::forId($id);
+        // Compensating is claimed work exactly as running is — the
+        // undo runs under a claim, and a fresh one is reclaimed on the
+        // same stale test. Routing it to ExecutionNotRunnableException
+        // told a caller a status the contract calls *unfinished* was
+        // terminal, and had the queue job log a live pass as "already
+        // finished (completed or cancelled)".
+        if ($status === ExecutionStatus::Running || $status === ExecutionStatus::Compensating) {
+            throw ExecutionAlreadyClaimedException::forId($id, $status);
         }
 
         if ($status === ExecutionStatus::Retrying) {
@@ -689,6 +754,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             executionId: $model->workflow_execution_id,
             step: $model->step,
             position: $model->position,
+            compensatesStepExecutionId: $model->compensates_step_execution_id,
             status: StepStatus::from($model->status),
             attempts: $model->attempts,
             input: $model->input,

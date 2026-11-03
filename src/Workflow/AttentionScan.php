@@ -46,7 +46,7 @@ final class AttentionScan
 
         $unfinished = $this->repository->list(
             $filter
-                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting])
+                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting, ExecutionStatus::Compensating])
                 ->withOldestFirst(),
             limit: 1,
         );
@@ -84,7 +84,10 @@ final class AttentionScan
     private function overdueSteps(ExecutionFilter $filter, DateTimeImmutable $now): array
     {
         $running = $this->repository->list(
-            $filter->withStatus(ExecutionStatus::Running),
+            // Compensating too: an undo past its deadline is a hung
+            // step like any other, and the operator's one "something
+            // is wrong" signal must see it.
+            $filter->withStatus([ExecutionStatus::Running, ExecutionStatus::Compensating]),
             limit: ExecutionRepository::MAX_PAGE_SIZE,
         );
 

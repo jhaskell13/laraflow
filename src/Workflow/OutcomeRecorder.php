@@ -12,6 +12,8 @@ use Laraflow\Events\WorkflowStepFailed;
 use Laraflow\Events\WorkflowStepRetryScheduled;
 use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
+use Laraflow\Exceptions\Workflow\RecordedFailure;
+use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -147,9 +149,13 @@ class OutcomeRecorder
             return StepResolution::continueWith($exception);
         }
 
-        $this->failure($execution, $stepExecution, $exception, $attemptStatus);
+        // The step's failure is durable now; the execution's is not,
+        // because what happens between them is the compensation pass.
+        // Returned rather than thrown so the runner — which holds the
+        // claim and the workflow — finishes the execution itself.
+        $this->stepFailure($execution, $stepExecution, $exception, $attemptStatus);
 
-        throw $exception;
+        return StepResolution::failedWith($exception);
     }
 
     /**
@@ -314,6 +320,41 @@ class OutcomeRecorder
     }
 
     /**
+     * Rest a compensated execution on the failure it has been carrying
+     * since the pass began. The exception object is gone — the pass may
+     * have spanned claims — but the message and class were recorded
+     * with the status, so the record is the same either way.
+     *
+     * The stand-in is a RecordedFailure rather than a bare
+     * WorkflowException, so the class reaches the event and the log
+     * line as well as the column. Rebuilding it as the wrapper's own
+     * class would have made every compensated execution alert as a
+     * WorkflowException whatever actually broke, while its row said
+     * otherwise.
+     */
+    public function failRecorded(WorkflowExecution $execution): void
+    {
+        $error = $execution->error ?? 'The execution failed.';
+        $errorClass = $execution->errorClass ?? WorkflowException::class;
+        $failedAt = $this->clock->now();
+        $recorded = new RecordedFailure($error, $errorClass);
+
+        try {
+            $execution->markFailed($error, $errorClass, $failedAt);
+            $this->repository->release($execution);
+        } catch (ClaimLostException $lost) {
+            throw $lost;
+        } catch (Throwable $storageFailure) {
+            $this->logStorageFailure('a compensated workflow failure', $execution, null, $recorded, $storageFailure);
+
+            return;
+        }
+
+        $this->announceExecutionFailure($execution, $recorded, $error, $failedAt);
+        $this->parents->childFinished($execution);
+    }
+
+    /**
      * The one place an exception becomes text Laraflow retains:
      * redacted first (laraflow.errors.redactor), then truncated. Every
      * persisted error column, attempt-history row, log record, and
@@ -341,6 +382,12 @@ class OutcomeRecorder
      */
     public function errorClass(Throwable $exception): string
     {
+        // A failure rebuilt for a resumed compensation pass reports the
+        // class it stands for, so error_class survives the rebuild.
+        if ($exception instanceof RecordedFailure) {
+            return $exception->recordedClass();
+        }
+
         $class = $exception::class;
         $anonymous = strpos($class, '@anonymous');
 

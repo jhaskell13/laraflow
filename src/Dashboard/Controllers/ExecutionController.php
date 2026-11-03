@@ -16,6 +16,7 @@ use Laraflow\Dashboard\Support\FilterRequest;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Support\Outcome;
 use Laraflow\Workflow\AttentionScan;
+use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\IdempotencyStore;
@@ -89,6 +90,8 @@ final class ExecutionController
             ))),
             'queueIsSync' => Outcome::queueIsSync($this->config),
             'canAct' => $this->router->has('laraflow.actions.start'),
+            'oldInput' => $request->hasSession() ? $request->session()->getOldInput() : [],
+            'reopenStart' => $request->query('start') !== null,
             'now' => $this->clock->now(),
         ]);
     }
@@ -105,9 +108,11 @@ final class ExecutionController
         $now = $this->clock->now();
 
         $names = [];
+        $byPosition = [];
 
         foreach ($steps as $step) {
             $names[$step->id] = $step->step;
+            $byPosition[$step->position] = $step->step;
         }
 
         // Children through the public filter, the way a listing would
@@ -129,11 +134,41 @@ final class ExecutionController
             'remembered' => $this->idempotency->records($execution->id),
             'children' => $children,
             'overdue' => array_filter($steps, fn ($step): bool => AttentionScan::isOverdue($step, $now)),
-            'waits' => $this->waitingOn($steps),
+            'waits' => $waits = $this->waitingOn($steps),
+            'offers' => $this->offers($execution, $waits),
+            // Keyed by position for the remembered-work table, as
+            // $stepNames is keyed by id for the attempts table: both
+            // maps are the controller's to build.
+            'stepNamesByPosition' => $byPosition,
             'queueIsSync' => Outcome::queueIsSync($this->config),
             'canAct' => $this->router->has('laraflow.actions.execute'),
             'now' => $now,
         ]);
+    }
+
+    /**
+     * Which actions this execution's state admits, and what the
+     * signal forms are for. A view renders them; it does not work
+     * them out (Milestone 8.5 audit).
+     *
+     * @param  list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>  $waits
+     * @return array{execute: bool, cancel: bool, early: bool, signallable: list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>}
+     */
+    private function offers(WorkflowExecution $execution, array $waits): array
+    {
+        $signallable = array_values(array_filter(
+            $waits,
+            fn (array $wait): bool => in_array($wait['kind'], ['signal', 'signal-indefinite'], true),
+        ));
+
+        $timed = array_filter($waits, fn (array $wait): bool => $wait['kind'] === 'timed');
+
+        return [
+            'execute' => $execution->isPending() || $execution->isFailed() || $execution->isRetrying() || $execution->isWaiting(),
+            'cancel' => ! $execution->isCompleted() && ! $execution->isCancelled(),
+            'early' => $execution->isRetrying() || $timed !== [],
+            'signallable' => $signallable,
+        ];
     }
 
     /**
@@ -147,7 +182,7 @@ final class ExecutionController
      * of them (Milestone 8.5 audit).
      *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
-     * @return list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>
+     * @return list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>
      */
     private function waitingOn(array $steps): array
     {
@@ -158,23 +193,34 @@ final class ExecutionController
                 continue;
             }
 
+            if (Wait::isJoinSignal($step->waitSignal)) {
+                $waits[] = [
+                    'step' => $step,
+                    'kind' => 'join',
+                    'childId' => null,
+                    'progress' => $this->repository->childProgress($step->id),
+                ];
+
+                continue;
+            }
+
             if (Wait::isChildSignal($step->waitSignal)) {
                 // A child wait is never indefinite: the parent checks on
                 // the child at every heartbeat, recorded on the execution.
                 $childId = Wait::childIdFrom((string) $step->waitSignal);
 
-                $waits[] = ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId];
+                $waits[] = ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId, 'progress' => null];
 
                 continue;
             }
 
             if ($step->waitSignal === null) {
-                $waits[] = ['step' => $step, 'kind' => 'timed', 'childId' => null];
+                $waits[] = ['step' => $step, 'kind' => 'timed', 'childId' => null, 'progress' => null];
 
                 continue;
             }
 
-            $waits[] = ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null];
+            $waits[] = ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null, 'progress' => null];
         }
 
         return $waits;

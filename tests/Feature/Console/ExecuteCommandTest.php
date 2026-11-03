@@ -87,7 +87,8 @@ class ExecuteCommandTest extends TestCase
         );
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
-        $this->assertStringContainsString('queued', $output);
+        $this->assertStringContainsString('Queued as execution 1', $output);
+        $this->assertStringContainsString('queue:work', $output);
 
         Queue::assertPushed(
             ExecuteWorkflowJob::class,

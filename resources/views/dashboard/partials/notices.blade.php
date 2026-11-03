@@ -4,7 +4,7 @@
     retry with when, an overdue step as hung-not-dead.
 
     @var \Laraflow\Workflow\WorkflowExecution $execution
-    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
+    @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: \Laraflow\Workflow\ChildProgress|null}> $waits
     @var \Laraflow\Workflow\StepExecution[] $overdue
     @var \DateTimeImmutable $now
 --}}
@@ -17,6 +17,9 @@
         @switch($waiting['kind'])
             @case('child')
                 is waiting on <a href="{{ route('laraflow.executions.show', $waiting['childId']) }}">child execution {{ $waiting['childId'] }}</a> (next check {{ Formats::date($execution->nextRetryAt) }}).
+                @break
+            @case('join')
+                is waiting on {{ $waiting['progress']?->unfinished() }} of {{ $waiting['progress']?->total() }} fan-out member(s) still running (next check {{ Formats::date($execution->nextRetryAt) }}).
                 @break
             @case('malformed')
                 is waiting on a malformed child signal <code>{{ $waiting['step']->waitSignal }}</code> — a row altered outside the package.

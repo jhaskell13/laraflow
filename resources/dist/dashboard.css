@@ -1159,3 +1159,16 @@ a.lf-id::before {
 .lf-payload[open] > summary {
     margin-bottom: 0.75rem;
 }
+
+/* An execution undoing what it completed: work in flight, so the same
+   yellow as running rather than a colour of its own. */
+.lf-status--compensating   { color: var(--lf-yellow); background: var(--lf-yellow-bg); }
+.lf-count-card--compensating { border-top-color: var(--lf-yellow); }
+
+/* A compensation row: a step that undoes a step. */
+.lf-tag--undo {
+    color: var(--lf-magenta);
+    border-color: var(--lf-magenta);
+    margin-left: 0;
+    margin-right: 0.4rem;
+}

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow\Policy;
 
+use DateInterval;
+use DateTimeImmutable;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\IdempotencyStoreUnavailableException;
@@ -180,5 +182,26 @@ readonly class StepPolicy
     public function retriesEnabled(): bool
     {
         return $this->maxAttempts > 1;
+    }
+
+    /**
+     * When an attempt started at $startedAt runs out of time, or null
+     * when this policy sets no deadline.
+     *
+     * One definition, because a compensation's deadline and a forward
+     * step's are the same question and were being answered in two
+     * places. `add(new DateInterval(...))` rather than `modify()`:
+     * modify() returns `false` for an unparseable string on PHP 8.2
+     * (it throws from 8.3), so its declared type is
+     * `DateTimeImmutable|false` there and static analysis on the
+     * supported floor rejects passing it on. The constructor holds
+     * timeoutSeconds at or above 1, so the interval cannot fail to
+     * build — the same reasoning RetentionPolicy::cutoff() records.
+     */
+    public function deadlineFrom(DateTimeImmutable $startedAt): ?DateTimeImmutable
+    {
+        return $this->timeoutSeconds === null
+            ? null
+            : $startedAt->add(new DateInterval("PT{$this->timeoutSeconds}S"));
     }
 }

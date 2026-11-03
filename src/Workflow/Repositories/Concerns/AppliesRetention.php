@@ -58,6 +58,12 @@ trait AppliesRetention
                         ->distinct(),
                 ),
             )
+            // Deletion is the one tier that removes the row a waiting
+            // parent's join counts, so it is the one that asks.
+            ->when(
+                $tier === RetentionTier::Delete,
+                fn (Builder $query) => $this->withoutALiveParent($query),
+            )
             ->when($workflow !== null, fn (Builder $query) => $query->where('workflow', $workflow))
             ->when($tenantId !== null, fn (Builder $query) => $query->where('tenant_id', $tenantId))
             // Oldest finish first: retention works forward through
@@ -173,6 +179,19 @@ trait AppliesRetention
         }
 
         return $this->transaction(function () use ($ids, $statuses, $finishedBefore): int {
+            // Re-asked inside the transaction, like every other part of
+            // the guard: a parent may have gone back to work between the
+            // scan and here. Resolved to a list of ids by a read rather
+            // than expressed as a subquery, because MySQL and MariaDB
+            // refuse to name a DELETE's own target table inside one
+            // (error 1093) — and this is the one place the guard appears
+            // on a DELETE rather than a SELECT.
+            $ids = $this->withoutALiveParentAmong($ids);
+
+            if ($ids === []) {
+                return 0;
+            }
+
             $deleted = $this->finishedBefore($statuses, $finishedBefore)
                 ->whereIn('id', $ids)
                 ->delete();
@@ -217,6 +236,89 @@ trait AppliesRetention
             ))
             ->whereNotNull('finished_at')
             ->where('finished_at', '<=', $finishedBefore);
+    }
+
+    /**
+     * Exclude executions whose parent has not finished — the guard
+     * behind retention.md's promise that retention "can never separate
+     * a live pair".
+     *
+     * That promise used to rest on the reasoning that a parent waits
+     * only on an unfinished child, which is true of a sub-workflow and
+     * false of a fan-out: a parent parked on a join waits for the
+     * whole group, so a member that completed early is finished, and
+     * ageable, while its siblings are still running. Deleting one is
+     * not a cosmetic loss — the join decides from childProgress(),
+     * which counts the rows that exist, so pruning the members that
+     * failed would turn a group that should fail into one that
+     * completes.
+     *
+     * A primary-key lookup per candidate row, and only on the tier
+     * that removes a record: scrubbing and attempt pruning leave the
+     * identity and status a parent reads.
+     *
+     * The same guard as a list of ids, for the DELETE.
+     *
+     * Two plain reads rather than the subquery below: MySQL and
+     * MariaDB refuse to name a DELETE's target table inside a subquery
+     * (error 1093), and a correlated derived table is not available to
+     * work around it on every supported engine. Both reads are
+     * primary-key lookups over the candidate page.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    protected function withoutALiveParentAmong(array $ids): array
+    {
+        /** @var array<int, int> $parents Child id => parent id, for the children that have one. */
+        $parents = WorkflowExecutionModel::query()
+            ->whereIn('id', $ids)
+            ->whereNotNull('parent_execution_id')
+            ->pluck('parent_execution_id', 'id')
+            ->all();
+
+        if ($parents === []) {
+            return $ids;
+        }
+
+        /** @var list<int> $live */
+        $live = WorkflowExecutionModel::query()
+            ->whereIn('id', array_values(array_unique($parents)))
+            ->whereNull('finished_at')
+            ->pluck('id')
+            ->all();
+
+        if ($live === []) {
+            return $ids;
+        }
+
+        $live = array_flip($live);
+
+        return array_values(array_filter(
+            $ids,
+            fn (int $id): bool => ! isset($parents[$id]) || ! isset($live[$parents[$id]]),
+        ));
+    }
+
+    /**
+     * @param  Builder<WorkflowExecutionModel>  $query
+     * @return Builder<WorkflowExecutionModel>
+     */
+    protected function withoutALiveParent(Builder $query): Builder
+    {
+        $executions = (new WorkflowExecutionModel)->getTable();
+
+        return $query->where(
+            fn (Builder $outer) => $outer
+                ->whereNull("{$executions}.parent_execution_id")
+                ->orWhereNotExists(
+                    fn ($sub) => $sub
+                        ->selectRaw('1')
+                        ->from($executions, 'laraflow_parent')
+                        ->whereColumn('laraflow_parent.id', "{$executions}.parent_execution_id")
+                        ->whereNull('laraflow_parent.finished_at'),
+                ),
+        );
     }
 
     /**

@@ -98,6 +98,29 @@ class StartCommandTest extends TestCase
         $this->assertSame(0, WorkflowExecutionModel::query()->count());
     }
 
+    /**
+     * Laravel registers global class aliases for its facades, so a
+     * workflow named after one — Broadcast, Queue, Log, Schema — used
+     * to resolve to the facade and be refused as "not a workflow",
+     * blaming the user's class for a collision it did not cause. A
+     * bare name means the application's Workflows namespace first.
+     * Found by the install walk against a real application.
+     */
+    public function test_a_bare_name_prefers_the_applications_workflow_over_a_global_alias(): void
+    {
+        if (! class_exists('BroadcastForStart', false)) {
+            class_alias(TwoStepWorkflow::class, 'App\\Workflows\\BroadcastForStart');
+            // Stands in for a facade alias: a global class of the same
+            // bare name that is not a workflow.
+            class_alias(WorkflowRunner::class, 'BroadcastForStart');
+        }
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', ['workflow' => 'BroadcastForStart']);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status, $output);
+        $this->assertSame(TwoStepWorkflow::class, WorkflowExecutionModel::query()->sole()->workflow);
+    }
+
     public function test_a_class_that_is_not_a_workflow_is_refused_by_name(): void
     {
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:start', ['workflow' => WorkflowRunner::class]);

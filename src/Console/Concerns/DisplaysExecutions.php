@@ -200,7 +200,10 @@ trait DisplaysExecutions
             ['#', 'Step', 'Status', 'Attempts', 'Next retry', 'Output', 'Error'],
             array_map(fn (StepExecution $step): array => [
                 $step->position,
-                class_basename($step->step),
+                // A compensation is a step row appended after the plan;
+                // saying so is the difference between a saga a reader
+                // can follow and one that looks like a repeated step.
+                ($step->isCompensation() ? '<fg=magenta>undo</> ' : '').class_basename($step->step),
                 $this->coloredStatus($step->status->value)
                     // A running step past its deadline is hung, not dead:
                     // its claim may still be live, so nothing acts on it,
@@ -223,6 +226,9 @@ trait DisplaysExecutions
             ExecutionStatus::Failed->value, StepStatus::Failed->value => "<fg=red>{$status}</>",
             ExecutionStatus::Running->value, StepStatus::Running->value => "<fg=yellow>{$status}</>",
             ExecutionStatus::Retrying->value, ExecutionStatus::Waiting->value => "<fg=cyan>{$status}</>",
+            // Undoing: the same yellow as running, because it is work
+            // in flight, not a resting state.
+            ExecutionStatus::Compensating->value => "<fg=yellow>{$status}</>",
             ExecutionStatus::Cancelled->value => "<fg=magenta>{$status}</>",
             StepStatus::Skipped->value => "<fg=blue>{$status}</>",
             default => "<fg=gray>{$status}</>",

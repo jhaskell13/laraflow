@@ -6,6 +6,8 @@ namespace Laraflow\Console\Concerns;
 
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\Handoff;
+use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\Workflow;
@@ -84,74 +86,34 @@ trait StartsExecutions
     ): int {
         $execution = $runner->start($workflow, $input, $options);
 
-        try {
-            $dispatcher->dispatchExecution($execution->id);
-        } catch (WorkflowException $exception) {
-            $this->components->error($exception->getMessage());
-            $this->components->info(
-                "Execution [{$execution->id}] was created and not queued. "
-                ."Run it with: laraflow:execute {$execution->id}"
-            );
+        return $this->reportHandoff(
+            Handoff::attempt($dispatcher, $repository, $execution),
+            $repository,
+        );
+    }
 
-            return self::FAILURE;
-        } catch (Throwable $exception) {
-            // Did the job run, or did the push fail? The configured
-            // driver cannot answer: a broker refusing a connection
-            // while the connection is nominally sync would be reported
-            // as a step failure with every step still pending, and a
-            // listener throwing after a successful push would be
-            // reported as a failure to queue. The record answers it.
-            // Nothing reached a step while the execution is still
-            // pending, whatever threw.
-            if ($repository->find($execution->id)->isPending()) {
-                $this->components->error('The execution could not be queued: '.$exception->getMessage());
-                // This command is the only thing that knows the id it
-                // just wrote, and the scan that would otherwise find a
-                // never-dispatched execution is off by default
-                // (docs/queue-and-recovery.md).
-                $this->components->info(
-                    "Execution [{$execution->id}] is persisted and pending. "
-                    ."Run it here with: laraflow:execute {$execution->id}"
-                );
-
-                return self::FAILURE;
-            }
-
-            $this->reportFailedRun(
-                $repository,
-                $execution->id,
-                $exception,
-                'The queue connection ran the job in this process (sync driver) and a step failed: ',
-            );
-
-            return self::FAILURE;
+    /**
+     * Render what became of a handoff. The decision is Handoff's; this
+     * is only how a console says it.
+     */
+    protected function reportHandoff(Handoff $handoff, ExecutionRepository $repository): int
+    {
+        if ($handoff->showsRecord()) {
+            $this->displayExecution($handoff->execution, $repository->steps($handoff->execution));
         }
 
-        // The sync driver runs the job inside the dispatch call, so by
-        // here the execution may already be finished — or parked, or
-        // retrying, since the job deliberately does not throw for those.
-        // Telling the user to start a worker for work that has already
-        // run is how the result goes unseen, so what actually happened
-        // is read back and reported.
-        $execution = $repository->find($execution->id);
+        match ($handoff->level) {
+            Outcome::WARN => $this->components->warn($handoff->message),
+            Outcome::ERROR => $this->components->error($handoff->message),
+            default => $this->components->info($handoff->message),
+        };
 
-        if (! $execution->isPending()) {
+        if ($handoff->outcome === Handoff::STEP_FAILED) {
             $this->components->info(
-                'The queue connection ran the job in this process (sync driver).'
+                "The failure is persisted. Recover it with: laraflow:execute {$handoff->execution->id}"
             );
-
-            $this->displayExecution($execution, $repository->steps($execution));
-
-            return $this->reportOutcome($execution);
         }
 
-        $this->components->info(
-            "Queued as execution {$execution->id}. Process it with: php artisan queue:work"
-        );
-        $this->components->info(
-            "Inspect it anytime with: laraflow:show {$execution->id}"
-        );
-
-        return self::SUCCESS;
+        return $handoff->ok ? self::SUCCESS : self::FAILURE;
     }
 }

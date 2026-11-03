@@ -384,6 +384,110 @@ class ExecutionQueryTest extends TestCase
         $this->assertSame([], $this->repository()->stepProgress([]));
     }
 
+    /**
+     * docs/advanced-workflows.md, "Fan-out and fan-in": the join asks
+     * how its members are doing in one query, by the parent *step* —
+     * a workflow may fan out at several positions, and each join must
+     * see only its own.
+     */
+    public function test_child_progress_counts_a_parent_steps_children_by_status(): void
+    {
+        $repository = $this->repository();
+
+        $parent = $repository->create('App\\Parent', steps: ['FanOut', 'FanOutAgain']);
+        [$first, $second] = $repository->steps($parent);
+
+        $members = [];
+
+        foreach (range(1, 5) as $i) {
+            $members[] = $repository->create('App\\Member', steps: ['One'], options: new ExecutionOptions(
+                parentExecutionId: $parent->id,
+                parentStepExecutionId: $first->id,
+            ));
+        }
+
+        // A sibling fan-out at the next position: not this join's.
+        $repository->create('App\\Member', steps: ['One'], options: new ExecutionOptions(
+            parentExecutionId: $parent->id,
+            parentStepExecutionId: $second->id,
+        ));
+
+        // Two finished, one running, two still pending.
+        foreach (array_slice($members, 0, 2) as $member) {
+            $claimed = $repository->claim($member->id, 'w', 300);
+            $claimed->markRunning(new DateTimeImmutable);
+            $claimed->markCompleted(new DateTimeImmutable);
+            $repository->release($claimed);
+        }
+
+        $repository->claim($members[2]->id, 'w', 300);
+
+        $progress = $repository->childProgress($first->id);
+
+        $this->assertSame($first->id, $progress->parentStepExecutionId);
+        $this->assertSame(5, $progress->total(), 'Five members, not six: the sibling join is not counted.');
+        $this->assertSame(2, $progress->completed());
+        $this->assertSame(1, $progress->of(ExecutionStatus::Running));
+        $this->assertSame(2, $progress->of(ExecutionStatus::Pending));
+        $this->assertSame(2, $progress->finished());
+        $this->assertSame(3, $progress->unfinished());
+        $this->assertFalse($progress->allFinished());
+        $this->assertFalse($progress->allCompleted());
+
+        $sibling = $repository->childProgress($second->id);
+        $this->assertSame(1, $sibling->total());
+    }
+
+    public function test_child_progress_of_a_step_with_no_children_is_empty_not_an_error(): void
+    {
+        $repository = $this->repository();
+        $parent = $repository->create('App\\Parent', steps: ['FanOut']);
+        [$step] = $repository->steps($parent);
+
+        $progress = $repository->childProgress($step->id);
+
+        $this->assertSame(0, $progress->total());
+        $this->assertSame([], $progress->counts);
+        // "None yet" is not "all done": a join with nothing to join is
+        // empty, and the step decides what that means.
+        $this->assertFalse($progress->allFinished());
+        $this->assertFalse($progress->allCompleted());
+
+        $this->assertSame(0, $repository->childProgress(999999)->total(), 'A step that does not exist has no children either.');
+    }
+
+    public function test_child_progress_knows_when_every_member_has_finished(): void
+    {
+        $repository = $this->repository();
+        $parent = $repository->create('App\\Parent', steps: ['FanOut']);
+        [$step] = $repository->steps($parent);
+
+        $link = new ExecutionOptions(parentExecutionId: $parent->id, parentStepExecutionId: $step->id);
+        $done = $repository->create('App\\Member', steps: ['One'], options: $link);
+        $failed = $repository->create('App\\Member', steps: ['One'], options: $link);
+        $cancelled = $repository->create('App\\Member', steps: ['One'], options: $link);
+
+        $claimed = $repository->claim($done->id, 'w', 300);
+        $claimed->markRunning(new DateTimeImmutable);
+        $claimed->markCompleted(new DateTimeImmutable);
+        $repository->release($claimed);
+
+        $claimed = $repository->claim($failed->id, 'w', 300);
+        $claimed->markRunning(new DateTimeImmutable);
+        $claimed->markFailed('boom', 'RuntimeException', new DateTimeImmutable);
+        $repository->release($claimed);
+
+        // Unclaimed work is cancelled outright by the request itself.
+        $repository->requestCancellation($cancelled->id, null, new DateTimeImmutable);
+
+        $progress = $repository->childProgress($step->id);
+
+        $this->assertTrue($progress->allFinished(), 'Completed, failed, and cancelled are all resting outcomes.');
+        $this->assertFalse($progress->allCompleted(), 'But only completed is the happy one.');
+        $this->assertSame(1, $progress->failed());
+        $this->assertSame(1, $progress->cancelled());
+    }
+
     public function test_step_progress_reads_one_query_for_many_executions(): void
     {
         $repository = $this->repository();

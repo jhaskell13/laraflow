@@ -28,7 +28,10 @@ trait ScansForRecovery
         ?string $tenantId = null
     ): array {
         return $this->scan($limit, $workflow, $tenantId)
-            ->where('status', ExecutionStatus::Running->value)
+            // Compensating is claimed work like running is: a worker
+            // that dies mid-pass leaves the same stale claim, and the
+            // pass resumes from the record (docs/advanced-workflows.md).
+            ->whereIn('status', [ExecutionStatus::Running->value, ExecutionStatus::Compensating->value])
             ->where(function (Builder $query) use ($claimedBefore) {
                 $query
                     ->whereNull('claimed_at')

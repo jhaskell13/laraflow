@@ -31,9 +31,11 @@ class StepExecution
         public readonly int $executionId,
         public readonly string $step,
         public readonly int $position,
+        /** The step row this one undoes; null for every planned step. */
+        public readonly ?int $compensatesStepExecutionId = null,
         public StepStatus $status = StepStatus::Pending,
         public int $attempts = 0,
-        public readonly mixed $input = null,
+        public mixed $input = null,
         public mixed $output = null,
         public ?string $error = null,
         public ?string $errorClass = null,
@@ -44,6 +46,20 @@ class StepExecution
         public ?DateTimeImmutable $nextRetryAt = null,
         public ?string $waitSignal = null,
     ) {}
+
+    /**
+     * Record what this step was given to do, before it does it.
+     *
+     * Unused by ordinary steps, whose input is the context. A fan-out
+     * writes its member declarations here before creating any member,
+     * so a worker that dies part-way through leaves a durable list the
+     * next claim can compute the remainder from. Written through
+     * saveStep(), so it is claim-guarded like every other step write.
+     */
+    public function declare(mixed $input): void
+    {
+        $this->input = $input;
+    }
 
     /**
      * @param  DateTimeImmutable|null  $timeoutAt  Deadline for this attempt
@@ -205,6 +221,16 @@ class StepExecution
         $this->failedAt = $snapshot['failedAt'];
         $this->waitSignal = $snapshot['waitSignal'];
         $this->nextRetryAt = $snapshot['nextRetryAt'];
+    }
+
+    /**
+     * Whether this row is a compensation rather than a planned step.
+     * The plan is the rows that compensate nothing, which is how plan
+     * validation keeps comparing like with like.
+     */
+    public function isCompensation(): bool
+    {
+        return $this->compensatesStepExecutionId !== null;
     }
 
     public function isPending(): bool

@@ -17,21 +17,6 @@ use Laraflow\Workflow\RecoveryReason;
  */
 readonly class WorkflowExecutionRetryScheduled
 {
-    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::StaleClaim (`$reason->value` for the string). */
-    public const REASON_STALE_CLAIM = 'stale_claim';
-
-    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::NeverDispatched. */
-    public const REASON_NEVER_DISPATCHED = 'never_dispatched';
-
-    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::RetryDue. */
-    public const REASON_RETRY_DUE = 'retry_due';
-
-    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::StepTimeout. */
-    public const REASON_STEP_TIMEOUT = 'step_timeout';
-
-    /** @deprecated since 0.3.0, removed in 0.4.0 — use RecoveryReason::WaitDue. */
-    public const REASON_WAIT_DUE = 'wait_due';
-
     /**
      * @param  string  $workflow  Workflow class name.
      * @param  RecoveryReason  $reason  Why recovery selected it; `->value` is the

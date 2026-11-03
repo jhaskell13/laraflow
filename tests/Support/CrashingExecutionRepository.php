@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Support;
 
 use DateTimeImmutable;
+use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionPage;
@@ -72,6 +73,21 @@ class CrashingExecutionRepository implements ExecutionRepository
     public function stepProgress(array $ids): array
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->stepProgress($ids));
+    }
+
+    public function childProgress(int $parentStepExecutionId): ChildProgress
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->childProgress($parentStepExecutionId));
+    }
+
+    public function appendCompensation(WorkflowExecution $execution, StepExecution $compensates): StepExecution
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->appendCompensation($execution, $compensates));
+    }
+
+    public function checkpointStatus(WorkflowExecution $execution): void
+    {
+        $this->call(__FUNCTION__, fn () => $this->inner->checkpointStatus($execution));
     }
 
     public function attemptHistory(WorkflowExecution $execution): array
