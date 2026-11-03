@@ -184,7 +184,7 @@ class Compensator
         // is charged to the very policy its step declared.
         $policy = $this->policies->forStep($step, $workflow);
         $startedAt = $this->clock->now();
-        $timeoutAt = $policy->timeoutSeconds === null ? null : $startedAt->modify("+{$policy->timeoutSeconds} seconds");
+        $timeoutAt = $policy->deadlineFrom($startedAt);
 
         $row->markRunning($startedAt, $timeoutAt);
         $this->repository->saveStep($execution, $row);

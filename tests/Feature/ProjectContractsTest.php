@@ -538,6 +538,58 @@ class ProjectContractsTest extends TestCase
     }
 
     /**
+     * The other half of the rule above, which skips Eloquent models
+     * "which cast them" — and nothing checked that they do.
+     *
+     * pdo_sqlsrv returns every column as a string, so a foreign key
+     * without an integer cast reaches a handle's `?int` constructor as
+     * a string and fatals on SQL Server alone. That is exactly how
+     * Milestone 9's `compensates_step_execution_id` shipped: the one
+     * id column added since this rule was written, and the one not
+     * covered by it. Driven from the live schema, so the next column
+     * cannot be missed either.
+     */
+    public function test_every_id_column_on_a_model_is_cast_to_integer(): void
+    {
+        $models = [
+            \Laraflow\Workflow\Models\WorkflowExecutionModel::class,
+            \Laraflow\Workflow\Models\StepExecutionModel::class,
+            \Laraflow\Workflow\Models\StepAttemptModel::class,
+            \Laraflow\Workflow\Models\IdempotencyKeyModel::class,
+        ];
+
+        $offenders = [];
+        $inspected = 0;
+
+        foreach ($models as $class) {
+            $model = new $class;
+            $casts = $model->getCasts();
+
+            foreach (\Illuminate\Support\Facades\Schema::getColumnListing($model->getTable()) as $column) {
+                // The primary key is cast by Eloquent itself, from
+                // $incrementing and $keyType; correlation and tenant
+                // are the two application-supplied identifiers, which
+                // are strings by contract — the same pair the
+                // signature rule above exempts.
+                if ($column === $model->getKeyName()
+                    || ! str_ends_with($column, '_id')
+                    || in_array($column, ['correlation_id', 'tenant_id'], true)) {
+                    continue;
+                }
+
+                $inspected++;
+
+                if (($casts[$column] ?? null) !== 'integer') {
+                    $offenders[] = sprintf('%s: %s is cast as [%s]', class_basename($class), $column, $casts[$column] ?? 'nothing');
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'An id column has no integer cast; pdo_sqlsrv will hand it back as a string.');
+        $this->assertGreaterThan(5, $inspected, 'The cast rule inspected too few columns to mean anything.');
+    }
+
+    /**
      * Milestone 8 step 2: the four recovery scans have one shape — a
      * cutoff, a limit, a workflow scope, a tenant scope — so whatever
      * narrows one narrows all. Compared structurally, by position, type,

@@ -577,9 +577,7 @@ class WorkflowRunner
                 )
                 : null;
 
-            $timeoutAt = $policy->timeoutSeconds !== null
-                ? $startedAt->add(new DateInterval("PT{$policy->timeoutSeconds}S"))
-                : null;
+            $timeoutAt = $policy->deadlineFrom($startedAt);
 
             $this->startStep($execution, $stepExecution, $context, $startedAt, $timeoutAt, $interrupted);
 

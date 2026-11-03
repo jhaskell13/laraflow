@@ -28,6 +28,17 @@ class SecretExposureTest extends TestCase
 {
     protected const TOKEN = 'ghp_sweep_sentinel_7f3a';
 
+    /**
+     * A second sentinel for the one case where the *caller* writes a
+     * credential into its own request URI. Laraflow must keep it out
+     * of what it renders, but the ConnectorRequest the application
+     * built is the application's own object — finding the value there
+     * is finding the caller's input, not a leak. Kept distinct from
+     * TOKEN so the frame-argument walk stays a statement about
+     * credentials Laraflow resolved and injected.
+     */
+    protected const QUERY_TOKEN = 'ghp_query_sentinel_9b2c';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -87,13 +98,14 @@ class SecretExposureTest extends TestCase
         Http::fake(['api.github.com/*' => Http::response(['message' => 'Bad credentials'], 401)]);
 
         $response = $this->app->make(LaraflowManager::class)->connector('github')
-            ->request(new ConnectorRequest('GET', '/user?access_token='.self::TOKEN));
+            ->request(new ConnectorRequest('GET', '/user?access_token='.self::QUERY_TOKEN));
 
         $error = $response->error();
 
         $this->assertNotNull($error);
         $this->assertExceptionRendersWithoutToken($error);
         $this->assertStringNotContainsString('access_token', $error->getMessage());
+        $this->assertStringNotContainsString(self::QUERY_TOKEN, $error->getMessage(), 'The query string must not reach the message.');
     }
 
     public function test_a_missing_credential_error_renders_without_other_credentials(): void
@@ -178,14 +190,30 @@ class SecretExposureTest extends TestCase
             $this->assertStringNotContainsString(self::TOKEN, $e->getMessage(), get_class($e).' message leaked the token.');
             $this->assertStringNotContainsString(self::TOKEN, (string) $e, get_class($e).' string form leaked the token.');
 
+            // Walked rather than rendered. This was
+            // `print_r($frame['args'], true)`, and an argument graph
+            // reaches the container and the HTTP client: rendering one
+            // to a string allocated hundreds of megabytes and killed
+            // the suite outright wherever `zend.exception_ignore_args`
+            // is off — which is the stock PHP default, and not what
+            // `php.ini-production` (and so CI) uses. The walk applies
+            // this file's own scoping rule, the same one
+            // propertiesHolding() uses and SECURITY.md states: arrays
+            // all the way down, objects only where Laraflow owns them.
+            // A foreign exception's graph beneath a connector is the
+            // documented out-of-scope sink, not this test's subject.
+            // One $seen across the whole trace, so a shared object is
+            // visited once rather than once per frame.
+            $seen = [];
+
             foreach ($e->getTrace() as $frame) {
                 if (! str_starts_with($frame['class'] ?? '', 'Laraflow\\')) {
                     continue;
                 }
 
-                $this->assertStringNotContainsString(
-                    self::TOKEN,
-                    print_r($frame['args'] ?? [], true),
+                $this->assertSame(
+                    [],
+                    $this->valuesHolding(self::TOKEN, $frame['args'] ?? [], 'args', $seen),
                     sprintf('%s::%s() exposes the token in its arguments.', $frame['class'], $frame['function']),
                 );
             }

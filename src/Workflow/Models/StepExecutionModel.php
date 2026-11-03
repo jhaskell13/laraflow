@@ -87,6 +87,7 @@ class StepExecutionModel extends Model
             // columns: pdo_sqlsrv returns every column as a string, and
             // a handle must expose the same types on every engine.
             'workflow_execution_id' => 'integer',
+            'compensates_step_execution_id' => 'integer',
             'position' => 'integer',
             'attempts' => 'integer',
             'input' => 'array',

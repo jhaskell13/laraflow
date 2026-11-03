@@ -179,10 +179,20 @@ trait AppliesRetention
         }
 
         return $this->transaction(function () use ($ids, $statuses, $finishedBefore): int {
-            // Re-asked inside the transaction, like every other part
-            // of the guard: a parent may have gone back to work
-            // between the scan and here.
-            $deleted = $this->withoutALiveParent($this->finishedBefore($statuses, $finishedBefore))
+            // Re-asked inside the transaction, like every other part of
+            // the guard: a parent may have gone back to work between the
+            // scan and here. Resolved to a list of ids by a read rather
+            // than expressed as a subquery, because MySQL and MariaDB
+            // refuse to name a DELETE's own target table inside one
+            // (error 1093) — and this is the one place the guard appears
+            // on a DELETE rather than a SELECT.
+            $ids = $this->withoutALiveParentAmong($ids);
+
+            if ($ids === []) {
+                return 0;
+            }
+
+            $deleted = $this->finishedBefore($statuses, $finishedBefore)
                 ->whereIn('id', $ids)
                 ->delete();
 
@@ -247,6 +257,50 @@ trait AppliesRetention
      * that removes a record: scrubbing and attempt pruning leave the
      * identity and status a parent reads.
      *
+     * The same guard as a list of ids, for the DELETE.
+     *
+     * Two plain reads rather than the subquery below: MySQL and
+     * MariaDB refuse to name a DELETE's target table inside a subquery
+     * (error 1093), and a correlated derived table is not available to
+     * work around it on every supported engine. Both reads are
+     * primary-key lookups over the candidate page.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    protected function withoutALiveParentAmong(array $ids): array
+    {
+        /** @var array<int, int> $parents Child id => parent id, for the children that have one. */
+        $parents = WorkflowExecutionModel::query()
+            ->whereIn('id', $ids)
+            ->whereNotNull('parent_execution_id')
+            ->pluck('parent_execution_id', 'id')
+            ->all();
+
+        if ($parents === []) {
+            return $ids;
+        }
+
+        /** @var list<int> $live */
+        $live = WorkflowExecutionModel::query()
+            ->whereIn('id', array_values(array_unique($parents)))
+            ->whereNull('finished_at')
+            ->pluck('id')
+            ->all();
+
+        if ($live === []) {
+            return $ids;
+        }
+
+        $live = array_flip($live);
+
+        return array_values(array_filter(
+            $ids,
+            fn (int $id): bool => ! isset($parents[$id]) || ! isset($live[$parents[$id]]),
+        ));
+    }
+
+    /**
      * @param  Builder<WorkflowExecutionModel>  $query
      * @return Builder<WorkflowExecutionModel>
      */

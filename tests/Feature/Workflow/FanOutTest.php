@@ -303,7 +303,12 @@ class FanOutTest extends TestCase
         $this->assertSame(0, WorkflowExecutionModel::query()->where('parent_execution_id', $parent->id)->count());
 
         $output = StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole()->output;
-        $this->assertSame(['total' => 0, 'completed' => 0, 'members' => []], $output);
+        // assertEquals, not assertSame: MySQL's JSON type stores an
+        // object with its keys sorted and hands them back that way, so
+        // the summary reads as total/members/completed there and
+        // total/completed/members everywhere else. The shape is the
+        // claim; the key order is the engine's business.
+        $this->assertEquals(['total' => 0, 'completed' => 0, 'members' => []], $output);
         Queue::assertNothingPushed();
     }
 
