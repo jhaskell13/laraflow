@@ -133,7 +133,9 @@ class FanOutWorkflows
                 step: $stepRow->step,
                 position: $stepRow->position,
                 members: count($declared),
-                memberIds: array_map(fn (WorkflowExecution $member): int => $member->id, $group->members()),
+                // A sample, not a census: the event is a notification,
+                // and a thousand ids on one is a payload.
+                memberIds: $group->memberIds(100),
             ));
         } elseif ($created > 0) {
             // A retry of the step: the members exist, and the ones that

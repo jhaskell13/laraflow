@@ -26,6 +26,18 @@ final class FanOutGroup
     /** How many members that did not complete a failure names. */
     private const NAMED_IN_FAILURE = 5;
 
+    /**
+     * How many member ids a completed group's summary carries.
+     *
+     * The summary is a step output: it obeys the payload limit like
+     * any other, and a thousand ids is a payload rather than a
+     * description. It is also what keeps the cost of deciding about a
+     * group independent of the group — reading every id took one more
+     * query per page, which a thousand members made visible and three
+     * did not (the Milestone 9 scale test).
+     */
+    private const IDS_IN_SUMMARY = 100;
+
     public function __construct(
         private readonly ExecutionRepository $repository,
         private readonly WorkflowExecution $parent,
@@ -96,7 +108,7 @@ final class FanOutGroup
             return [
                 'total' => $progress->total(),
                 'completed' => $progress->completed(),
-                'members' => array_map(fn (WorkflowExecution $member): int => $member->id, $this->members()),
+                'members' => $this->memberIds(self::IDS_IN_SUMMARY),
             ];
         }
 
@@ -110,6 +122,30 @@ final class FanOutGroup
         ), 0, self::NAMED_IN_FAILURE);
 
         throw FanOutFailedException::forOutcome($this->stepRow->step, $this->stepRow->position, $progress, $notCompleted);
+    }
+
+    /**
+     * The first member ids, at most $limit of them, in creation order.
+     * One page: the caller wants a sample to point at, not a census.
+     *
+     * @return list<int>
+     */
+    public function memberIds(int $limit): array
+    {
+        $page = $this->repository->list(
+            new ExecutionFilter(parentId: $this->parent->id, oldestFirst: true),
+            min($limit, ExecutionRepository::MAX_PAGE_SIZE),
+        );
+
+        $ids = [];
+
+        foreach ($page->executions as $candidate) {
+            if ($candidate->parentStepExecutionId === $this->stepRow->id) {
+                $ids[] = $candidate->id;
+            }
+        }
+
+        return $ids;
     }
 
     /**

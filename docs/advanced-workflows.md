@@ -151,13 +151,15 @@ Waiting for all is the less surprising rule and never destroys work that was nea
 
 **The step's failure is an ordinary step failure.** It is charged to the step's own retry policy, it fires the same events, it is recorded the same way. A fan-out step is not special once it has failed.
 
-**The output is a summary, never the members' payloads.** On success the step's output is the group's shape — total, completed, and the member execution ids, bounded. A member's *context* never crosses the boundary, exactly as a single child's does not: an application that needs a member's result reads it from where that member put it.
+**The output is a summary, never the members' payloads.** On success the step's output is the group's shape: total, completed, and **at most the first hundred** member execution ids. Bounded for two reasons — a thousand ids is a payload rather than a description, and reading every one of them cost a query per page, which is the one way the cost of deciding about a group grew with the group. A member's *context* never crosses the boundary, exactly as a single child's does not: an application that needs a member's result reads it from where that member put it, or lists the members by the parent filter.
 
 ### Cancellation and retry
 
 **Cancelling the parent cascades to the members**, through the existing cascade, which already pages through children rather than loading them. At width this matters: the cascade is bounded per page and resumes, and members created mid-cancellation are caught at the cooperative boundary the same way a single child is.
 
 **Retrying a fan-out step resumes the same members.** The members are linked to that exact step row, so a retry finds them, re-delivers the ones that are not finished, and parks again — it does not create a second group. Members that completed stay completed; a failed member is re-executed from its own checkpoints, which is the package's ordinary recovery path. A **cancelled** member cannot be resumed, so a group containing one reports the same outcome on every retry until an operator intervenes — the same rule a single cancelled child follows.
+
+**Deciding about a group costs the same however wide it is.** One claim of a parked join issues the same number of queries at a thousand members as at three — a test asserts the two counts are *equal*, not merely similar, because "roughly constant" is how a linear cost hides. The aggregate does the counting; member rows are read only to re-deliver the few that need it and to sample ids for the summary.
 
 ### Bounds
 
@@ -222,6 +224,10 @@ A fan-out step that wants its members undone says so explicitly, in its own `com
 - **Sub-workflows.** As with fan-out: the parent step's `compensate()` runs; the child is not touched.
 - **Plan migration.** A migration may only rewrite the undecided tail, so every completed step is one the current code still describes — which is precisely what compensation needs to resolve `compensate()` against. A plan that migrated and then failed compensates the steps that completed, under the definitions they completed under.
 - **Retention.** A compensation row is a step row and follows step rows: scrubbed with its execution's payloads, pruned with its attempts, deleted with its execution.
+
+### Compensation's statuses, exactly
+
+An execution is `compensating` while a pass is running under a claim. An undo whose own retry is scheduled rests it as **`retrying`** — accurately, since that is what it is doing — and the existing due-retry scan delivers it with no new scan and no new window. A pass already under way is recognised from its **rows** (a compensation row that has not completed), not from the status, so a resumed claim continues undoing rather than re-running a plan that is finished with. The failure the execution will rest on is recorded when the pass begins, so a pass spanning claims still ends on the right error, and an undo's own failure never overwrites it.
 
 ### What compensation is not
 
