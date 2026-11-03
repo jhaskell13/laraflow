@@ -9,6 +9,7 @@ use DateTimeZone;
 use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowScheduleSkipped;
 use Laraflow\Events\WorkflowScheduleTicked;
+use Laraflow\Exceptions\Workflow\TickAlreadyClaimedException;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\NightlyWorkflow;
 use Laraflow\Tests\Support\OneStepWorkflow;
@@ -508,6 +509,65 @@ class ScheduleTest extends TestCase
                 && $event->missed === 0
                 && $event->caughtUp === false;
         });
+    }
+
+    /**
+     * The race itself, at the claim: two schedulers read the same
+     * high-water mark (the real interleaving — B's decision predates
+     * A's commit), both create their execution inside their claiming
+     * transaction, and the unique tick index lets exactly one commit.
+     * The loser's transaction rolls back whole, execution included:
+     * nothing ran twice, and nothing half-exists.
+     */
+    public function test_a_losing_claim_rolls_back_the_execution_it_created(): void
+    {
+        $this->scheduler()->run();
+        $this->clock->set('2026-11-04 02:00:30');
+
+        $runner = $this->app->make(WorkflowRunner::class);
+        $tickAt = new DateTimeImmutable('2026-11-04 02:00:00', new DateTimeZone('UTC'));
+
+        // Two schedulers, one row, read before either claims.
+        $readByA = $this->schedules()->find(NightlyWorkflow::class);
+        $readByB = $this->schedules()->find(NightlyWorkflow::class);
+        $this->assertNotNull($readByA);
+        $this->assertNotNull($readByB);
+
+        $won = $this->schedules()->claimTick(
+            $readByA,
+            $tickAt,
+            TickOutcome::Started,
+            fn (): WorkflowExecution => $runner->start(new NightlyWorkflow),
+            $this->clock->now(),
+        );
+
+        $this->assertNotNull($won->workflowExecutionId);
+
+        try {
+            $this->schedules()->claimTick(
+                $readByB,
+                $tickAt,
+                TickOutcome::Started,
+                fn (): WorkflowExecution => $runner->start(new NightlyWorkflow),
+                $this->clock->now(),
+            );
+
+            $this->fail('The second claim of one tick must lose to the unique index.');
+        } catch (TickAlreadyClaimedException) {
+            // The designed outcome for every claimant but one.
+        }
+
+        $this->assertSame(1, ScheduleTickModel::query()->count(), 'One tick row, whoever read first.');
+        $this->assertSame(
+            1,
+            WorkflowExecutionModel::query()->count(),
+            "The loser's execution rolled back with its tick: the plan rows, the execution, all of it.",
+        );
+        $this->assertSame(
+            '2026-11-04 02:00:00',
+            $this->schedules()->find(NightlyWorkflow::class)?->lastTickAt?->format('Y-m-d H:i:s'),
+            'The high-water mark advanced exactly once, to the claimed instant.',
+        );
     }
 
     /**

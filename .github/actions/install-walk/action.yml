@@ -276,6 +276,87 @@ runs:
         grep -q 'undo' show.log
         php artisan laraflow:list --workflow='App\Workflows\BookTrip' --status=failed | grep -q '1 of 1'
 
+    # Schedules: the Milestone 10 exit criterion — a scheduled workflow
+    # runs once per tick with schedulers racing. A real declaration in a
+    # real class, activated in the published config, and three
+    # laraflow:schedule processes started together must produce exactly
+    # one tick and one execution: the unique index, not a lock, is the
+    # arbiter, and the racing runs all exit zero because losing the
+    # insert is the designed outcome.
+    - name: A scheduled workflow ticks exactly once across racing schedulers
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat > app/Workflows/NightlyDigest.php <<'WF'
+        <?php
+
+        namespace App\Workflows;
+
+        use App\Workflows\Steps\ReserveInventory;
+        use DateTimeImmutable;
+        use Laraflow\Workflow\Schedule;
+        use Laraflow\Workflow\Workflow;
+
+        class NightlyDigest extends Workflow
+        {
+            public function steps(): array
+            {
+                return [ReserveInventory::class];
+            }
+
+            public function schedule(): ?Schedule
+            {
+                return Schedule::cron('* * * * *')
+                    ->input(fn (DateTimeImmutable $tick): array => ['order_id' => 77]);
+            }
+        }
+        WF
+        php -l app/Workflows/NightlyDigest.php
+        sed -i "s#'workflows' => \[\],#'workflows' => [\\\\App\\\\Workflows\\\\NightlyDigest::class],#" config/laraflow.php
+        grep -q 'NightlyDigest' config/laraflow.php
+
+        # SQLite serialises writers; racing processes need WAL and a
+        # busy timeout so a loser waits for the winner's commit instead
+        # of erroring. The engine jobs need neither.
+        if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
+          sed -i "s#'busy_timeout' => null,#'busy_timeout' => 5000,#" config/database.php
+          sed -i "s#'journal_mode' => null,#'journal_mode' => 'wal',#" config/database.php
+        fi
+
+        # The first run registers the schedule, and a new schedule never
+        # backfills: nothing is due yet.
+        php artisan laraflow:schedule | tee schedule.log
+        grep -q 'not due' schedule.log
+
+        # Wait out the current minute so exactly one fresh tick is due,
+        # then race three schedulers at it. Every process must exit 0:
+        # losing the claim is not a failure.
+        sleep $((61 - 10#$(date +%S)))
+        php artisan laraflow:schedule > tick-a.log 2>&1 & A=$!
+        php artisan laraflow:schedule > tick-b.log 2>&1 & B=$!
+        php artisan laraflow:schedule > tick-c.log 2>&1 & C=$!
+        wait $A
+        wait $B
+        wait $C
+        cat tick-a.log tick-b.log tick-c.log
+
+        # Exactly one of the three started the tick; one execution exists.
+        test "$(grep -l 'started' tick-a.log tick-b.log tick-c.log | wc -l)" = "1"
+        php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' | grep -q '1 of 1'
+
+        # A worker runs it, the record completes, and the execution says
+        # what started it.
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' --status=completed | grep -q '1 of 1'
+        ID=$(php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' | grep -oE '\| *[0-9]+ ' | head -1 | tr -dc '0-9')
+        php artisan laraflow:show "$ID" | tee origin.log
+        grep -q 'Started by' origin.log
+        php artisan laraflow:schedules | tee schedules.log
+        grep -q 'NightlyDigest' schedules.log
+
+        # The claimed tick is not due twice.
+        php artisan laraflow:schedule | grep -q 'not due'
+
     - name: The dashboard is absent until mounted, and denied by default
       shell: bash
       working-directory: ${{ inputs.app }}
