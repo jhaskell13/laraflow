@@ -16,6 +16,7 @@ use Laraflow\Dashboard\Support\FilterRequest;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Support\Outcome;
 use Laraflow\Workflow\AttentionScan;
+use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\IdempotencyStore;
@@ -150,8 +151,8 @@ final class ExecutionController
      * signal forms are for. A view renders them; it does not work
      * them out (Milestone 8.5 audit).
      *
-     * @param  list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>  $waits
-     * @return array{execute: bool, cancel: bool, early: bool, signallable: list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>}
+     * @param  list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>  $waits
+     * @return array{execute: bool, cancel: bool, early: bool, signallable: list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>}
      */
     private function offers(WorkflowExecution $execution, array $waits): array
     {
@@ -181,7 +182,7 @@ final class ExecutionController
      * of them (Milestone 8.5 audit).
      *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
-     * @return list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}>
+     * @return list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null, progress: ChildProgress|null}>
      */
     private function waitingOn(array $steps): array
     {
@@ -192,23 +193,34 @@ final class ExecutionController
                 continue;
             }
 
+            if (Wait::isJoinSignal($step->waitSignal)) {
+                $waits[] = [
+                    'step' => $step,
+                    'kind' => 'join',
+                    'childId' => null,
+                    'progress' => $this->repository->childProgress($step->id),
+                ];
+
+                continue;
+            }
+
             if (Wait::isChildSignal($step->waitSignal)) {
                 // A child wait is never indefinite: the parent checks on
                 // the child at every heartbeat, recorded on the execution.
                 $childId = Wait::childIdFrom((string) $step->waitSignal);
 
-                $waits[] = ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId];
+                $waits[] = ['step' => $step, 'kind' => $childId === 0 ? 'malformed' : 'child', 'childId' => $childId === 0 ? null : $childId, 'progress' => null];
 
                 continue;
             }
 
             if ($step->waitSignal === null) {
-                $waits[] = ['step' => $step, 'kind' => 'timed', 'childId' => null];
+                $waits[] = ['step' => $step, 'kind' => 'timed', 'childId' => null, 'progress' => null];
 
                 continue;
             }
 
-            $waits[] = ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null];
+            $waits[] = ['step' => $step, 'kind' => $step->timeoutAt !== null ? 'signal' : 'signal-indefinite', 'childId' => null, 'progress' => null];
         }
 
         return $waits;

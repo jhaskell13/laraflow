@@ -200,7 +200,10 @@ trait DisplaysExecutions
             ['#', 'Step', 'Status', 'Attempts', 'Next retry', 'Output', 'Error'],
             array_map(fn (StepExecution $step): array => [
                 $step->position,
-                class_basename($step->step),
+                // A compensation is a step row appended after the plan;
+                // saying so is the difference between a saga a reader
+                // can follow and one that looks like a repeated step.
+                ($step->isCompensation() ? '<fg=magenta>undo</> ' : '').class_basename($step->step),
                 $this->coloredStatus($step->status->value)
                     // A running step past its deadline is hung, not dead:
                     // its claim may still be live, so nothing acts on it,

@@ -60,7 +60,7 @@ class ShowCommand extends Command
         }
 
         if ($execution->isWaiting()) {
-            $this->displayWait($execution, $steps);
+            $this->displayWait($repository, $execution, $steps);
         }
 
         if ($execution->claimToken !== null) {
@@ -98,10 +98,31 @@ class ShowCommand extends Command
      *
      * @param  \Laraflow\Workflow\StepExecution[]  $steps
      */
-    protected function displayWait(WorkflowExecution $execution, array $steps): void
+    protected function displayWait(ExecutionRepository $repository, WorkflowExecution $execution, array $steps): void
     {
         foreach ($steps as $step) {
             if (! $step->isWaiting()) {
+                continue;
+            }
+
+            if (Wait::isJoinSignal($step->waitSignal)) {
+                // A join is never indefinite either: the parent checks
+                // on the group at every heartbeat, and the counts come
+                // from the one aggregate the join itself reads.
+                $progress = $repository->childProgress($step->id);
+
+                $this->components->twoColumnDetail(
+                    '<fg=gray>Waiting</>',
+                    sprintf(
+                        '%s on %d of %d fan-out member(s) still running (next check %s)',
+                        class_basename($step->step),
+                        $progress->unfinished(),
+                        $progress->total(),
+                        $this->formatDate($execution->nextRetryAt),
+                    ),
+                );
+                $this->newLine();
+
                 continue;
             }
 
