@@ -479,12 +479,15 @@ runs:
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
-        # Unmounted: not a disabled dashboard, an absent one. Nothing
-        # named laraflow.* is registered at all. (--json is one line,
-        # so this asks whether it matches, never how many times.)
+        # Unmounted: not a disabled dashboard, an absent one. None of
+        # its routes is registered at all. (--json is one line, so this
+        # asks whether it matches, never how many times.)
         php artisan route:list --json > routes.json
         grep -q 'laraflow/executions' routes.json && exit 1 || true
-        grep -q '"name":"laraflow\.' routes.json && exit 1 || true
+        # The dashboard's own names, not every laraflow.* name: the
+        # trigger stage before this one mounted laraflow.triggers.*,
+        # and triggers and the dashboard are mounted independently.
+        grep -q '"name":"laraflow\.\(dashboard\|executions\|actions\|assets\)' routes.json && exit 1 || true
         php artisan serve --port=8321 --no-reload > serve.log 2>&1 &
         SERVER=$!
         trap 'kill $SERVER 2>/dev/null || true' EXIT

@@ -78,7 +78,10 @@ class SignedEndpointTest extends TestCase
 
         $execution = $this->executions()->find($id);
         $this->assertTrue($execution->isCompleted(), 'The sync driver ran it to completion.');
-        $this->assertSame(['approved_by' => 'ops@example.com', 'note' => 'Looks right.'], $execution->context['manager-approval']);
+        // assertEquals, not assertSame: MySQL keeps JSON object keys in
+        // its own order (Milestone 8, step 13a), and the payload's keys
+        // are what matter, not the order they come back in.
+        $this->assertEquals(['approved_by' => 'ops@example.com', 'note' => 'Looks right.'], $execution->context['manager-approval']);
         $this->assertSame(1, StepTwo::$runs, 'The step after the wait ran.');
         $this->assertTrue($this->logger->hasRecordContaining('info', 'recorded a signal from a trigger'));
     }

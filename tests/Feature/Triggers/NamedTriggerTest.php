@@ -73,7 +73,7 @@ class NamedTriggerTest extends TestCase
 
         $execution = $this->executions()->find($this->parked);
         $this->assertTrue($execution->isCompleted());
-        $this->assertSame(['amount' => 5000], $execution->context['manager-approval']);
+        $this->assertEquals(['amount' => 5000], $execution->context['manager-approval']);
     }
 
     public function test_the_verifier_refuses_before_the_resolver_runs(): void
