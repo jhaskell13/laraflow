@@ -171,6 +171,38 @@ class RetentionServiceTest extends TestCase
         $this->assertSame(2, StepAttemptModel::query()->where('workflow_execution_id', $kept->id)->count());
     }
 
+    /**
+     * retention.md states that retention "can never separate a live
+     * pair", on the reasoning that a parent waits only on an
+     * unfinished child. That holds for a sub-workflow, which waits on
+     * one child and resumes the moment it finishes. It does not hold
+     * for a fan-out: a parent parked on a join waits for the *group*,
+     * so a member that completed early sits finished — and ageable —
+     * while its parent is still waiting for its siblings.
+     *
+     * Deleting one is not a cosmetic loss. The join decides from
+     * childProgress(), which counts the rows that exist, so deleting
+     * the members that failed turns a group that should fail into one
+     * that completes.
+     */
+    public function test_a_finished_member_is_not_deleted_while_its_parent_is_still_waiting(): void
+    {
+        $parent = $this->unfinished('waiting');
+        $parentStep = StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->sole();
+
+        $member = $this->aged('completed', 100, parentExecutionId: $parent->id, parentStepExecutionId: $parentStep->id);
+        $orphan = $this->aged('completed', 100);
+
+        $report = $this->service()->prune(new RetentionPolicy(deleteAfterDays: 90));
+
+        $this->assertNotNull(
+            WorkflowExecutionModel::query()->find($member->id),
+            'A member its parent is still parked on outlives the bound.',
+        );
+        $this->assertNull(WorkflowExecutionModel::query()->find($orphan->id), 'Work with no live parent is deleted as before.');
+        $this->assertSame(1, $report->deleted);
+    }
+
     public function test_deleting_does_not_depend_on_database_cascades(): void
     {
         // Switching SQLite's foreign keys off inside the test transaction
@@ -655,6 +687,8 @@ class RetentionServiceTest extends TestCase
         int $attempts = 1,
         string $workflow = 'App\Sync',
         ?string $tenantId = null,
+        ?int $parentExecutionId = null,
+        ?int $parentStepExecutionId = null,
     ): WorkflowExecution {
         $repository = $this->repository();
 
@@ -662,7 +696,11 @@ class RetentionServiceTest extends TestCase
             $workflow,
             input: ['customer_id' => 42, 'secret' => 'tok_SENTINEL'],
             steps: ['App\Steps\First'],
-            options: new ExecutionOptions(tenantId: $tenantId),
+            options: new ExecutionOptions(
+                tenantId: $tenantId,
+                parentExecutionId: $parentExecutionId,
+                parentStepExecutionId: $parentStepExecutionId,
+            ),
         );
 
         $execution = $repository->claim($execution->id, 'worker', 300);
