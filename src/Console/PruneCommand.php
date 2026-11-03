@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
+use Laraflow\Console\Concerns\OutputsJson;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionReport;
@@ -35,6 +36,7 @@ use Throwable;
 class PruneCommand extends Command
 {
     use ConfirmableTrait;
+    use OutputsJson;
     use ParsesExecutionFilters;
 
     protected $signature = 'laraflow:prune
@@ -47,7 +49,8 @@ class PruneCommand extends Command
         {--workflow= : Only consider executions created from this workflow class}
         {--tenant= : Only consider executions for this tenant id}
         {--dry-run : Report what would be removed without removing anything}
-        {--force : Skip the production confirmation}';
+        {--force : Skip the production confirmation}
+        {--json : Print one JSON document instead of the report; requires --force or --dry-run}';
 
     protected $description = 'Apply the retention policy to finished workflow executions';
 
@@ -56,20 +59,27 @@ class PruneCommand extends Command
         try {
             $policy = $this->policy($config);
         } catch (InvalidArgumentException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse($exception->getMessage());
         }
 
         if (! $policy->isEnabled()) {
-            return $this->refuse();
-        }
-
-        foreach ($policy->warnings() as $warning) {
-            $this->components->warn($warning);
+            return $this->refuseUnconfigured();
         }
 
         $dryRun = (bool) $this->option('dry-run');
+
+        if ($this->wantsJson() && ! $dryRun && ! (bool) $this->option('force')) {
+            // A machine cannot answer the production confirmation, and a
+            // prune that deletes durable records must not hang a pipeline
+            // on a prompt nor skip the question because nobody could hear it.
+            return $this->refuse('laraflow:prune --json must pass --force (or --dry-run): a machine cannot answer the production confirmation.');
+        }
+
+        if (! $this->wantsJson()) {
+            foreach ($policy->warnings() as $warning) {
+                $this->components->warn($warning);
+            }
+        }
 
         // A dry run writes nothing, so it has nothing to confirm.
         if (! $dryRun && ! $this->confirmToProceed()) {
@@ -86,15 +96,31 @@ class PruneCommand extends Command
         } catch (Throwable $exception) {
             // A scheduled run surfaces through its exit code, so a
             // storage failure must not look like a quiet success.
-            $this->components->error('Retention failed: '.$exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse('Retention failed: '.$exception->getMessage());
         }
 
-        $this->report($report, $policy);
         $this->record($logger, $report);
 
-        return self::SUCCESS;
+        return $this->respond([
+            'dry_run' => $report->dryRun,
+            'policy' => [
+                'scrub_after_days' => $policy->scrubAfterDays,
+                'prune_attempts_after_days' => $policy->pruneAttemptsAfterDays,
+                'delete_after_days' => $policy->deleteAfterDays,
+                'delete_failed_after_days' => $policy->deleteFailedAfterDays,
+            ],
+            'warnings' => $policy->warnings(),
+            'report' => [
+                'scanned' => $report->scanned,
+                'scrubbed' => $report->scrubbed,
+                'attempt_executions' => $report->attemptExecutions,
+                'attempt_rows' => $report->attemptRows,
+                'deleted' => $report->deleted,
+                'deleted_failed' => $report->deletedFailed,
+                'skipped' => $report->skipped,
+                'touched' => $report->touched(),
+            ],
+        ], fn () => $this->report($report, $policy));
     }
 
     /**
@@ -142,8 +168,12 @@ class PruneCommand extends Command
      * indistinguishable from one that is working, right up until
      * someone looks at the size of the attempt table.
      */
-    protected function refuse(): int
+    protected function refuseUnconfigured(): int
     {
+        if ($this->wantsJson()) {
+            return $this->refuse('No retention bounds are configured, so there is nothing to prune.');
+        }
+
         $this->components->error('No retention bounds are configured, so there is nothing to prune.');
 
         $this->components->bulletList([

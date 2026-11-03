@@ -6,6 +6,7 @@ namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\Scheduling\ScheduleAction;
 use Laraflow\Workflow\Scheduling\Scheduler;
 use Laraflow\Workflow\Scheduling\SchedulerRun;
@@ -31,7 +32,8 @@ class ScheduleCommand extends Command
 
     protected $signature = 'laraflow:schedule
         {--dry-run : Name the ticks that would be claimed without claiming, starting, or writing anything}
-        {--sync : Run started executions in this process instead of dispatching them to the queue}';
+        {--sync : Run started executions in this process instead of dispatching them to the queue}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Run one scheduler tick: claim due schedule ticks and start their executions';
 
@@ -42,20 +44,33 @@ class ScheduleCommand extends Command
             sync: (bool) $this->option('sync'),
         );
 
+        $document = [
+            'enabled' => $run->enabled,
+            'dry_run' => $run->dryRun,
+            'actions' => array_map(JsonReport::scheduleAction(...), $run->actions),
+            'redispatched' => $run->redispatched,
+            'orphans' => $run->orphans,
+            'needs_attention' => $run->needsAttention(),
+        ];
+
         if (! $run->enabled) {
             // Deliberate state, successful exit: the kill switch doing
             // its job must not page anyone.
-            $this->components->info('Schedules are disabled (laraflow.schedules.enabled); nothing was considered.');
-
-            return self::SUCCESS;
+            return $this->respond($document, fn () => $this->components->info(
+                'Schedules are disabled (laraflow.schedules.enabled); nothing was considered.'
+            ));
         }
 
         if ($run->actions === [] && $run->orphans === [] && $run->redispatched === []) {
-            $this->components->info(
+            return $this->respond($document, fn () => $this->components->info(
                 'No schedules are registered. Declare schedule() on a workflow and list the class under laraflow.schedules.workflows.'
-            );
+            ));
+        }
 
-            return self::SUCCESS;
+        if ($this->wantsJson()) {
+            $this->emitJson($document, ! $run->needsAttention());
+
+            return $run->needsAttention() ? self::FAILURE : self::SUCCESS;
         }
 
         if ($run->actions !== []) {

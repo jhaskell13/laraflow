@@ -23,7 +23,8 @@ class DemoCommand extends Command
 
     protected $signature = 'laraflow:demo
         {--fail : Make the payment step fail on its first attempt so recovery can be demonstrated}
-        {--queue : Dispatch the demo workflow to the queue instead of running it in this process}';
+        {--queue : Dispatch the demo workflow to the queue instead of running it in this process}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Run the bundled demo workflow against the durable runtime';
 
@@ -38,7 +39,9 @@ class DemoCommand extends Command
             'fail' => (bool) $this->option('fail'),
         ];
 
-        $this->components->info('Starting '.DemoWorkflow::class);
+        if (! $this->wantsJson()) {
+            $this->components->info('Starting '.DemoWorkflow::class);
+        }
 
         if ((bool) $this->option('queue')) {
             return $this->startQueued($runner, $repository, $dispatcher, new DemoWorkflow, $input);

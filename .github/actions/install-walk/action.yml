@@ -475,6 +475,39 @@ runs:
         kill $SERVER 2>/dev/null || true
         wait $SERVER 2>/dev/null || true
 
+    # The operator's edge: every operating command answers as one JSON
+    # document a script can trust, the children of a fan-out are a
+    # listing, and a bulk operation names what it would do without
+    # doing it. jq is what an automation would reach for, so it is what
+    # this reaches for.
+    - name: Automation reads the console as JSON, and bulk operations name their targets first
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan laraflow:list --json | tee list.json | jq -e '.ok and .command == "laraflow:list" and (.executions | length) > 0 and .total >= .shown' > /dev/null
+        test "$(wc -l < list.json)" = "1"
+
+        BROADCAST=$(php artisan laraflow:list --workflow='App\Workflows\Broadcast' --json | jq -r '.executions[0].id')
+        test -n "$BROADCAST"
+        php artisan laraflow:children "$BROADCAST" --json | jq -e --argjson p "$BROADCAST" '.ok and .parent == $p and (.executions | length) == 3 and all(.executions[]; .parent_execution_id == $p)' > /dev/null
+        php artisan laraflow:children "$BROADCAST" | grep -q 'Showing 3 of 3'
+
+        php artisan laraflow:show "$BROADCAST" --attempts --json | jq -e '.ok and .execution.status == "completed" and (.execution.steps | length) > 0 and has("attempts")' > /dev/null
+
+        # The summary may rightly exit non-zero here — the per-minute
+        # schedule above has stopped being ticked — so the document, not
+        # the code, is what this asserts on.
+        php artisan laraflow:summary --json > summary.json || true
+        jq -e '.command == "laraflow:summary" and has("counts") and has("attention") and (.needs_attention | type) == "boolean"' summary.json > /dev/null
+
+        # A bulk operation needs a filter, names its targets under
+        # --dry-run, and under --json refuses to act without --force.
+        php artisan laraflow:cancel --force && exit 1 || true
+        php artisan laraflow:cancel --status=completed --dry-run --json | jq -e '.ok and .dry_run and .matched > 0 and all(.actions[]; .outcome == "would cancel")' > /dev/null
+        php artisan laraflow:execute --status=failed --since='-1 day' --dry-run --json | jq -e '.ok and .dry_run' > /dev/null
+        php artisan laraflow:cancel --status=completed --json && exit 1 || true
+        php artisan laraflow:list --status=completed --json | jq -e '.total > 0' > /dev/null
+
     - name: The dashboard is absent until mounted, and denied by default
       shell: bash
       working-directory: ${{ inputs.app }}

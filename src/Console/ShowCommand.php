@@ -9,11 +9,13 @@ use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
+use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\IdempotencyStatus;
 use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Scheduling\TickOutcome;
+use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -27,7 +29,8 @@ class ShowCommand extends Command
 
     protected $signature = 'laraflow:show
         {execution : The id of the execution to inspect}
-        {--attempts : Also show the per-attempt history of every step}';
+        {--attempts : Also show the per-attempt history of every step, and the remembered work}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Inspect a workflow execution and its steps';
 
@@ -35,75 +38,136 @@ class ShowCommand extends Command
     {
         try {
             $id = $this->executionIdArgument();
-        } catch (InvalidArgumentException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
-        }
-
-        try {
             $execution = $repository->find($id);
-        } catch (WorkflowException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+        } catch (InvalidArgumentException|WorkflowException $exception) {
+            return $this->refuse($exception->getMessage());
         }
 
         $steps = $repository->steps($execution);
+        $tick = $schedules->tickForExecution($execution->id);
+        $attempts = (bool) $this->option('attempts');
 
-        $this->displayExecution($execution, $steps);
+        $document = [
+            'execution' => JsonReport::execution($execution, detailed: true) + [
+                'steps' => array_map(JsonReport::step(...), $steps),
+                'waiting_on' => $this->waitingOn($repository, $execution, $steps),
+                'started_by' => $tick === null ? null : JsonReport::tick($tick),
+            ],
+        ];
 
-        if ($execution->parentExecutionId !== null) {
-            $this->components->twoColumnDetail(
-                '<fg=gray>Parent</>',
-                "execution {$execution->parentExecutionId} (this is a sub-workflow)",
-            );
-            $this->newLine();
+        if ($attempts) {
+            $document['attempts'] = array_map(JsonReport::attempt(...), $repository->attemptHistory($execution));
+            $document['remembered'] = array_map(JsonReport::remembered(...), $idempotency->records($execution->id));
         }
 
-        if (($tick = $schedules->tickForExecution($execution->id)) !== null) {
-            $this->components->twoColumnDetail(
-                '<fg=gray>Started by</>',
-                sprintf(
-                    'schedule tick %s UTC%s%s',
-                    $tick->tickAt->format('Y-m-d H:i'),
-                    $tick->outcome === TickOutcome::CaughtUp ? ' (caught up)' : '',
-                    $tick->missed > 0 ? " ({$tick->missed} missed before it)" : '',
-                ),
-            );
-            $this->newLine();
+        return $this->respond($document, function () use ($repository, $idempotency, $execution, $steps, $tick, $attempts): void {
+            $this->displayExecution($execution, $steps);
+
+            if ($execution->parentExecutionId !== null) {
+                $this->components->twoColumnDetail(
+                    '<fg=gray>Parent</>',
+                    "execution {$execution->parentExecutionId} (this is a sub-workflow)",
+                );
+                $this->newLine();
+            }
+
+            if ($tick !== null) {
+                $this->components->twoColumnDetail(
+                    '<fg=gray>Started by</>',
+                    sprintf(
+                        'schedule tick %s UTC%s%s',
+                        $tick->tickAt->format('Y-m-d H:i'),
+                        $tick->outcome === TickOutcome::CaughtUp ? ' (caught up)' : '',
+                        $tick->missed > 0 ? " ({$tick->missed} missed before it)" : '',
+                    ),
+                );
+                $this->newLine();
+            }
+
+            if ($execution->isWaiting()) {
+                $this->displayWait($repository, $execution, $steps);
+            }
+
+            if ($execution->claimToken !== null) {
+                $this->components->twoColumnDetail(
+                    '<fg=gray>Claimed at</>',
+                    $this->formatDate($execution->claimedAt).' (a worker owns or owned this execution)'
+                );
+                $this->newLine();
+            }
+
+            if ($execution->fruitlessClaims > 1) {
+                // One is the claim any run opens with. More than one, and
+                // the execution has been claimed and dropped before a step
+                // was written — the signature of a fault recovery's step
+                // attempt bound cannot see.
+                $this->components->twoColumnDetail(
+                    '<fg=gray>Claims without progress</>',
+                    "<fg=yellow>{$execution->fruitlessClaims}</> (claimed repeatedly without reaching a step)"
+                );
+                $this->newLine();
+            }
+
+            if ($attempts) {
+                $this->displayAttemptHistory($repository, $execution, $steps);
+                $this->displayIdempotency($idempotency, $execution, $steps);
+            }
+        });
+    }
+
+    /**
+     * What a waiting execution is parked on, as data: one entry per
+     * waiting step — the kind (`signal`, `timer`, `child`, `join`), the
+     * signal name or child id where there is one, and the instant that
+     * ends or re-checks the wait.
+     *
+     * @param  StepExecution[]  $steps
+     * @return list<array<string, mixed>>
+     */
+    protected function waitingOn(ExecutionRepository $repository, WorkflowExecution $execution, array $steps): array
+    {
+        if (! $execution->isWaiting()) {
+            return [];
         }
 
-        if ($execution->isWaiting()) {
-            $this->displayWait($repository, $execution, $steps);
+        $waits = [];
+
+        foreach ($steps as $step) {
+            if (! $step->isWaiting()) {
+                continue;
+            }
+
+            if (Wait::isJoinSignal($step->waitSignal)) {
+                $progress = $repository->childProgress($step->id);
+
+                $waits[] = [
+                    'step' => $step->step,
+                    'kind' => 'join',
+                    'members' => $progress->total(),
+                    'unfinished' => $progress->unfinished(),
+                    'next_check_at' => JsonReport::date($execution->nextRetryAt),
+                ];
+
+                continue;
+            }
+
+            if (Wait::isChildSignal($step->waitSignal)) {
+                $waits[] = [
+                    'step' => $step->step,
+                    'kind' => 'child',
+                    'child' => Wait::childIdFrom((string) $step->waitSignal) ?: null,
+                    'next_check_at' => JsonReport::date($execution->nextRetryAt),
+                ];
+
+                continue;
+            }
+
+            $waits[] = $step->waitSignal === null
+                ? ['step' => $step->step, 'kind' => 'timer', 'until' => JsonReport::date($step->nextRetryAt)]
+                : ['step' => $step->step, 'kind' => 'signal', 'signal' => $step->waitSignal, 'until' => JsonReport::date($step->timeoutAt)];
         }
 
-        if ($execution->claimToken !== null) {
-            $this->components->twoColumnDetail(
-                '<fg=gray>Claimed at</>',
-                $this->formatDate($execution->claimedAt).' (a worker owns or owned this execution)'
-            );
-            $this->newLine();
-        }
-
-        if ($execution->fruitlessClaims > 1) {
-            // One is the claim any run opens with. More than one, and
-            // the execution has been claimed and dropped before a step
-            // was written — the signature of a fault recovery's step
-            // attempt bound cannot see.
-            $this->components->twoColumnDetail(
-                '<fg=gray>Claims without progress</>',
-                "<fg=yellow>{$execution->fruitlessClaims}</> (claimed repeatedly without reaching a step)"
-            );
-            $this->newLine();
-        }
-
-        if ((bool) $this->option('attempts')) {
-            $this->displayAttemptHistory($repository, $execution, $steps);
-            $this->displayIdempotency($idempotency, $execution, $steps);
-        }
-
-        return self::SUCCESS;
+        return $waits;
     }
 
     /**
@@ -111,7 +175,7 @@ class ShowCommand extends Command
      * deadline, or the resume instant — "indefinitely" said out loud
      * when nothing but a signal can wake it.
      *
-     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     * @param  StepExecution[]  $steps
      */
     protected function displayWait(ExecutionRepository $repository, WorkflowExecution $execution, array $steps): void
     {
@@ -172,7 +236,7 @@ class ShowCommand extends Command
      * The rows already carry their step's id, so the step class names
      * are resolved from the steps this command had already loaded.
      *
-     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     * @param  StepExecution[]  $steps
      */
     protected function displayAttemptHistory(
         ExecutionRepository $repository,
@@ -217,7 +281,7 @@ class ShowCommand extends Command
      * and may carry anything. A pending record is an unresolved
      * outcome, and is said so.
      *
-     * @param  \Laraflow\Workflow\StepExecution[]  $steps
+     * @param  StepExecution[]  $steps
      */
     protected function displayIdempotency(IdempotencyStore $store, WorkflowExecution $execution, array $steps): void
     {

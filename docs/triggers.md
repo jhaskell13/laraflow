@@ -2,7 +2,7 @@
 
 > This document is the design contract for Milestone 10's triggers, written before any of it is built. The enforcing suites will be `tests/Feature/Triggers/`, and the install walk will drive the endpoint over real HTTP. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 >
-> The configuration this document names is shipped and held to it by the contracts test. The one command it mentions, the console form of a signal, ships with the operator ergonomics and is named by verb until then.
+> The configuration and the command this document names are shipped and held to it by the contracts test.
 
 ## The problem this solves
 
@@ -183,7 +183,7 @@ An approval **page** is the application's. Laraflow does not serve one, and does
 - New public surface: `Triggers` (the mount and the registry), `TriggerSignature`, `SignalIntent`, the `TriggerVerifier` contract, `TriggerRefusedException`, the two events, and the refusal-reason enum. The verification middleware and the controller are internal.
 - A new `triggers` configuration section — `path`, `middleware`, `key`, `previous_keys`, `tolerance` — arriving with the step that reads it.
 - No schema change. No new repository method: the endpoint reads `find()` and writes through `signal()`.
-- A new command, `signal` by verb, is the console's form of the same action and is specified with the operator ergonomics rather than here; it shares the payload parsing and the delivery reporting.
+- `laraflow:signal {execution} {signal} {--payload=} {--deliver}` is the console's form of the same action, sharing the payload parsing and the delivery reporting; it is documented with the console in [public-api.md](public-api.md).
 
 ## Decided here
 

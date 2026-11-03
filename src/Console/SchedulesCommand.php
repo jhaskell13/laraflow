@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Exceptions\Workflow\WorkflowException;
+use Laraflow\Support\JsonReport;
 use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\Scheduling\ScheduledWorkflow;
 use Laraflow\Workflow\Scheduling\ScheduleRegistry;
@@ -34,7 +35,8 @@ class SchedulesCommand extends Command
     protected $signature = 'laraflow:schedules
         {--pause= : Stop a schedule naming ticks until resumed; takes the workflow class}
         {--resume= : Resume a paused schedule; the paused interval is never caught up}
-        {--forget= : Delete an orphaned schedule row and its tick history; refused while a declaration stands behind it}';
+        {--forget= : Delete an orphaned schedule row and its tick history; refused while a declaration stands behind it}
+        {--json : Print one JSON document instead of the table}';
 
     protected $description = 'List workflow schedules, and pause, resume, or forget one';
 
@@ -52,31 +54,44 @@ class SchedulesCommand extends Command
         $rows = $schedules->all();
 
         if ($rows === []) {
-            $this->components->info(
+            return $this->respond(['schedules' => [], 'needs_attention' => false], fn () => $this->components->info(
                 'No schedules exist yet. Declare schedule() on a workflow, list the class under '
                 .'laraflow.schedules.workflows, and the first laraflow:schedule run registers it.'
-            );
-
-            return self::SUCCESS;
+            ));
         }
 
         $attention = false;
+        $table = [];
+        $records = [];
 
-        $this->table(
-            ['Workflow', 'Cron', 'Timezone', 'Policy', 'Last tick (UTC)', 'Lag', 'Next due (UTC)', 'State'],
-            array_map(function (ScheduledWorkflow $row) use ($schedules, $live, $now, &$attention): array {
-                return $this->row($row, $schedules->lastTick($row->id), $live, $now, $attention);
-            }, $rows),
-        );
+        foreach ($rows as $row) {
+            $lastTick = $schedules->lastTick($row->id);
+            $orphaned = ! in_array($row->workflow, $live, true);
+            $stalled = ! $orphaned && ScheduleStatus::stalled($row, $now);
+            $nextDue = ScheduleStatus::nextDue($row, $now);
 
-        if ($attention) {
-            $this->components->warn(
-                'A schedule is orphaned or stalled. An orphan has a row and no declaration; a stalled schedule has '
-                .'due ticks standing unclaimed — is the scheduler running laraflow:schedule every minute?'
-            );
+            if ($orphaned || $stalled) {
+                $attention = true;
+            }
+
+            $table[] = $this->row($row, $lastTick, $orphaned, $stalled, $nextDue);
+            $records[] = JsonReport::schedule($row) + [
+                'last_tick' => $lastTick === null ? null : JsonReport::tick($lastTick),
+                'next_due_at' => JsonReport::date($nextDue),
+                'state' => $this->state($row, $orphaned, $stalled),
+            ];
         }
 
-        return $attention ? self::FAILURE : self::SUCCESS;
+        return $this->respond(['schedules' => $records, 'needs_attention' => $attention], function () use ($table, $attention): void {
+            $this->table(['Workflow', 'Cron', 'Timezone', 'Policy', 'Last tick (UTC)', 'Lag', 'Next due (UTC)', 'State'], $table);
+
+            if ($attention) {
+                $this->components->warn(
+                    'A schedule is orphaned or stalled. An orphan has a row and no declaration; a stalled schedule has '
+                    .'due ticks standing unclaimed — is the scheduler running laraflow:schedule every minute?'
+                );
+            }
+        }, $attention ? self::FAILURE : self::SUCCESS);
     }
 
     /**
@@ -94,9 +109,7 @@ class SchedulesCommand extends Command
         ], fn (?string $value): bool => $value !== null);
 
         if (count($requested) > 1) {
-            $this->components->error('Pass one of --pause, --resume, or --forget per run; they are separate decisions.');
-
-            return self::FAILURE;
+            return $this->refuse('Pass one of --pause, --resume, or --forget per run; they are separate decisions.');
         }
 
         if ($requested === []) {
@@ -107,11 +120,7 @@ class SchedulesCommand extends Command
         $workflow = $this->target($schedules, (string) $requested[$action]);
 
         if ($workflow === null) {
-            $this->components->error(
-                "No schedule exists for [{$requested[$action]}]. laraflow:schedules lists the classes that have one."
-            );
-
-            return self::FAILURE;
+            return $this->refuse("No schedule exists for [{$requested[$action]}]. laraflow:schedules lists the classes that have one.");
         }
 
         try {
@@ -121,9 +130,13 @@ class SchedulesCommand extends Command
                 'forget' => $this->forget($schedules, $workflow, $live),
             };
         } catch (WorkflowException|InvalidArgumentException $exception) {
-            $this->components->error($exception->getMessage());
+            return $this->refuse($exception->getMessage());
+        }
 
-            return self::FAILURE;
+        if ($this->wantsJson()) {
+            // The listing that follows carries the new state; the action
+            // itself is said on the document by the state it produced.
+            return self::SUCCESS;
         }
 
         $this->components->info(match ($action) {
@@ -176,20 +189,10 @@ class SchedulesCommand extends Command
     }
 
     /**
-     * @param  list<string>  $live
      * @return list<string>
      */
-    protected function row(ScheduledWorkflow $row, ?ScheduleTick $lastTick, array $live, DateTimeImmutable $now, bool &$attention): array
+    protected function row(ScheduledWorkflow $row, ?ScheduleTick $lastTick, bool $orphaned, bool $stalled, ?DateTimeImmutable $nextDue): array
     {
-        $orphaned = ! in_array($row->workflow, $live, true);
-        $stalled = ! $orphaned && ScheduleStatus::stalled($row, $now);
-
-        if ($orphaned || $stalled) {
-            $attention = true;
-        }
-
-        $nextDue = ScheduleStatus::nextDue($row, $now);
-
         return [
             class_basename($row->workflow),
             $row->cron,
@@ -230,12 +233,22 @@ class SchedulesCommand extends Command
         return $this->formatSeconds(max(0, $tick->createdAt->getTimestamp() - $tick->tickAt->getTimestamp()));
     }
 
-    protected function stateCell(ScheduledWorkflow $row, bool $orphaned, bool $stalled): string
+    protected function state(ScheduledWorkflow $row, bool $orphaned, bool $stalled): string
     {
         return match (true) {
-            $orphaned => '<fg=red>orphaned</>',
-            $stalled => '<fg=red>stalled</>',
-            $row->isPaused() => '<fg=yellow>paused</>',
+            $orphaned => 'orphaned',
+            $stalled => 'stalled',
+            $row->isPaused() => 'paused',
+            default => 'ok',
+        };
+    }
+
+    protected function stateCell(ScheduledWorkflow $row, bool $orphaned, bool $stalled): string
+    {
+        return match ($this->state($row, $orphaned, $stalled)) {
+            'orphaned' => '<fg=red>orphaned</>',
+            'stalled' => '<fg=red>stalled</>',
+            'paused' => '<fg=yellow>paused</>',
             default => '<fg=green>ok</>',
         };
     }

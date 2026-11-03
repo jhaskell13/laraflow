@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryReason;
 use Laraflow\Workflow\RecoveryService;
@@ -52,7 +53,8 @@ class RecoverCommand extends Command
         {--workflow= : Only consider executions created from this workflow class}
         {--tenant= : Only consider executions for this tenant id}
         {--dry-run : Report what would happen without dispatching, running, or changing anything}
-        {--sync : Run recovered executions in this process instead of dispatching them to the queue}';
+        {--sync : Run recovered executions in this process instead of dispatching them to the queue}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Find interrupted workflow executions and retry them within a bounded policy';
 
@@ -73,9 +75,7 @@ class RecoverCommand extends Command
             );
             $pendingAfter = $this->pendingAfterOption($config);
         } catch (InvalidArgumentException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse($exception->getMessage());
         }
 
         $candidates = $service->scan(
@@ -88,19 +88,25 @@ class RecoverCommand extends Command
             tenantId: $this->stringOption('tenant'),
         );
 
-        if ($candidates === []) {
-            $this->components->info('Nothing to recover.');
-
-            return self::SUCCESS;
-        }
-
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
+        if ($candidates === []) {
+            return $this->respond(
+                ['dry_run' => $dryRun, 'candidates' => [], 'counts' => [], 'needs_attention' => false],
+                fn () => $this->components->info('Nothing to recover.'),
+            );
+        }
+
         $counts = ['dispatched' => 0, 'ran' => 0, 'abandoned' => 0, 'unrecoverable' => 0, 'skipped' => 0, 'failed' => 0];
         $rows = [];
+        $actions = [];
 
         foreach ($candidates as $candidate) {
+            // The action is taken once, as the table is built: a row is
+            // the record of what happened to that candidate.
+            [$label, $outcome] = $this->act($service, $candidate, $dryRun, $sync, $counts);
+
             $rows[] = [
                 $candidate->execution->id,
                 class_basename($candidate->execution->workflow),
@@ -108,20 +114,31 @@ class RecoverCommand extends Command
                 $candidate->reason->label(),
                 $candidate->attempts,
                 $this->formatDate($this->interruptedSince($candidate)),
-                $this->act($service, $candidate, $dryRun, $sync, $counts),
+                $label,
+            ];
+
+            $actions[] = JsonReport::candidate($candidate) + [
+                'interrupted_since' => JsonReport::date($this->interruptedSince($candidate)),
+                'action' => $outcome,
             ];
         }
 
-        $this->table(
-            ['Id', 'Workflow', 'Status', 'Reason', 'Attempts', 'Since', 'Action'],
-            $rows,
-        );
+        $needsAttention = $counts['abandoned'] > 0 || $counts['unrecoverable'] > 0 || $counts['failed'] > 0;
 
-        $this->summarize($counts, count($candidates), $dryRun);
+        return $this->respond([
+            'dry_run' => $dryRun,
+            'sync' => $sync,
+            'candidates' => $actions,
+            'counts' => $counts,
+            'needs_attention' => $needsAttention,
+        ], function () use ($rows, $counts, $candidates, $dryRun): void {
+            $this->table(
+                ['Id', 'Workflow', 'Status', 'Reason', 'Attempts', 'Since', 'Action'],
+                $rows,
+            );
 
-        return ($counts['abandoned'] > 0 || $counts['unrecoverable'] > 0 || $counts['failed'] > 0)
-            ? self::FAILURE
-            : self::SUCCESS;
+            $this->summarize($counts, count($candidates), $dryRun);
+        }, $needsAttention ? self::FAILURE : self::SUCCESS);
     }
 
     /**
@@ -131,6 +148,7 @@ class RecoverCommand extends Command
      * rest of the batch still deserves its retry.
      *
      * @param  array<string, int>  $counts
+     * @return array{0: string, 1: string} The table cell, and the outcome word a machine reads.
      */
     protected function act(
         RecoveryService $service,
@@ -138,23 +156,23 @@ class RecoverCommand extends Command
         bool $dryRun,
         bool $sync,
         array &$counts,
-    ): string {
+    ): array {
         if ($candidate->workflowMissing) {
             // Such a retry fails before any step runs, so attempts never
             // grow and the attempt bound alone could not stop the loop.
             $counts['unrecoverable']++;
 
-            return '<fg=red>unrecoverable (workflow class missing)</>';
+            return ['<fg=red>unrecoverable (workflow class missing)</>', 'unrecoverable'];
         }
 
         if ($candidate->abandoned) {
             $counts['abandoned']++;
 
-            return "<fg=red>abandoned ({$candidate->abandonedBecause()})</>";
+            return ["<fg=red>abandoned ({$candidate->abandonedBecause()})</>", 'abandoned'];
         }
 
         if ($dryRun) {
-            return $sync ? 'would run' : 'would dispatch';
+            return $sync ? ['would run', 'would_run'] : ['would dispatch', 'would_dispatch'];
         }
 
         try {
@@ -166,44 +184,44 @@ class RecoverCommand extends Command
                 // retry, or honour a cancellation requested while it was
                 // waiting; reporting either as completion would lie.
                 return match (true) {
-                    $result->isRetrying() => '<fg=cyan>ran; next retry scheduled</>',
-                    $result->isCancelled() => '<fg=magenta>cancelled during run</>',
-                    default => '<fg=green>completed</>',
+                    $result->isRetrying() => ['<fg=cyan>ran; next retry scheduled</>', 'ran_retrying'],
+                    $result->isCancelled() => ['<fg=magenta>cancelled during run</>', 'ran_cancelled'],
+                    default => ['<fg=green>completed</>', 'completed'],
                 };
             }
 
             $service->dispatch($candidate);
             $counts['dispatched']++;
 
-            return '<fg=green>dispatched</>';
+            return ['<fg=green>dispatched</>', 'dispatched'];
         } catch (ExecutionNotRunnableException) {
             // Completed between scan and action; nothing left to do.
             $counts['skipped']++;
 
-            return 'completed meanwhile';
+            return ['completed meanwhile', 'skipped_completed'];
         } catch (ExecutionAlreadyClaimedException) {
             // Another worker picked it up between scan and action.
             $counts['skipped']++;
 
-            return 'claimed by another worker';
+            return ['claimed by another worker', 'skipped_claimed'];
         } catch (ExecutionStillWaitingException) {
             // Signalled or re-parked between the scan and this action;
             // whatever it waits for now owns the schedule.
             $counts['skipped']++;
 
-            return 'parked meanwhile';
+            return ['parked meanwhile', 'skipped_parked'];
         } catch (RetryNotDueException) {
             // Someone ran the retry between scan and action and it
             // rescheduled itself into the future. The new schedule stands.
             $counts['skipped']++;
 
-            return 'rescheduled meanwhile';
+            return ['rescheduled meanwhile', 'skipped_rescheduled'];
         } catch (Throwable $exception) {
             $counts['failed']++;
 
             $message = mb_substr($exception->getMessage(), 0, 80);
 
-            return "<fg=red>failed: {$message}</>";
+            return ["<fg=red>failed: {$message}</>", 'failed'];
         }
     }
 

@@ -39,7 +39,8 @@ class SummaryCommand extends Command
         {--correlation= : Only count executions with this correlation id}
         {--tenant= : Only count executions for this tenant id}
         {--since= : Only count executions created at or after this time (inclusive)}
-        {--until= : Only count executions created before this time (exclusive)}';
+        {--until= : Only count executions created before this time (exclusive)}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Summarise workflow executions by status, and surface work needing attention';
 
@@ -48,13 +49,35 @@ class SummaryCommand extends Command
         try {
             $filter = $this->filterFromOptions();
         } catch (InvalidArgumentException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse($exception->getMessage());
         }
 
         $total = $repository->count($filter);
         $report = $scan->scan($filter, $clock->now());
+
+        if ($this->wantsJson()) {
+            $counts = [];
+
+            foreach (ExecutionStatus::cases() as $status) {
+                $counts[$status->value] = $total === 0 ? 0 : $repository->count($filter->withStatus($status));
+            }
+
+            $this->emitJson([
+                'total' => $total,
+                'counts' => $counts,
+                'needs_attention' => $report->needsAttention(),
+                'attention' => [
+                    'due_retries' => array_map(fn ($e): int => $e->id, $report->dueRetries),
+                    'due_waits' => array_map(fn ($e): int => $e->id, $report->dueWaits),
+                    'overdue_steps' => array_map(fn (array $row): array => ['execution' => $row['execution']->id, 'step' => $row['step']->step], $report->overdueSteps),
+                    'stalled_schedules' => array_map(fn ($row): string => $row->workflow, $report->stalledSchedules),
+                    'deferred' => array_map(fn ($e): int => $e->id, $report->deferred),
+                    'oldest_unfinished' => $report->oldestUnfinished?->id,
+                ],
+            ], ! $report->needsAttention());
+
+            return $report->needsAttention() ? self::FAILURE : self::SUCCESS;
+        }
 
         // An empty table is only quiet when nothing else is wrong: a
         // stalled schedule with no executions yet is exactly the state
