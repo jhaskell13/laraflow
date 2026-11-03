@@ -221,6 +221,41 @@ class EloquentExecutionRepository implements ExecutionRepository
             ->all();
     }
 
+    public function appendCompensation(
+        WorkflowExecution $execution,
+        StepExecution $compensates
+    ): StepExecution {
+        return $this->transaction(function () use ($execution, $compensates): StepExecution {
+            $next = (int) StepExecutionModel::query()
+                ->where('workflow_execution_id', $execution->id)
+                ->max('position');
+
+            $model = StepExecutionModel::query()->create([
+                'workflow_execution_id' => $execution->id,
+                'step' => $compensates->step,
+                'position' => $next + 1,
+                'compensates_step_execution_id' => $compensates->id,
+                'status' => StepStatus::Pending->value,
+                'attempts' => 0,
+            ]);
+
+            $this->assertClaimHeld($execution, ['fruitless_claims' => 0]);
+
+            return $this->stepToDomain($model);
+        });
+    }
+
+    public function checkpointStatus(
+        WorkflowExecution $execution
+    ): void {
+        $this->transaction(function () use ($execution) {
+            $this->assertClaimHeld($execution, [
+                'status' => $execution->status->value,
+                'fruitless_claims' => 0,
+            ]);
+        });
+    }
+
     public function saveStep(
         WorkflowExecution $execution,
         StepExecution $step,
@@ -697,6 +732,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             executionId: $model->workflow_execution_id,
             step: $model->step,
             position: $model->position,
+            compensatesStepExecutionId: $model->compensates_step_execution_id,
             status: StepStatus::from($model->status),
             attempts: $model->attempts,
             input: $model->input,

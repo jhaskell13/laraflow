@@ -31,6 +31,16 @@ enum ExecutionStatus: string
     case Cancelled = 'cancelled';
 
     /**
+     * The execution failed terminally and is undoing the steps that
+     * completed, in reverse (docs/advanced-workflows.md). Unfinished
+     * and claimable: a worker that dies mid-pass leaves a stale claim
+     * the stale scan reclaims, and the pass resumes from the record.
+     * The resting state afterwards is always `failed` — compensation
+     * changes what was left behind, not whether the execution failed.
+     */
+    case Compensating = 'compensating';
+
+    /**
      * Whether the execution has stopped and recorded `finished_at`.
      *
      * Deliberately **not** called `isTerminal()`. In Laraflow "terminal"
@@ -47,7 +57,7 @@ enum ExecutionStatus: string
     {
         return match ($this) {
             self::Completed, self::Failed, self::Cancelled => true,
-            self::Pending, self::Running, self::Retrying, self::Waiting => false,
+            self::Pending, self::Running, self::Retrying, self::Waiting, self::Compensating => false,
         };
     }
 }

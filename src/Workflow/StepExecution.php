@@ -31,6 +31,8 @@ class StepExecution
         public readonly int $executionId,
         public readonly string $step,
         public readonly int $position,
+        /** The step row this one undoes; null for every planned step. */
+        public readonly ?int $compensatesStepExecutionId = null,
         public StepStatus $status = StepStatus::Pending,
         public int $attempts = 0,
         public mixed $input = null,
@@ -219,6 +221,16 @@ class StepExecution
         $this->failedAt = $snapshot['failedAt'];
         $this->waitSignal = $snapshot['waitSignal'];
         $this->nextRetryAt = $snapshot['nextRetryAt'];
+    }
+
+    /**
+     * Whether this row is a compensation rather than a planned step.
+     * The plan is the rows that compensate nothing, which is how plan
+     * validation keeps comparing like with like.
+     */
+    public function isCompensation(): bool
+    {
+        return $this->compensatesStepExecutionId !== null;
     }
 
     public function isPending(): bool

@@ -23,6 +23,7 @@ use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
+use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\LoggingContext;
@@ -54,6 +55,8 @@ class WorkflowRunner
     protected OutcomeRecorder $outcomes;
 
     protected ParentNotifier $parents;
+
+    protected Compensator $compensator;
 
     protected WaitResolver $waits;
 
@@ -107,6 +110,15 @@ class WorkflowRunner
             options: $options,
             childDelivery: $childDelivery,
             outcomes: $this->outcomes,
+        );
+
+        $this->compensator = new Compensator(
+            repository: $repository,
+            steps: $this->steps,
+            outcomes: $this->outcomes,
+            policies: $policies,
+            events: $events,
+            clock: $clock,
         );
 
         $this->plans = new PlanMigrator(
@@ -353,7 +365,22 @@ class WorkflowRunner
             queueLagSeconds: $execution->queueLagSeconds($startedAt),
         ));
 
-        $steps = $this->repository->steps($execution);
+        $allRows = $this->repository->steps($execution);
+
+        // A compensation pass already under way takes precedence over
+        // the plan: the plan is finished with — it failed — and what
+        // remains is undoing it. Detected from the rows rather than
+        // the status, because a compensation whose own retry was
+        // scheduled rests the execution as `retrying`, which the
+        // existing due-retry scan delivers with no new mechanism.
+        if ($this->compensator->isUnderWay($allRows)) {
+            return $this->resumeCompensation($execution, $workflow, $allRows);
+        }
+
+        // The plan is the rows that compensate nothing: a compensation
+        // is a step row appended after the plan, and the loop below —
+        // like the definition check — is about the plan.
+        $steps = array_values(array_filter($allRows, fn (StepExecution $row): bool => ! $row->isCompensation()));
 
         // Before the first step write, so a migration that throws is
         // bounded by the fruitless-claims counter like every other
@@ -489,6 +516,10 @@ class WorkflowRunner
                     continue;
                 }
 
+                if ($resolution->terminalFailure !== null) {
+                    return $this->failTerminally($execution, $workflow, $context, $resolution->terminalFailure);
+                }
+
                 // Parked again, retry scheduled, or failed terminally —
                 // in every case this claim is finished with the
                 // execution and the handle describes the resting state.
@@ -523,6 +554,10 @@ class WorkflowRunner
                     $firstFailure ??= $resolution->continueFailure;
 
                     continue;
+                }
+
+                if ($resolution->terminalFailure !== null) {
+                    return $this->failTerminally($execution, $workflow, $context, $resolution->terminalFailure);
                 }
 
                 return $execution;
@@ -595,14 +630,16 @@ class WorkflowRunner
                     continue;
                 }
 
+                if ($resolution->terminalFailure !== null) {
+                    return $this->failTerminally($execution, $workflow, $context, $resolution->terminalFailure);
+                }
+
                 return $execution;
             }
         }
 
         if ($firstFailure !== null) {
-            $this->outcomes->executionFailure($execution, $firstFailure);
-
-            throw $firstFailure;
+            return $this->failTerminally($execution, $workflow, $context, $firstFailure);
         }
 
         $completedAt = $this->now();
@@ -618,6 +655,78 @@ class WorkflowRunner
         $this->parents->childFinished($execution);
 
         return $execution;
+    }
+
+    /**
+     * Continue a compensation pass a previous claim did not finish.
+     *
+     * Nothing is thrown: the caller here is recovery or an operator
+     * re-executing, not the code whose step failed, and the failure it
+     * would be thrown is one already recorded. The handle says where
+     * the pass got to.
+     *
+     * @param  StepExecution[]  $rows
+     */
+    protected function resumeCompensation(
+        WorkflowExecution $execution,
+        Workflow $workflow,
+        array $rows,
+    ): WorkflowExecution {
+        $context = new WorkflowContext(
+            data: array_replace($execution->input, $execution->context),
+            executionId: $execution->id,
+            correlationId: $execution->correlationId,
+            tenantId: $execution->tenantId,
+            idempotency: $this->idempotency,
+        );
+
+        // The exception object is gone — the pass may have spanned
+        // claims — but its message was recorded with the status.
+        $failure = new WorkflowException($execution->error ?? 'The execution failed.');
+
+        if (! $this->compensator->compensate($execution, $workflow, $context, $rows, $failure)) {
+            return $this->repository->find($execution->id);
+        }
+
+        $this->outcomes->failRecorded($execution);
+
+        return $execution;
+    }
+
+    /**
+     * The execution has failed terminally: undo what completed, then
+     * record the failure and throw it.
+     *
+     * The compensation pass runs under this claim, between the step's
+     * failure (already durable) and the execution's (not yet), because
+     * an execution that is about to be undone has not finished failing.
+     * A pass that stops partway still ends the execution failed: the
+     * compensation rows say what was undone and what was not.
+     *
+     * A compensation that scheduled a retry leaves the execution
+     * `compensating` and due, so recovery delivers it and the pass
+     * continues — nothing is thrown, and the handle describes it.
+     */
+    protected function failTerminally(
+        WorkflowExecution $execution,
+        Workflow $workflow,
+        WorkflowContext $context,
+        Throwable $failure,
+    ): WorkflowExecution {
+        $rows = $this->repository->steps($execution);
+
+        if ($this->compensator->hasWork($rows)) {
+            if (! $this->compensator->compensate($execution, $workflow, $context, $rows, $failure)) {
+                // The pass stopped: a compensation's own retries were
+                // exhausted, or it scheduled one. Either way this claim
+                // is finished and the execution's state says which.
+                return $this->repository->find($execution->id);
+            }
+        }
+
+        $this->outcomes->executionFailure($execution, $failure);
+
+        throw $failure;
     }
 
     /**

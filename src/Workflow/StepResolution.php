@@ -19,6 +19,8 @@ final readonly class StepResolution
         public bool $resumed,
         public ?Throwable $continueFailure,
         public bool $parked = false,
+        public ?Throwable $terminalFailure = null,
+        public bool $retryScheduled = false,
     ) {}
 
     /** The step completed; the loop continues to the next one. */
@@ -29,12 +31,23 @@ final readonly class StepResolution
 
     /**
      * This claim is finished with the execution: a retry was durably
-     * scheduled and the claim released. (A terminal failure is thrown,
-     * never returned.) The handle describes the schedule.
+     * scheduled and the claim released. The handle describes the
+     * schedule.
      */
     public static function settled(): self
     {
-        return new self(false, null);
+        return new self(false, null, false, null, true);
+    }
+
+    /**
+     * The step failed terminally under FailurePolicy::Stop. The step
+     * row records it; the *execution* does not yet, because what
+     * happens between the two is the compensation pass — so this is
+     * returned rather than thrown, and the runner finishes it.
+     */
+    public static function failedWith(Throwable $failure): self
+    {
+        return new self(false, null, false, $failure);
     }
 
     /**

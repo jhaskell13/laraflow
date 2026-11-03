@@ -40,7 +40,7 @@ class SchemaFreezeTest extends TestCase
             'updated_at', 'version', 'workflow',
         ],
         'laraflow_step_executions' => [
-            'attempts', 'completed_at', 'created_at', 'error', 'error_class',
+            'attempts', 'compensates_step_execution_id', 'completed_at', 'created_at', 'error', 'error_class',
             'failed_at', 'id', 'input', 'next_retry_at', 'output', 'position',
             'started_at', 'status', 'step', 'timeout_at', 'updated_at',
             'wait_signal', 'workflow_execution_id',
@@ -79,6 +79,7 @@ class SchemaFreezeTest extends TestCase
             ['workflow', 'status'],
         ],
         'laraflow_step_executions' => [
+            ['compensates_step_execution_id'],
             ['id'],
             ['workflow_execution_id', 'position'],
         ],
@@ -117,6 +118,7 @@ class SchemaFreezeTest extends TestCase
         '2026_11_01_000001_add_plan_version_to_laraflow_workflow_executions.php' => '5f328f52e8e2a79400e4af240b6d2ffd95cd71879981aa5a3a13c376b7ebc13b',
         '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => 'e46ed7c81eae3ab357d97f509ab5832deb859caa5322373180c0b8463372df15',
         '2026_11_02_000000_add_join_index_to_laraflow_workflow_executions.php' => '4350920429f896d783ad80b8f8327a847940de5e4731e04a7edd38f3d2ca788a',
+        '2026_11_02_000001_add_compensation_link_to_laraflow_step_executions.php' => '8fe8ffa21720edfd96285be64bba807022f7967a6a2a409d3747a1406a15c707',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void

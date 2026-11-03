@@ -297,6 +297,7 @@ class WatchCommand extends Command
             ExecutionStatus::Running => 'yellow',
             ExecutionStatus::Retrying => 'cyan',
             ExecutionStatus::Waiting => 'cyan',
+            ExecutionStatus::Compensating => 'yellow',
             ExecutionStatus::Cancelled => 'magenta',
             ExecutionStatus::Pending => 'blue',
         };

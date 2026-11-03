@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $workflow_execution_id
  * @property string $step
  * @property int $position
+ * @property int|null $compensates_step_execution_id
  * @property string $status
  * @property int $attempts
  * @property mixed $input
@@ -45,6 +46,7 @@ class StepExecutionModel extends Model
         'workflow_execution_id',
         'step',
         'position',
+        'compensates_step_execution_id',
         'status',
         'attempts',
         'input',

@@ -76,6 +76,7 @@ class WorkflowExecution
             ExecutionStatus::Retrying,
             ExecutionStatus::Waiting,
             ExecutionStatus::Running,
+            ExecutionStatus::Compensating,
         ]);
 
         $this->status = ExecutionStatus::Running;
@@ -110,6 +111,7 @@ class WorkflowExecution
     {
         $this->assertTransition(ExecutionStatus::Failed, [
             ExecutionStatus::Running,
+            ExecutionStatus::Compensating,
         ]);
 
         $this->status = ExecutionStatus::Failed;
@@ -132,12 +134,24 @@ class WorkflowExecution
     ): void {
         $this->assertTransition(ExecutionStatus::Retrying, [
             ExecutionStatus::Running,
+            // An undo whose own retry is scheduled: still retrying,
+            // and delivered by the same due-retry scan.
+            ExecutionStatus::Compensating,
         ]);
+
+        // A compensation's own failure is the compensation row's to
+        // record. The execution has been carrying the failure it will
+        // rest on since the pass began, and a refund that could not be
+        // issued must not overwrite the reason the order collapsed.
+        $undoing = $this->status === ExecutionStatus::Compensating;
 
         $this->status = ExecutionStatus::Retrying;
         $this->nextRetryAt = $nextRetryAt;
-        $this->error = $error;
-        $this->errorClass = $errorClass;
+
+        if (! $undoing) {
+            $this->error = $error;
+            $this->errorClass = $errorClass;
+        }
     }
 
     /**
@@ -169,6 +183,31 @@ class WorkflowExecution
      * A `running` execution reaches here cooperatively: the owning
      * worker notices the request at a step boundary and transitions.
      */
+    /**
+     * The execution failed terminally and is undoing what completed.
+     * Reached from Running — the claim that ran the failing step keeps
+     * it — and left only by markFailed() when the pass is over.
+     */
+    public function markCompensating(string $error, string $errorClass): void
+    {
+        $this->assertTransition(ExecutionStatus::Compensating, [
+            ExecutionStatus::Running,
+            ExecutionStatus::Compensating,
+        ]);
+
+        $this->status = ExecutionStatus::Compensating;
+        // Recorded now rather than at the end: a pass that is resumed
+        // on another claim must still rest the execution with the
+        // failure that began it, and the exception object is gone.
+        $this->error = $error;
+        $this->errorClass = $errorClass;
+    }
+
+    public function isCompensating(): bool
+    {
+        return $this->status === ExecutionStatus::Compensating;
+    }
+
     public function markCancelled(DateTimeImmutable $at, ?string $reason = null): void
     {
         $this->assertTransition(ExecutionStatus::Cancelled, [
@@ -177,6 +216,7 @@ class WorkflowExecution
             ExecutionStatus::Failed,
             ExecutionStatus::Retrying,
             ExecutionStatus::Waiting,
+            ExecutionStatus::Compensating,
         ]);
 
         $this->status = ExecutionStatus::Cancelled;

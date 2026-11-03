@@ -35,6 +35,8 @@ class FixtureState
         RememberingStep::reset();
         RememberingWorkflow::reset();
         NotifyMembersStep::reset();
+        RefundableStep::reset();
+        ShippableStep::reset();
         FanOutWorkflow::$policy = null;
         ConditionalGate::$open = true;
         ConditionalGate::$runs = 0;

@@ -80,6 +80,16 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->childProgress($parentStepExecutionId));
     }
 
+    public function appendCompensation(WorkflowExecution $execution, StepExecution $compensates): StepExecution
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->appendCompensation($execution, $compensates));
+    }
+
+    public function checkpointStatus(WorkflowExecution $execution): void
+    {
+        $this->call(__FUNCTION__, fn () => $this->inner->checkpointStatus($execution));
+    }
+
     public function attemptHistory(WorkflowExecution $execution): array
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->attemptHistory($execution));

@@ -166,6 +166,33 @@ interface ExecutionRepository
     ): array;
 
     /**
+     * Append a compensation row for a completed step: a step row of its
+     * own, at the next free position, linked to the row it undoes.
+     *
+     * A compensation is an ordinary step, which is what makes a saga
+     * retryable and inspectable without new machinery
+     * (docs/advanced-workflows.md). The plan is the rows that
+     * compensate nothing, so an appended row never joins it.
+     *
+     * Claim-guarded like every other step write.
+     */
+    public function appendCompensation(
+        WorkflowExecution $execution,
+        StepExecution $compensates
+    ): StepExecution;
+
+    /**
+     * Persist the execution's status alone, keeping the claim.
+     *
+     * The compensation pass needs the execution durably `compensating`
+     * before it undoes anything, without releasing the claim it is
+     * working under.
+     */
+    public function checkpointStatus(
+        WorkflowExecution $execution
+    ): void;
+
+    /**
      * How the children of one parent step are doing — a count per
      * status — in one query, served by the index on
      * parent_step_execution_id.
