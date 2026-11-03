@@ -355,10 +355,13 @@ Sixteen steps across 2 November 2026, contract first as every milestone since th
 
 #### Work
 
-- Scheduled workflows: a workflow declares a cron expression and Laraflow starts it durably — exactly one execution per tick across any number of schedulers, with missed ticks a stated policy.
-- Triggers: an opt-in signal endpoint with signed payloads, so approvals and webhooks reach `signal()` through routes and middleware the package ships rather than every application re-deriving them.
-- Per-tenant isolation and throttling: concurrency and rate ceilings per tenant, enforced at claim time, with the fairness rule documented.
+- Scheduled workflows: a workflow declares a cron expression and Laraflow starts it durably — exactly one execution per tick across any number of schedulers, with missed ticks a stated policy. Semantics fixed in `docs/schedules.md` before implementation (step 4).
+- Triggers: an opt-in signal endpoint with signed payloads, so approvals and webhooks reach `signal()` through routes and middleware the package ships rather than every application re-deriving them. Semantics fixed in `docs/triggers.md` before implementation (step 4).
+- Per-tenant isolation and throttling: concurrency and rate ceilings per tenant, enforced at claim time, with the fairness rule documented. Semantics fixed in `docs/tenancy.md` before implementation (step 4).
 - Operator ergonomics: `laraflow:signal`, `laraflow:children`, bulk cancel and re-run by filter, and structured JSON output on every command for automation.
+- The leftovers, taken first (steps 1–3): ~~the prose that had not followed the code out of Milestones 7–9, and the runner table that never listed `signal()`~~; ~~the per-tenant rate-limit bucket deferred from Milestone 8, on the ambient `ExecutionScope` that audit said it needed~~; ~~`dragonmantank/cron-expression` declared rather than inherited~~. The release tags 0.3.0–0.5.0 were found never to have been cut and are to be cut by hand on the merge commits that converted the changelog.
+
+The three decisions that shape everything downstream, taken in the contracts: a **tick is a row** whose unique `(schedule, instant)` index is the once-per-tick guarantee, committed in one transaction with the execution it starts; a **trigger is a signed `POST`** whose signature binds timestamp, execution, signal, and body, verified before any read, with no environment bypass and no inbox; and a **tenant ceiling is enforced in `claim()`** and nowhere else, honest about the instant and exact in the steady state, with fairness stated as a sizing rule rather than promised as a cap.
 
 #### Exit criteria
 
