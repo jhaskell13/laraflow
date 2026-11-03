@@ -15,7 +15,9 @@ use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Support\Clock;
+use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
@@ -26,6 +28,9 @@ use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeiling;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
+use Laraflow\Workflow\Tenancy\TenantLimits;
 use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
 
@@ -44,8 +49,10 @@ class EloquentExecutionRepository implements ExecutionRepository
 
     protected ClockInterface $clock;
 
-    public function __construct(ClockInterface $clock)
-    {
+    public function __construct(
+        ClockInterface $clock,
+        protected TenantCeilings $ceilings,
+    ) {
         $this->clock = $clock;
     }
 
@@ -74,6 +81,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // handle built from this model reads the same number a
                 // reload would.
                 'fruitless_claims' => 0,
+                'deferrals' => 0,
                 'plan_version' => $planVersion,
             ]);
 
@@ -117,8 +125,15 @@ class EloquentExecutionRepository implements ExecutionRepository
         // cannot hand back the previous row. A status that moves between
         // this read and the claim is decided by the claim's own
         // predicate; the read only informs the runner's choice between
-        // "re-executing a failure" and "resuming after a retry or wait".
-        $resumedFrom = WorkflowExecutionModel::query()->whereKey($id)->value('status');
+        // "re-executing a failure" and "resuming after a retry or wait"
+        // — and names the tenant the ceilings are consulted for.
+        $before = WorkflowExecutionModel::query()->whereKey($id)->first(['id', 'status', 'tenant_id', 'workflow', 'correlation_id']);
+        $resumedFrom = $before?->status;
+
+        // The ceilings, before the compare-and-set and nowhere else:
+        // every path to a run passes here (docs/tenancy.md). An
+        // execution with no tenant has nothing to be bounded by.
+        $limits = $before?->tenant_id === null ? TenantLimits::none() : $this->assertWithinTenantCeilings($before, $now, $staleBefore);
 
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
@@ -200,10 +215,21 @@ class EloquentExecutionRepository implements ExecutionRepository
                 // recovery abandons the execution once it reaches the
                 // bound instead of re-dispatching it forever.
                 'fruitless_claims' => new Expression('fruitless_claims + 1'),
+                // A claim that lands ends any deferral: the record must
+                // not say "waiting for a tenant slot" about a run that
+                // has one.
+                'deferred_until' => null,
+                'deferrals' => 0,
             ]));
 
         if ($claimed === 0) {
             $this->explainFailedClaim($id);
+        }
+
+        if ($limits->maxClaimsPerMinute !== null && $before?->tenant_id !== null) {
+            // Counted after the claim landed, so a refused claim is not
+            // a claim; only configured ceilings touch the cache.
+            $this->ceilings->recordClaim($before->tenant_id);
         }
 
         // Record the first start without disturbing the original timestamp
@@ -553,6 +579,17 @@ class EloquentExecutionRepository implements ExecutionRepository
         }
     }
 
+    public function deferred(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
+    {
+        return array_values($this->filtered($filter)
+            ->where('deferred_until', '>', $now)
+            ->orderBy('deferred_until')
+            ->limit(min(max(1, $limit), self::MAX_PAGE_SIZE))
+            ->get()
+            ->map(fn (WorkflowExecutionModel $model): WorkflowExecution => $this->toDomain($model))
+            ->all());
+    }
+
     /**
      * Write $values to the executions row only if this worker still
      * holds the claim, and throw otherwise. Called inside the step
@@ -617,6 +654,78 @@ class EloquentExecutionRepository implements ExecutionRepository
             'duration_ms' => $attempt->durationMs(),
             'next_retry_at' => $attempt->nextRetryAt,
         ]);
+    }
+
+    /**
+     * Consult the tenant's ceilings for the execution about to be
+     * claimed. Either ceiling reached: record the deferral — when
+     * delivery is next tried, and one more refusal — in one counted
+     * write that touches nothing a claim protects, and refuse. Nothing
+     * about the execution's status changes and no attempt is recorded.
+     *
+     * The count is a read followed by the claim's own compare-and-set,
+     * not one atomic decision: two claimants for one tenant in the same
+     * instant can both count below the ceiling. Honest about the
+     * instant, exact in the steady state (docs/tenancy.md, "Why not
+     * exact").
+     *
+     * @throws TenantThrottledException
+     */
+    protected function assertWithinTenantCeilings(WorkflowExecutionModel $before, DateTimeImmutable $now, DateTimeImmutable $staleBefore): TenantLimits
+    {
+        $tenant = (string) $before->tenant_id;
+        $limits = $this->ceilings->limitsFor($tenant);
+
+        if (! $limits->bounded()) {
+            return $limits;
+        }
+
+        if ($limits->maxConcurrent !== null) {
+            // Executions holding a worker: running or compensating with
+            // a fresh claim. A stale claim is a dead worker's, and a
+            // dead worker holds no slot — counting it would let one
+            // crash lock a tenant out until recovery reclaimed it.
+            $holding = WorkflowExecutionModel::query()
+                ->where('tenant_id', $tenant)
+                ->whereIn('status', [ExecutionStatus::Running->value, ExecutionStatus::Compensating->value])
+                ->where('claimed_at', '>', $staleBefore)
+                ->count();
+
+            if ($holding >= $limits->maxConcurrent) {
+                $this->defer($before, TenantCeiling::Concurrency, $limits->maxConcurrent, $holding, $now);
+            }
+        }
+
+        if ($limits->maxClaimsPerMinute !== null && $this->ceilings->rateCeilingReached($tenant, $limits->maxClaimsPerMinute)) {
+            $this->defer($before, TenantCeiling::Rate, $limits->maxClaimsPerMinute, $this->ceilings->claimsThisMinute($tenant), $now);
+        }
+
+        return $limits;
+    }
+
+    protected function defer(WorkflowExecutionModel $before, TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $now): never
+    {
+        $delay = $this->ceilings->deferralSecondsFor($before->id);
+        $until = $now->modify("+{$delay} seconds");
+
+        WorkflowExecutionModel::query()
+            ->whereKey($before->id)
+            ->update($this->counted([
+                'deferred_until' => $until,
+                'deferrals' => new Expression('deferrals + 1'),
+            ]));
+
+        throw TenantThrottledException::atCeiling(
+            executionId: $before->id,
+            workflow: $before->workflow,
+            correlationId: $before->correlation_id,
+            tenantId: (string) $before->tenant_id,
+            ceiling: $ceiling,
+            limit: $limit,
+            count: $count,
+            deferredUntil: $until,
+            delaySeconds: $delay,
+        );
     }
 
     protected function explainFailedClaim(int $id): never
@@ -743,6 +852,8 @@ class EloquentExecutionRepository implements ExecutionRepository
             fruitlessClaims: $model->fruitless_claims,
             planVersion: $model->plan_version,
             persistedDurationMs: $model->duration_ms,
+            deferredUntil: $model->deferred_until?->toImmutable(),
+            deferrals: $model->deferrals,
         );
     }
 

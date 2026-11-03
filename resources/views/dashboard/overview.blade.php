@@ -60,7 +60,7 @@
                 </h2>
 
                 @if (! $report->needsAttention())
-                    <p class="lf-muted">No retries or waits due, no step past its deadline, no schedule stalled.</p>
+                    <p class="lf-muted">No retries or waits due, no step past its deadline, no schedule stalled, nothing deferred.</p>
                 @endif
 
                 @if ($report->dueRetries !== [])
@@ -98,6 +98,14 @@
                         @endforeach
                         @if (count($report->stalledSchedules) > 5) and more. @endif
                         Is the scheduler running <code>laraflow:schedule</code> every minute?
+                    </div>
+                @endif
+
+                @if ($report->deferred !== [])
+                    <div class="lf-notice lf-notice--warn">
+                        <strong>{{ count($report->deferred) }} execution{{ count($report->deferred) === 1 ? ' is' : 's are' }} deferred by a tenant ceiling.</strong>
+                        The soonest is <a href="{{ route('laraflow.executions.show', $report->deferred[0]->id) }}">execution {{ $report->deferred[0]->id }}</a> for tenant <span class="lf-mono">{{ $report->deferred[0]->tenantId }}</span>, next tried {{ Formats::date($report->deferred[0]->deferredUntil) }}.
+                        A tenant pinned at its ceiling is worth knowing about.
                     </div>
                 @endif
 

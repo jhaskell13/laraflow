@@ -126,6 +126,10 @@
                     <dt>Claimed at</dt>
                     <dd>{{ Formats::date($execution->claimedAt) }} <span class="lf-muted">(a worker owns or owned this execution)</span></dd>
                 @endif
+                @if ($execution->deferredUntil !== null)
+                    <dt>Deferred</dt>
+                    <dd class="lf-warn">×{{ $execution->deferrals }} <span class="lf-muted">next attempt {{ Formats::date($execution->deferredUntil) }} — its tenant is at a ceiling</span></dd>
+                @endif
                 @if ($execution->fruitlessClaims > 1)
                     <dt>Claims without progress</dt>
                     <dd class="lf-warn">{{ $execution->fruitlessClaims }} <span class="lf-muted">(claimed repeatedly without reaching a step)</span></dd>

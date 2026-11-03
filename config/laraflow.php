@@ -346,6 +346,54 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Tenants
+    |--------------------------------------------------------------------------
+    |
+    | Per-tenant ceilings, enforced where every run begins: at the claim.
+    | An execution created with a tenant id is held to its tenant's
+    | ceilings on every claim — a fresh dispatch, a due retry, a resumed
+    | wait, a heartbeat, recovery — and a claim a ceiling turns away
+    | changes nothing about the execution: it stays pending, retrying,
+    | or waiting as it was, with deferred_until and a deferral count on
+    | the row, and the queue job pushes it again for that instant. An
+    | execution with no tenant is never bounded. See docs/tenancy.md.
+    |
+    | max_concurrent: the most of a tenant's executions that may hold a
+    | worker at once — running or compensating with a fresh claim.
+    | Parked, pending, and stale executions hold nothing. Null: no
+    | ceiling. Honest about the instant: two claimants in the same
+    | instant can both count below it, so it is exact in the steady
+    | state and exceeded briefly by at most the workers that raced.
+    |
+    | max_claims_per_minute: the most claims a tenant may make in a
+    | sliding minute, counted in the cache like the connector rate
+    | limit. Bounds churn where max_concurrent bounds occupancy.
+    |
+    | deferral: seconds a turned-away execution waits before its
+    | delivery is tried again, plus up to a fifth of that in jitter
+    | derived from the execution id so a tenant's deferred work does
+    | not all wake at once.
+    |
+    | overrides: per-tenant exceptions, replacing only the keys named:
+    |   'acme' => ['max_concurrent' => 20],
+    |   'trial' => ['max_concurrent' => 1, 'max_claims_per_minute' => 10],
+    |
+    | The fairness rule: tenant B cannot be starved by tenant A if A's
+    | ceiling is below the number of workers, because A can never hold
+    | every worker. A tenant with no ceiling can still starve the rest;
+    | max_concurrent here bounds every tenant without an override.
+    |
+    */
+
+    'tenants' => [
+        'max_concurrent' => env('LARAFLOW_TENANT_MAX_CONCURRENT'),
+        'max_claims_per_minute' => env('LARAFLOW_TENANT_MAX_CLAIMS_PER_MINUTE'),
+        'deferral' => env('LARAFLOW_TENANT_DEFERRAL', 15),
+        'overrides' => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Errors
     |--------------------------------------------------------------------------
     |

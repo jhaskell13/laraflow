@@ -117,7 +117,7 @@ class OverviewPageTest extends TestCase
 
         $this->get('/laraflow')
             ->assertOk()
-            ->assertSee('No retries or waits due, no step past its deadline, no schedule stalled.')
+            ->assertSee('No retries or waits due, no step past its deadline, no schedule stalled, nothing deferred.')
             ->assertDontSee('is due now');
     }
 

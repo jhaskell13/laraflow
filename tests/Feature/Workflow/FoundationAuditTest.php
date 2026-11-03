@@ -33,6 +33,7 @@ use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
@@ -117,7 +118,7 @@ class FoundationAuditTest extends TestCase
         // a transient failure there used to drive the failure path into
         // InvalidStateTransitionException and leave the execution
         // claimed. The real error must be what the step row records.
-        $repository = new class($this->app->make(\Psr\Clock\ClockInterface::class)) extends EloquentExecutionRepository
+        $repository = new class($this->app->make(\Psr\Clock\ClockInterface::class), $this->app->make(TenantCeilings::class)) extends EloquentExecutionRepository
         {
             public int $failures = 1;
 

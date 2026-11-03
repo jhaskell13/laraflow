@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 
 /**
  * Durable storage for workflow executions.
@@ -105,6 +106,8 @@ interface ExecutionRepository
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
      * @throws RetryNotDueException when the execution is retrying before its due time.
      * @throws ExecutionStillWaitingException when the execution is parked on a wait that is not due.
+     * @throws TenantThrottledException when the execution's tenant is at a ceiling; the deferral is
+     *                                  recorded on the row and nothing else about it changes (docs/tenancy.md).
      */
     public function claim(
         int $id,
@@ -303,6 +306,20 @@ interface ExecutionRepository
         array $payload,
         DateTimeImmutable $at
     ): WorkflowExecution;
+
+    /**
+     * Executions a tenant ceiling has deferred past $now — their
+     * delivery is being held, not their state — within the filter's
+     * scope, soonest due first. The attention scan's "what is deferred
+     * right now"; served by the deferred_until index.
+     *
+     * @return list<WorkflowExecution> at most $limit, bounded by MAX_PAGE_SIZE.
+     */
+    public function deferred(
+        ExecutionFilter $filter,
+        DateTimeImmutable $now,
+        int $limit = 100
+    ): array;
 
     /**
      * Waiting executions whose next event — a timed resume or a signal

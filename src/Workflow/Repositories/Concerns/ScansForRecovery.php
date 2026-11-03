@@ -49,9 +49,18 @@ trait ScansForRecovery
         ?string $workflow = null,
         ?string $tenantId = null
     ): array {
+        $now = $this->clock->now();
+
         return $this->scan($limit, $workflow, $tenantId)
             ->where('status', ExecutionStatus::Pending->value)
             ->where('created_at', '<=', $createdBefore)
+            // A deferral is delivery, not state: a pending execution a
+            // tenant ceiling turned away has its own timer, and finding
+            // it here before that timer fires would double the delivery
+            // for nothing (docs/tenancy.md).
+            ->where(function (Builder $query) use ($now): void {
+                $query->whereNull('deferred_until')->orWhere('deferred_until', '<=', $now);
+            })
             ->orderBy('id')
             ->get()
             ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))

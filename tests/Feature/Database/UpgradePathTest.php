@@ -117,15 +117,17 @@ class UpgradePathTest extends TestCase
         // frozen schema, then the new migrations applied — simulated by
         // rolling them back first, since the harness installs every
         // migration up front. One rollback step per post-freeze
-        // migration — eleven.
+        // migration — twelve.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 11, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 12, '--force' => true])->assertSuccessful();
 
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
+        $this->assertNotContains(['tenant_id', 'status', 'claimed_at'], $this->indexColumns('laraflow_workflow_executions'), 'The tenant slot index rolls back with its migration.');
         $this->assertFalse(Schema::hasTable('laraflow_schedule_ticks'));
         $this->assertFalse(Schema::hasTable('laraflow_schedules'));
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
@@ -154,6 +156,13 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
         $this->assertTrue(Schema::hasTable('laraflow_schedules'));
         $this->assertTrue(Schema::hasTable('laraflow_schedule_ticks'));
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
+        $this->assertContains(['tenant_id', 'status', 'claimed_at'], $this->indexColumns('laraflow_workflow_executions'), 'The tenant slot index is back.');
+
+        // A row that predates the columns was never deferred, and the
+        // package reads it that way without a coalesce.
+        $this->assertSame(0, $this->app->make(ExecutionRepository::class)->find($execution->id)->deferrals);
+        $this->assertNull($this->app->make(ExecutionRepository::class)->find($execution->id)->deferredUntil);
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so

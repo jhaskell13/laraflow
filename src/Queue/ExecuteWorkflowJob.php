@@ -15,6 +15,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowExecution;
@@ -94,6 +95,11 @@ class ExecuteWorkflowJob implements ShouldQueue
                 // no instant to deliver — the signaller re-dispatches.
                 $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
             }
+        } catch (TenantThrottledException $deferred) {
+            // A deferral, not a queue retry: the job returns normally,
+            // tries is untouched, and the queue gains no retry authority.
+            // The execution is re-pushed for the instant the record says.
+            $this->deferDelivery($deferred, $dispatcher, $config, $logger);
         } catch (ExecutionStillWaitingException) {
             // A delivery raced a park: a heartbeat landed after a signal
             // already resumed and re-parked the execution, or a delayed
@@ -220,6 +226,48 @@ class ExecuteWorkflowJob implements ShouldQueue
             $logger->warning('Laraflow could not queue a delayed retry; laraflow:recover will deliver it.', [
                 'execution_id' => $execution->id,
                 'exception' => $dispatchFailure::class.': '.$dispatchFailure->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * The tenant is at a ceiling: push this execution again for the
+     * instant the deferral names. On the sync driver a delayed push
+     * would run inline at once — the refusal propagates to the
+     * dispatcher's caller instead, as the contract says.
+     */
+    protected function deferDelivery(
+        TenantThrottledException $deferred,
+        WorkflowDispatcher $dispatcher,
+        Config $config,
+        LoggerInterface $logger,
+    ): void {
+        $connection = $this->resolveConnection($config);
+
+        if ($config->get("queue.connections.{$connection}.driver") === 'sync') {
+            throw $deferred;
+        }
+
+        try {
+            $dispatcher->dispatchExecution(
+                $deferred->executionId,
+                $this->connection,
+                $this->queue,
+                $deferred->deferredUntil,
+            );
+
+            $logger->info('Laraflow re-queued a deferred execution for when its tenant may have a slot.', [
+                'execution_id' => $deferred->executionId,
+                'tenant_id' => $deferred->tenantId,
+                'deferred_until' => $deferred->deferredUntil->format('c'),
+            ]);
+        } catch (Throwable $pushFailure) {
+            // The deferral is recorded; the pending scan picks the
+            // execution up once deferred_until passes, where it is
+            // enabled, and laraflow:execute is always there.
+            $logger->warning('Laraflow could not re-queue a deferred execution; laraflow:recover will deliver it.', [
+                'execution_id' => $deferred->executionId,
+                'exception' => $pushFailure::class.': '.$pushFailure->getMessage(),
             ]);
         }
     }

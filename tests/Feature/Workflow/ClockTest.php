@@ -14,6 +14,7 @@ use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -56,7 +57,7 @@ class ClockTest extends TestCase
         // The repository stamps claimed_at/started_at itself, so it and
         // the runner share one clock.
         $runner = $this->makeRunner(
-            repository: new EloquentExecutionRepository($clock),
+            repository: new EloquentExecutionRepository($clock, $this->app->make(TenantCeilings::class)),
             logger: new ArrayLogger,
             clock: $clock,
         );
@@ -74,7 +75,7 @@ class ClockTest extends TestCase
     public function test_advancing_an_injected_clock_moves_the_timestamps_it_writes(): void
     {
         $clock = new FixedClock('2026-10-23 09:00:00');
-        $repository = new EloquentExecutionRepository($clock);
+        $repository = new EloquentExecutionRepository($clock, $this->app->make(TenantCeilings::class));
 
         $runner = $this->makeRunner(
             repository: $repository,
@@ -99,7 +100,7 @@ class ClockTest extends TestCase
     public function test_the_repository_measures_claim_staleness_with_its_clock(): void
     {
         $clock = new FixedClock('2026-10-23 12:00:00');
-        $repository = new EloquentExecutionRepository($clock);
+        $repository = new EloquentExecutionRepository($clock, $this->app->make(TenantCeilings::class));
 
         $execution = $repository->create(
             workflow: TwoStepWorkflow::class,

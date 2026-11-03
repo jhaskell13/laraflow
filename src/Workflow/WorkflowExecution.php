@@ -66,6 +66,8 @@ class WorkflowExecution
         public ?DateTimeImmutable $payloadsScrubbedAt = null,
         public readonly int $fruitlessClaims = 0,
         protected ?int $persistedDurationMs = null,
+        public readonly ?DateTimeImmutable $deferredUntil = null,
+        public readonly int $deferrals = 0,
     ) {}
 
     public function markRunning(DateTimeImmutable $at): void

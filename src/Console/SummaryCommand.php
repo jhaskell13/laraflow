@@ -162,6 +162,20 @@ class SummaryCommand extends Command
             ));
         }
 
+        if ($report->deferred !== []) {
+            $soonest = $report->deferred[0];
+
+            $this->components->warn(sprintf(
+                '%d execution%s deferred by a tenant ceiling; the soonest, [%s] for tenant [%s], is next tried %s. '
+                .'A tenant pinned at its ceiling is worth knowing about; raise it under laraflow.tenants if the ceiling is wrong.',
+                count($report->deferred),
+                count($report->deferred) === 1 ? ' is' : 's are',
+                $soonest->id,
+                $soonest->tenantId ?? '—',
+                $this->formatDate($soonest->deferredUntil),
+            ));
+        }
+
         if ($report->oldestUnfinished !== null) {
             $this->components->info(sprintf(
                 'Oldest unfinished execution: [%s] %s, created %s.',
@@ -172,7 +186,7 @@ class SummaryCommand extends Command
         }
 
         if (! $report->needsAttention()) {
-            $this->components->info('Nothing needs attention: no retries or waits due, no step past its deadline, no schedule stalled.');
+            $this->components->info('Nothing needs attention: no retries or waits due, no step past its deadline, no schedule stalled, nothing deferred.');
         }
 
         $this->newLine();

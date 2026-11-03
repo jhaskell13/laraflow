@@ -2,7 +2,7 @@
 
 > This document is the design contract for Milestone 10's per-tenant ceilings, written before any of it is built. The enforcing suite will be `tests/Feature/Workflow/TenantThrottlingTest.php`. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 >
-> Planned configuration keys are written without the `laraflow.` prefix; the contracts test holds every full name a document uses to something that exists.
+> The configuration this document names is shipped and held to it by the contracts test.
 
 ## The problem this solves
 
@@ -111,7 +111,7 @@ An exact ceiling needs the count and the claim to be one atomic decision for eve
 ## Compatibility notes
 
 - `ExecutionRepository::claim()` gains the ceiling check and may throw `TenantThrottledException`; a custom repository must honour both — a **Breaking** entry when it ships. The exception is new public surface, as are `TenantPolicy`, `TenantLimits`, and the event.
-- One additive migration: `deferred_until` and `deferrals` on the executions table, and the `(tenant_id, status, claimed_at)` index that serves the count. The freeze and upgrade harness apply as always.
+- One additive migration: `deferred_until` and `deferrals` on the executions table, the `(tenant_id, status, claimed_at)` index that serves the count, and an index on `deferred_until` so the summary's "what is deferred right now" is a scan with an index behind it, as every scan must be. `ExecutionRepository` gains `deferred()` for that read. The freeze and upgrade harness apply as always.
 - A new `tenants` configuration section — `max_concurrent`, `max_claims_per_minute`, `deferral`, `overrides` — arriving with the step that reads it. Every value ships null or inert: nothing is bounded until an application says so, and `ProjectContractsTest` will hold the defaults to that.
 - `laraflow:execute --now` continues to mean *ignore the retry schedule*; it does not mean *ignore the ceiling*.
 

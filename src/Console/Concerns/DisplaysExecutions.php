@@ -61,6 +61,19 @@ trait DisplaysExecutions
 
         $this->displayQueueTiming($execution);
 
+        if ($execution->deferredUntil !== null) {
+            // Cleared by the first claim that lands, so a finished
+            // execution never carries a stale note.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Deferred</>',
+                sprintf(
+                    '<fg=yellow>×%d</>, next attempt %s (its tenant is at a ceiling)',
+                    $execution->deferrals,
+                    $this->formatDate($execution->deferredUntil),
+                ),
+            );
+        }
+
         if ($execution->isRetrying() && $execution->nextRetryAt !== null) {
             $this->components->twoColumnDetail(
                 '<fg=gray>Next retry</>',

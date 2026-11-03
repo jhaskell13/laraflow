@@ -120,6 +120,11 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow, $tenantId));
     }
 
+    public function deferred(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->deferred($filter, $now, $limit));
+    }
+
     public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void
     {
         $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {

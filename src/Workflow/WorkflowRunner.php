@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
+use Laraflow\Events\WorkflowExecutionDeferred;
 use Laraflow\Events\WorkflowExecutionSignalled;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepSkipped;
@@ -24,6 +25,7 @@ use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\DurableValue;
@@ -191,12 +193,39 @@ class WorkflowRunner
     ): WorkflowExecution {
         $claimToken = bin2hex(random_bytes(16));
 
-        $execution = $this->repository->claim(
-            $executionId,
-            $claimToken,
-            $this->options->staleAfterSeconds,
-            $ignoreRetrySchedule
-        );
+        try {
+            $execution = $this->repository->claim(
+                $executionId,
+                $claimToken,
+                $this->options->staleAfterSeconds,
+                $ignoreRetrySchedule
+            );
+        } catch (TenantThrottledException $deferred) {
+            // The deferral is durable; announce it after the write it
+            // describes, then let the caller decide — the queue job
+            // waits it out, an in-process caller is told.
+            $this->event(new WorkflowExecutionDeferred(
+                executionId: $deferred->executionId,
+                workflow: $deferred->workflow,
+                correlationId: $deferred->correlationId,
+                tenantId: $deferred->tenantId,
+                ceiling: $deferred->ceiling,
+                limit: $deferred->limit,
+                count: $deferred->count,
+                deferredUntil: $deferred->deferredUntil,
+            ));
+
+            $this->logger->info('Laraflow deferred an execution: its tenant is at a ceiling.', [
+                'execution_id' => $deferred->executionId,
+                'tenant_id' => $deferred->tenantId,
+                'ceiling' => $deferred->ceiling->value,
+                'limit' => $deferred->limit,
+                'count' => $deferred->count,
+                'deferred_until' => $deferred->deferredUntil->format(DATE_ATOM),
+            ]);
+
+            throw $deferred;
+        }
 
         // Published before anything runs and restored in the finally,
         // so every log record written while this execution is in

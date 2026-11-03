@@ -26,6 +26,7 @@ use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -429,7 +430,7 @@ class WaitStateTest extends TestCase
      */
     protected function repositoryWithLateCancellationRequest(): EloquentExecutionRepository
     {
-        return new class($this->app->make(ClockInterface::class)) extends EloquentExecutionRepository
+        return new class($this->app->make(ClockInterface::class), $this->app->make(TenantCeilings::class)) extends EloquentExecutionRepository
         {
             private bool $armed = true;
 

@@ -21,6 +21,7 @@ use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowRunner;
 
 /**
@@ -225,7 +226,7 @@ class StepTimeoutTest extends TestCase
     {
         $runner = $this->makeRunner(
             repository: new CrashingExecutionRepository(
-                new EloquentExecutionRepository($this->clock),
+                new EloquentExecutionRepository($this->clock, $this->app->make(TenantCeilings::class)),
                 'checkpoint',
                 1,
                 'before',
@@ -246,7 +247,7 @@ class StepTimeoutTest extends TestCase
     protected function runner(): WorkflowRunner
     {
         return $this->makeRunner(
-            repository: new EloquentExecutionRepository($this->clock),
+            repository: new EloquentExecutionRepository($this->clock, $this->app->make(TenantCeilings::class)),
             logger: new ArrayLogger,
             options: new RunnerOptions(staleAfterSeconds: 0),
             clock: $this->clock,

@@ -23,6 +23,7 @@ use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\RunnerOptions;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
 
@@ -150,7 +151,7 @@ class RateLimitRetryTest extends TestCase
         $logger = new ArrayLogger;
 
         return $this->makeRunner(
-            repository: new EloquentExecutionRepository($this->clock),
+            repository: new EloquentExecutionRepository($this->clock, $this->app->make(TenantCeilings::class)),
             logger: $logger,
             options: $options,
             events: new EventEmitter($this->app->make(Dispatcher::class), $logger),

@@ -13,8 +13,8 @@ use Laraflow\Workflow\Scheduling\ScheduleStatus;
  * @internal Implementation detail; not covered by the compatibility policy.
  *
  * Finds what needs an operator: retries and waits past due, running
- * steps past their deadline, stalled schedules, and the oldest
- * unfinished execution.
+ * steps past their deadline, stalled schedules, executions a tenant
+ * ceiling is holding, and the oldest unfinished execution.
  * Extracted from laraflow:summary so the dashboard's overview computes
  * the same answer by calling the same code, rather than a second copy
  * that could drift (docs/dashboard.md).
@@ -61,6 +61,7 @@ final class AttentionScan
             dueWaits: $dueWaits,
             overdueSteps: $this->overdueSteps($filter, $now),
             stalledSchedules: $this->stalledSchedules($filter, $now),
+            deferred: $this->repository->deferred($filter, $now, ExecutionRepository::MAX_PAGE_SIZE),
             oldestUnfinished: $unfinished->isEmpty() ? null : $unfinished->executions[0],
         );
     }

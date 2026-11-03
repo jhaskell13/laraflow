@@ -69,6 +69,9 @@ use Laraflow\Workflow\Scheduling\Scheduler;
 use Laraflow\Workflow\Scheduling\ScheduleRegistry;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Scheduling\SchedulerOptions;
+use Laraflow\Workflow\Tenancy\ConfigTenantPolicy;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
+use Laraflow\Workflow\Tenancy\TenantPolicy;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -126,6 +129,23 @@ class LaraflowServiceProvider extends ServiceProvider
         // Bound by interface so an application (or a test) can replace the
         // package's source of time wholesale.
         $this->app->singleton(ClockInterface::class, Clock::class);
+
+        // Bound by interface so an application whose tenants are rows,
+        // not configuration entries, answers from wherever a tenant's
+        // plan lives; consulted on every bounded claim.
+        $this->app->singleton(TenantPolicy::class, fn (Container $app): TenantPolicy => new ConfigTenantPolicy(
+            $app->make(Config::class),
+        ));
+
+        $this->app->singleton(TenantCeilings::class, function (Container $app): TenantCeilings {
+            $deferral = $this->setting($app->make(Config::class), 'laraflow.tenants.deferral');
+
+            return new TenantCeilings(
+                policy: $app->make(TenantPolicy::class),
+                limiter: $app->make(RateLimiter::class),
+                deferralSeconds: $deferral === null ? 15 : (int) $deferral,
+            );
+        });
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
         $this->app->singleton(IdempotencyStore::class, EloquentIdempotencyStore::class);

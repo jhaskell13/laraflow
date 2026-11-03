@@ -33,7 +33,7 @@ class SchemaFreezeTest extends TestCase
         'laraflow_workflow_executions' => [
             'available_at', 'cancel_reason', 'cancel_requested_at', 'cancelled_at',
             'claim_token', 'claimed_at', 'completed_at', 'context', 'correlation_id',
-            'created_at', 'dispatched_at', 'duration_ms', 'error', 'error_class',
+            'created_at', 'deferrals', 'deferred_until', 'dispatched_at', 'duration_ms', 'error', 'error_class',
             'failed_at', 'finished_at', 'fruitless_claims', 'id', 'input', 'next_retry_at',
             'parent_execution_id', 'parent_step_execution_id',
             'payloads_scrubbed_at', 'plan_version', 'started_at', 'status', 'tenant_id',
@@ -77,6 +77,7 @@ class SchemaFreezeTest extends TestCase
         'laraflow_workflow_executions' => [
             ['correlation_id'],
             ['created_at'],
+            ['deferred_until'],
             ['id'],
             ['parent_execution_id'],
             ['parent_step_execution_id'],
@@ -86,6 +87,7 @@ class SchemaFreezeTest extends TestCase
             ['status', 'finished_at'],
             ['status', 'next_retry_at'],
             ['tenant_id'],
+            ['tenant_id', 'status', 'claimed_at'],
             ['workflow', 'status'],
         ],
         'laraflow_step_executions' => [
@@ -141,6 +143,8 @@ class SchemaFreezeTest extends TestCase
         '2026_11_02_000001_add_compensation_link_to_laraflow_step_executions.php' => '8fe8ffa21720edfd96285be64bba807022f7967a6a2a409d3747a1406a15c707',
         '2026_11_03_000000_create_laraflow_schedules_table.php' => '5bd71e00353881c7bfa628b22ea347d796e74c15452048b494c01971647503da',
         '2026_11_03_000001_create_laraflow_schedule_ticks_table.php' => '3f836914fcea61aa9bee7a0ba783922da00c67b2ecac489baedb2066c529ae7c',
+
+        '2026_11_04_000000_add_tenant_ceilings_to_laraflow_workflow_executions.php' => 'd5b2401470a8fff070c9ae48e58e1447b7014f7a023ebdd784cf1d43949ad0b3',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void

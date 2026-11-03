@@ -354,6 +354,12 @@ class ProjectContractsTest extends TestCase
             $this->assertNull(config("laraflow.retention.{$bound}"), "Retention bound {$bound} must ship disabled.");
         }
 
+        // Milestone 10: no tenant is bounded until an application says so.
+        $this->assertNull(config('laraflow.tenants.max_concurrent'), 'The tenant concurrency ceiling must ship off.');
+        $this->assertNull(config('laraflow.tenants.max_claims_per_minute'), 'The tenant rate ceiling must ship off.');
+        $this->assertSame([], config('laraflow.tenants.overrides'), 'No tenant is singled out by default.');
+        $this->assertSame([], config('laraflow.schedules.workflows'), 'Nothing is scheduled until a class is listed.');
+
         // And the ordering the timeout contract depends on.
         $this->assertLessThan(
             (int) config('laraflow.execution.stale_after'),
