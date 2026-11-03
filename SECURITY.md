@@ -7,7 +7,7 @@ Security fixes land on `main` and are released in the newest version. The policy
 | Version | Supported |
 |---------|-----------|
 | `main` (development) | Yes |
-| `0.1.x` (latest minor) | Yes |
+| `0.5.x` (latest minor) | Yes |
 | Previous minor | For 90 days after the next minor |
 | Anything older | No — upgrade |
 

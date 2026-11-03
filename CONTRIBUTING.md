@@ -4,7 +4,7 @@ Thanks for your interest. Participation is governed by the [Code of Conduct](COD
 
 ## Before you start
 
-- **Check the roadmap.** Work is ordered by dependency. A feature the roadmap defers (graph branching, fan-out, compensation, new connectors) is unlikely to be merged ahead of the work it depends on, however good the code is. Open an issue first to discuss anything the roadmap does not already name.
+- **Check the roadmap.** Work is ordered by dependency. A feature the roadmap defers (graph branching, a visual designer, new bundled connectors) is unlikely to be merged ahead of the work it depends on, however good the code is. Open an issue first to discuss anything the roadmap does not already name.
 - **Open an issue for anything non-trivial.** Bug fixes with tests can go straight to a pull request. Design changes, new public API, and schema changes should be discussed first.
 - **Read [docs/public-api.md](docs/public-api.md).** Changes to public classes need a changelog entry; changes to internal classes do not.
 
