@@ -357,6 +357,124 @@ runs:
         # The claimed tick is not due twice.
         php artisan laraflow:schedule | grep -q 'not due'
 
+    # Triggers: the Milestone 10 exit criterion — a signal from an
+    # unauthenticated HTTP client is refused; from a signed one, it
+    # resumes the execution. A real approval workflow parked on a signal,
+    # the endpoint mounted from a provider with a key from the
+    # environment, and curl + openssl doing the signing the way any
+    # non-PHP caller would.
+    - name: An unsigned trigger is refused and a signed one resumes the waiting execution
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat > app/Workflows/Steps/AwaitApproval.php <<'STEP'
+        <?php
+
+        namespace App\Workflows\Steps;
+
+        use Laraflow\Workflow\Step;
+        use Laraflow\Workflow\Wait;
+        use Laraflow\Workflow\WorkflowContext;
+
+        class AwaitApproval implements Step
+        {
+            public function handle(WorkflowContext $context): mixed
+            {
+                return Wait::forSignal('manager-approval');
+            }
+        }
+        STEP
+        cat > app/Workflows/ApproveOrder.php <<'WF'
+        <?php
+
+        namespace App\Workflows;
+
+        use App\Workflows\Steps\AwaitApproval;
+        use App\Workflows\Steps\ReserveInventory;
+        use Laraflow\Workflow\Workflow;
+
+        class ApproveOrder extends Workflow
+        {
+            public function steps(): array
+            {
+                return [AwaitApproval::class, ReserveInventory::class];
+            }
+        }
+        WF
+        php -l app/Workflows/Steps/AwaitApproval.php
+        php -l app/Workflows/ApproveOrder.php
+
+        # Mounted from a provider (routes/web.php would wrap it in the
+        # web group's CSRF check, which a machine caller cannot pass —
+        # the signature is what stands in for it). The key comes from
+        # the environment, as it must.
+        KEY=$(openssl rand -hex 32)
+        echo "LARAFLOW_TRIGGERS_KEY=$KEY" >> .env
+        php artisan make:provider TriggerServiceProvider
+        cat > app/Providers/TriggerServiceProvider.php <<'PROV'
+        <?php
+
+        namespace App\Providers;
+
+        use Illuminate\Support\ServiceProvider;
+        use Laraflow\Triggers\Triggers;
+
+        class TriggerServiceProvider extends ServiceProvider
+        {
+            public function boot(): void
+            {
+                Triggers::routes();
+            }
+        }
+        PROV
+        php -l app/Providers/TriggerServiceProvider.php
+        php artisan route:list --json | grep -q 'laraflow\.triggers\.signal'
+
+        php artisan laraflow:start ApproveOrder --input='{"order_id": 88}' | tee approve.log
+        grep -q 'parked the execution on a wait' approve.log
+        ID=$(php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=waiting | grep -oE '\| *[0-9]+ ' | head -1 | tr -dc '0-9')
+        test -n "$ID"
+
+        php artisan serve --port=8323 --no-reload > serve-triggers.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8323/up 2>/dev/null && break
+          sleep 0.5
+        done
+
+        URL="http://127.0.0.1:8323/laraflow/triggers/executions/$ID/signals/manager-approval"
+        BODY='{"approved_by":"ops@example.com"}'
+
+        # Unauthenticated: refused, with nothing said and nothing changed.
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' --data "$BODY")" = "401"
+        grep -q '"status":"refused"' /tmp/trigger.json
+        php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=waiting | grep -q '1 of 1'
+
+        # A GET is not a route that changes anything.
+        test "$(curl -s -o /dev/null -w '%{http_code}' "$URL")" = "405"
+
+        # Signed the way docs/triggers.md shows, with nothing but openssl.
+        TS=$(date +%s)
+        HASH=$(printf '%s' "$BODY" | sha256sum | cut -d' ' -f1)
+        SIG=$(printf 'v1\n%s\n%s\n%s\n%s' "$TS" "$ID" "manager-approval" "$HASH" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}')
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' -H "X-Laraflow-Timestamp: $TS" -H "X-Laraflow-Signature: v1=$SIG" --data "$BODY")" = "202"
+        cat /tmp/trigger.json
+        grep -q '"status":"recorded"' /tmp/trigger.json
+        grep -q '"delivery":"queued"' /tmp/trigger.json
+
+        # The worker resumes it with the payload, and the execution completes.
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=completed | grep -q '1 of 1'
+        php artisan laraflow:show "$ID" | grep -q 'ops@example.com'
+
+        # Replayed after the resume: nothing is waiting on it.
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' -H "X-Laraflow-Timestamp: $TS" -H "X-Laraflow-Signature: v1=$SIG" --data "$BODY")" = "409"
+        grep -q '"status":"not_waiting"' /tmp/trigger.json
+
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
     - name: The dashboard is absent until mounted, and denied by default
       shell: bash
       working-directory: ${{ inputs.app }}
