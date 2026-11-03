@@ -244,7 +244,7 @@ Laraflow fires events at each durable boundary. They are plain objects in `Laraf
 | `WorkflowExecutionCancelled` | The execution was marked cancelled. Fires once. |
 | `WorkflowExecutionSignalled` | A signal was durably recorded for a waiting execution (never its payload). |
 | `WorkflowFanOutStarted` | A fan-out created and delivered every member it declared and is about to park on the join; carries the group's size and a sample of member ids, never their inputs. |
-| `WorkflowCompensationStarted` | An execution failed terminally and has steps to undo; fired after it is durably `compensating`. |
+| `WorkflowCompensationStarted` | An execution failed terminally and has steps to undo; fired after it is durably `compensating`. Once per pass *attempt*, like its `WorkflowCompensated` counterpart below — a pass resumed on a later claim fires it again, with `steps` counting what is left to undo rather than what the first pass faced. |
 | `WorkflowCompensated` | A compensation pass finished — or stopped, in which case `remaining` is non-zero. Fired once per pass *attempt*, so a pass resumed on a later claim fires it again. |
 | `WorkflowExecutionRetryScheduled` | Recovery selected an execution; `reason` is a `RecoveryReason` (`stale_claim`, `step_timeout`, `retry_due`, `wait_due`, `never_dispatched`). |
 | `WorkflowPlanMigrated` | A declared plan migration carried the execution to a newer plan version, and the rewrite committed (`fromVersion`, `toVersion`, step count). |
