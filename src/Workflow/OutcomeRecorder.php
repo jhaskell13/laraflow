@@ -324,12 +324,20 @@ class OutcomeRecorder
      * since the pass began. The exception object is gone — the pass may
      * have spanned claims — but the message and class were recorded
      * with the status, so the record is the same either way.
+     *
+     * The stand-in is a RecordedFailure rather than a bare
+     * WorkflowException, so the class reaches the event and the log
+     * line as well as the column. Rebuilding it as the wrapper's own
+     * class would have made every compensated execution alert as a
+     * WorkflowException whatever actually broke, while its row said
+     * otherwise.
      */
     public function failRecorded(WorkflowExecution $execution): void
     {
         $error = $execution->error ?? 'The execution failed.';
         $errorClass = $execution->errorClass ?? WorkflowException::class;
         $failedAt = $this->clock->now();
+        $recorded = new RecordedFailure($error, $errorClass);
 
         try {
             $execution->markFailed($error, $errorClass, $failedAt);
@@ -337,12 +345,12 @@ class OutcomeRecorder
         } catch (ClaimLostException $lost) {
             throw $lost;
         } catch (Throwable $storageFailure) {
-            $this->logStorageFailure('a compensated workflow failure', $execution, null, new WorkflowException($error), $storageFailure);
+            $this->logStorageFailure('a compensated workflow failure', $execution, null, $recorded, $storageFailure);
 
             return;
         }
 
-        $this->announceExecutionFailure($execution, new WorkflowException($error), $error, $failedAt);
+        $this->announceExecutionFailure($execution, $recorded, $error, $failedAt);
         $this->parents->childFinished($execution);
     }
 

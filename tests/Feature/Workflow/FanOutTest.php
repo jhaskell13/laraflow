@@ -16,8 +16,11 @@ use Laraflow\Tests\Support\CrashingExecutionRepository;
 use Laraflow\Tests\Support\FailingAfterDelivery;
 use Laraflow\Tests\Support\FanOutWorkflow;
 use Laraflow\Tests\Support\NotifyMembersStep;
+use Laraflow\Tests\Support\OneStepWorkflow;
+use Laraflow\Tests\Support\SecondFanOutStep;
 use Laraflow\Tests\Support\SimulatedWorkerCrash;
 use Laraflow\Tests\Support\StepTwo;
+use Laraflow\Tests\Support\TwoFanOutWorkflow;
 use Laraflow\Tests\Support\TwoStepWorkflow;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ChildDelivery;
@@ -145,6 +148,43 @@ class FanOutTest extends TestCase
         $stepRow = StepExecutionModel::query()->where('workflow_execution_id', $parent->id)->where('position', 1)->sole();
         $this->assertSame(3, $stepRow->output['completed'] ?? null);
         $this->assertNull($stepRow->wait_signal, 'Never parked.');
+    }
+
+    /**
+     * The summary's member ids are "the members of this step", and a
+     * workflow may fan out at more than one position. The ids were
+     * read from a single page of the parent's children, oldest first,
+     * and then filtered to the step in PHP — so a second group whose
+     * members are all newer than one page of the first group's
+     * summarised *nothing*, silently, while reporting the right counts.
+     */
+    public function test_a_second_fan_out_under_the_same_parent_summarises_its_own_members(): void
+    {
+        // The first group fills a page on its own, so the second
+        // group's members are nowhere in it.
+        NotifyMembersStep::$inputs = array_map(fn (int $n): array => ['n' => $n], range(1, 100));
+        NotifyMembersStep::$workflow = OneStepWorkflow::class;
+        SecondFanOutStep::$inputs = [['m' => 1], ['m' => 2]];
+        TwoFanOutWorkflow::$steps = [NotifyMembersStep::class, SecondFanOutStep::class];
+
+        $parent = $this->runner()->run(new TwoFanOutWorkflow);
+
+        $this->assertTrue($parent->isCompleted());
+
+        $second = StepExecutionModel::query()
+            ->where('workflow_execution_id', $parent->id)
+            ->where('position', 1)
+            ->sole();
+
+        $expected = WorkflowExecutionModel::query()
+            ->where('parent_step_execution_id', $second->id)
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+
+        $this->assertCount(2, $expected, 'The second group has two members.');
+        $this->assertSame(2, $second->output['total'] ?? null);
+        $this->assertSame($expected, $second->output['members'] ?? null, 'Its summary names its own members, not nothing.');
     }
 
     public function test_a_group_wider_than_the_bound_is_refused_before_anything_is_created(): void

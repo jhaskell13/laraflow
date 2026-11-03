@@ -38,11 +38,19 @@ final class FanOutGroup
     /** How many members that did not complete a failure names. */
     private const NAMED_IN_FAILURE = 5;
 
+    /**
+     * @param  JoinPolicy  $policy  Named by every caller, with no default: the
+     *                              step declares it and both the park and the *resume* must ask
+     *                              the same declaration. A default here let the resume path —
+     *                              where nearly every join actually decides — silently assume
+     *                              WaitAll, so a second policy would have been honoured on the
+     *                              way in and ignored on the way out.
+     */
     public function __construct(
         private readonly ExecutionRepository $repository,
         private readonly WorkflowExecution $parent,
         private readonly StepExecution $stepRow,
-        private readonly JoinPolicy $policy = JoinPolicy::WaitAll,
+        private readonly JoinPolicy $policy,
     ) {}
 
     public function progress(): ChildProgress
@@ -111,24 +119,44 @@ final class FanOutGroup
 
     /**
      * The first member ids, at most $limit of them, in creation order.
-     * One page: the caller wants a sample to point at, not a census.
+     * A sample to point at, not a census — but a sample of *this*
+     * step's members.
+     *
+     * The page is of the parent's children and the step is matched in
+     * PHP, because that is the filter the parent index serves; so
+     * pages are walked until the sample is full or the children run
+     * out. Stopping after one page summarised a second fan-out under
+     * the same parent as nothing at all, since every member of it was
+     * newer than a page of the first group's.
      *
      * @return list<int>
      */
     public function memberIds(int $limit): array
     {
-        $page = $this->repository->list(
-            new ExecutionFilter(parentId: $this->parent->id, oldestFirst: true),
-            min($limit, ExecutionRepository::MAX_PAGE_SIZE),
-        );
-
         $ids = [];
+        $cursor = null;
 
-        foreach ($page->executions as $candidate) {
-            if ($candidate->parentStepExecutionId === $this->stepRow->id) {
+        do {
+            $page = $this->repository->list(
+                new ExecutionFilter(parentId: $this->parent->id, oldestFirst: true),
+                ExecutionRepository::MAX_PAGE_SIZE,
+                $cursor,
+            );
+
+            foreach ($page->executions as $candidate) {
+                if ($candidate->parentStepExecutionId !== $this->stepRow->id) {
+                    continue;
+                }
+
                 $ids[] = $candidate->id;
+
+                if (count($ids) >= $limit) {
+                    return $ids;
+                }
             }
-        }
+
+            $cursor = $page->nextCursor;
+        } while ($cursor !== null);
 
         return $ids;
     }

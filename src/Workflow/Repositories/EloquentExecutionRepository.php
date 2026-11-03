@@ -629,8 +629,14 @@ class EloquentExecutionRepository implements ExecutionRepository
 
         $status = ExecutionStatus::from($current->status);
 
-        if ($status === ExecutionStatus::Running) {
-            throw ExecutionAlreadyClaimedException::forId($id);
+        // Compensating is claimed work exactly as running is — the
+        // undo runs under a claim, and a fresh one is reclaimed on the
+        // same stale test. Routing it to ExecutionNotRunnableException
+        // told a caller a status the contract calls *unfinished* was
+        // terminal, and had the queue job log a live pass as "already
+        // finished (completed or cancelled)".
+        if ($status === ExecutionStatus::Running || $status === ExecutionStatus::Compensating) {
+            throw ExecutionAlreadyClaimedException::forId($id, $status);
         }
 
         if ($status === ExecutionStatus::Retrying) {

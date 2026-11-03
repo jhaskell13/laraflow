@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Laraflow\Tests\Feature\Workflow;
 
 use DateTimeImmutable;
+use DomainException;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowCompensated;
 use Laraflow\Events\WorkflowCompensationStarted;
+use Laraflow\Events\WorkflowExecutionFailed;
+use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\RefundableStep;
 use Laraflow\Tests\Support\ShippableStep;
@@ -367,6 +370,71 @@ class CompensationTest extends TestCase
         $this->assertSame(StepStatus::Failed->value, $compensation->status);
         $this->assertStringContainsString('refund gateway is down', (string) $compensation->error);
         $this->assertSame([], RefundableStep::$undone);
+    }
+
+    /**
+     * A pass under a *fresh* claim is claimed work, and a delivery that
+     * races it must be refused as such. ExecutionNotRunnableException
+     * is documented as "a terminal status" and the queue job logs it as
+     * "already finished" — but `compensating` is the opposite of
+     * finished: it is claimable, visible to recovery, and a worker is
+     * undoing the execution right now.
+     */
+    public function test_a_delivery_racing_a_live_pass_is_refused_as_claimed_not_as_finished(): void
+    {
+        Date::setTestNow('2026-11-02 10:00:00');
+
+        PolicyWorkflow::$steps = [RefundableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new RuntimeException('boom');
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        // A worker holding a fresh claim, mid-pass.
+        $id = WorkflowExecutionModel::query()->sole()->id;
+        WorkflowExecutionModel::query()->whereKey($id)->update([
+            'status' => ExecutionStatus::Compensating->value,
+            'claim_token' => 'live-worker',
+            'claimed_at' => '2026-11-02 09:59:30',
+        ]);
+
+        $this->expectException(ExecutionAlreadyClaimedException::class);
+
+        $this->app->make(ExecutionRepository::class)->claim($id, 'second-worker', 300);
+    }
+
+    /**
+     * The failure event an operator's listener receives must name the
+     * same class the execution's row does. A pass that stops, or one
+     * resumed on a later claim, rests on a failure rebuilt from what
+     * was recorded; the rebuild must not reach the event as the
+     * wrapper's own class, or every compensated execution would alert
+     * as a WorkflowException whatever actually broke.
+     */
+    public function test_the_failure_event_names_the_real_class_after_a_pass_that_stopped(): void
+    {
+        Event::fake([WorkflowExecutionFailed::class]);
+
+        PolicyWorkflow::$steps = [RefundableStep::class, ThrowingStep::class];
+        ThrowingStep::$exception = new DomainException('forward failure');
+        RefundableStep::$policy = new StepPolicy(maxAttempts: 1);
+        RefundableStep::$failUndoTimes = 1;
+
+        try {
+            $this->runner()->run(new PolicyWorkflow);
+        } catch (DomainException) {
+        }
+
+        $row = WorkflowExecutionModel::query()->sole();
+
+        $this->assertSame(DomainException::class, $row->error_class, 'The row records what failed.');
+
+        Event::assertDispatched(
+            WorkflowExecutionFailed::class,
+            fn (WorkflowExecutionFailed $e): bool => $e->errorClass === DomainException::class,
+        );
     }
 
     /**

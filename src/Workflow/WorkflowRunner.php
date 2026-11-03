@@ -111,6 +111,7 @@ class WorkflowRunner
             options: $options,
             childDelivery: $childDelivery,
             outcomes: $this->outcomes,
+            steps: $this->steps,
         );
 
         $this->compensator = new Compensator(

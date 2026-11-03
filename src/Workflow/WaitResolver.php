@@ -43,6 +43,7 @@ final class WaitResolver
         private RunnerOptions $options,
         private ChildDelivery $childDelivery,
         private OutcomeRecorder $outcomes,
+        private StepResolver $steps,
     ) {}
 
     /**
@@ -287,7 +288,7 @@ final class WaitResolver
             return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, FanOutFailedException::malformedSignal($stepExecution->step, $stepExecution->position, $signal));
         }
 
-        $group = new FanOutGroup($this->repository, $execution, $stepExecution);
+        $group = new FanOutGroup($this->repository, $execution, $stepExecution, $this->joinPolicy($stepExecution));
         $progress = $group->progress();
 
         if ($progress->total() === 0) {
@@ -312,6 +313,23 @@ final class WaitResolver
         $this->outcomes->completeStep($execution, $stepExecution, $context, $outcome);
 
         return StepResolution::resumed();
+    }
+
+    /**
+     * The join policy the parked step declared.
+     *
+     * Asked of the class rather than remembered from the park, because
+     * the park is where the plan was last validated against the
+     * definition — the row carries no policy of its own. A class that
+     * is no longer a FanOutStep cannot answer, and the group is
+     * decided the way it was declared to be; the step itself will
+     * refuse on its next forward run.
+     */
+    private function joinPolicy(StepExecution $stepExecution): JoinPolicy
+    {
+        $step = $this->steps->make($stepExecution->step);
+
+        return $step instanceof FanOutStep ? $step->joinPolicy() : JoinPolicy::WaitAll;
     }
 
     /**
