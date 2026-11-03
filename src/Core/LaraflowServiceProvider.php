@@ -57,9 +57,14 @@ use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\Repositories\EloquentIdempotencyStore;
+use Laraflow\Workflow\Repositories\EloquentScheduleRepository;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionService;
 use Laraflow\Workflow\RunnerOptions;
+use Laraflow\Workflow\Scheduling\Scheduler;
+use Laraflow\Workflow\Scheduling\ScheduleRegistry;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
+use Laraflow\Workflow\Scheduling\SchedulerOptions;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -279,6 +284,30 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),
             clock: $app->make(ClockInterface::class),
+        ));
+
+        $this->app->singleton(ScheduleRegistry::class, fn (Container $app): ScheduleRegistry => new ScheduleRegistry(
+            $app,
+            $app->make(Config::class),
+        ));
+
+        $this->app->singleton(ScheduleRepository::class, EloquentScheduleRepository::class);
+
+        $this->app->singleton(
+            SchedulerOptions::class,
+            fn (Container $app): SchedulerOptions => SchedulerOptions::fromConfig($app->make(Config::class)),
+        );
+
+        $this->app->singleton(Scheduler::class, fn (Container $app): Scheduler => new Scheduler(
+            registry: $app->make(ScheduleRegistry::class),
+            schedules: $app->make(ScheduleRepository::class),
+            executions: $app->make(ExecutionRepository::class),
+            runner: $app->make(WorkflowRunner::class),
+            dispatcher: $app->make(WorkflowDispatcher::class),
+            events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
+            logger: $app->make(LoggerInterface::class),
+            options: $app->make(SchedulerOptions::class),
         ));
 
         $this->app->singleton(RecoveryService::class, fn (Container $app): RecoveryService => new RecoveryService(

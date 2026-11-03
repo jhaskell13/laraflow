@@ -299,6 +299,53 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Schedules
+    |--------------------------------------------------------------------------
+    |
+    | Scheduled workflows: a workflow declares its cadence in schedule(),
+    | and listing the class here activates it. The tick run — which you
+    | schedule, every minute, like laraflow:recover — synchronises the
+    | declarations, claims each due tick exactly once across any number
+    | of schedulers, and starts one execution per tick. Nothing below
+    | holds a cron expression: the cadence lives on the class, where it
+    | is reviewed and versioned with the steps it runs.
+    |
+    | enabled: the kill switch. Off, no schedule fires, without any
+    | being unlisted — for the incident where nothing should start.
+    |
+    | workflows: the Workflow classes whose schedules are live in this
+    | environment. A listed class with no schedule() is refused by name
+    | rather than silently never firing.
+    |
+    | max_catch_up: under MissedTickPolicy::CatchUp, the most missed
+    | ticks run per schedule per tick run; the remainder waits for the
+    | next run. catch_up_window: how far back, in seconds, catch-up will
+    | reach at all — missed ticks older than this are counted and
+    | skipped, because a week-long outage should not replay a week of
+    | hourly jobs without a person deciding it should.
+    |
+    | redispatch_after: seconds after which an execution a tick started
+    | that is still pending has its (lost) queue push repeated by the
+    | tick run. Safe to apply where the general pending scan must stay
+    | opt-in: a scheduled execution is never work the application was
+    | deliberately holding. See docs/schedules.md.
+    |
+    | limit: the most actions — ticks claimed plus lost dispatches
+    | re-pushed — one tick run performs.
+    |
+    */
+
+    'schedules' => [
+        'enabled' => env('LARAFLOW_SCHEDULES_ENABLED', true),
+        'workflows' => [],
+        'max_catch_up' => env('LARAFLOW_SCHEDULES_MAX_CATCH_UP', 10),
+        'catch_up_window' => env('LARAFLOW_SCHEDULES_CATCH_UP_WINDOW', 86400),
+        'redispatch_after' => env('LARAFLOW_SCHEDULES_REDISPATCH_AFTER', 300),
+        'limit' => env('LARAFLOW_SCHEDULES_LIMIT', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Errors
     |--------------------------------------------------------------------------
     |
