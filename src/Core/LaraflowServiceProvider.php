@@ -13,6 +13,7 @@ use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Laraflow\Console\CancelCommand;
+use Laraflow\Console\ChildrenCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
@@ -26,6 +27,7 @@ use Laraflow\Console\RecoverCommand;
 use Laraflow\Console\ScheduleCommand;
 use Laraflow\Console\SchedulesCommand;
 use Laraflow\Console\ShowCommand;
+use Laraflow\Console\SignalCommand;
 use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
@@ -425,6 +427,7 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->commands([
             CancelCommand::class,
+            ChildrenCommand::class,
             ConnectorsCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
@@ -438,6 +441,7 @@ class LaraflowServiceProvider extends ServiceProvider
             ScheduleCommand::class,
             SchedulesCommand::class,
             ShowCommand::class,
+            SignalCommand::class,
             StartCommand::class,
             SummaryCommand::class,
         ]);

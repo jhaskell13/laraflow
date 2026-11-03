@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
+use Laraflow\Support\JsonReport;
 use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
@@ -24,6 +25,8 @@ use Throwable;
  */
 trait DisplaysExecutions
 {
+    use OutputsJson;
+
     /**
      * @param  StepExecution[]  $steps
      */
@@ -146,15 +149,24 @@ trait DisplaysExecutions
         int $executionId,
         Throwable $exception,
         string $prefix = 'A step failed: ',
-    ): void {
+    ): int {
         $failed = $repository->find($executionId);
+        $steps = $repository->steps($failed);
 
-        $this->displayExecution($failed, $repository->steps($failed));
+        return $this->respond([
+            'execution' => JsonReport::execution($failed) + ['steps' => array_map(JsonReport::step(...), $steps)],
+            'outcome' => $failed->status->value,
+            'error' => $exception->getMessage(),
+            'error_class' => $exception::class,
+            'message' => "The failure is persisted. Recover it with: laraflow:execute {$executionId}",
+        ], function () use ($failed, $steps, $prefix, $exception, $executionId): void {
+            $this->displayExecution($failed, $steps);
 
-        $this->components->error($prefix.$exception->getMessage());
-        $this->components->info(
-            "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
-        );
+            $this->components->error($prefix.$exception->getMessage());
+            $this->components->info(
+                "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
+            );
+        }, Command::FAILURE);
     }
 
     /**

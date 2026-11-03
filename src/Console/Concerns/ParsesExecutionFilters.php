@@ -100,4 +100,45 @@ trait ParsesExecutionFilters
     {
         return FilterInput::statusList();
     }
+
+    /**
+     * A bulk operation needs a filter: there is no "cancel everything",
+     * because a flag-less command that acts on every execution is a
+     * typo away from an incident.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function assertSomeCriterion(ExecutionFilter $filter, string $verb): void
+    {
+        if ($filter->isEmpty()) {
+            throw new InvalidArgumentException(
+                "A bulk {$verb} needs at least one filter — --status, --workflow, --correlation, --tenant, --since, or --until — "
+                .'or an execution id to act on one. There is no form of this command that acts on everything.'
+            );
+        }
+    }
+
+    /**
+     * One execution or a filter, never both: a command given an id and
+     * a filter has been told two different things to act on.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function assertNoFilter(): void
+    {
+        foreach (['status', 'workflow', 'correlation', 'tenant', 'since', 'until', 'limit', 'dry-run'] as $option) {
+            if (! $this->hasOptionDefined($option)) {
+                continue;
+            }
+
+            $value = $this->option($option);
+            $given = is_array($value) ? $value !== [] : ($value !== null && $value !== false && $value !== '');
+
+            if ($given) {
+                throw new InvalidArgumentException(
+                    "Pass either an execution id or a filter, not both: --{$option} selects executions by filter, and an id was given too."
+                );
+            }
+        }
+    }
 }
