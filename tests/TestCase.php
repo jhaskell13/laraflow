@@ -14,7 +14,7 @@ use Illuminate\Testing\PendingCommand;
 use Laraflow\Core\LaraflowServiceProvider;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Support\ErrorRedactor;
-use Laraflow\Support\LoggingContext;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Tests\Support\ArrayLogger;
 use Laraflow\Tests\Support\FixtureState;
 use Laraflow\Workflow\ChildDelivery;
@@ -163,7 +163,7 @@ abstract class TestCase extends Orchestra
         ?ClockInterface $clock = null,
         ?PolicyResolver $policies = null,
         ?ErrorRedactor $redactor = null,
-        ?LoggingContext $logging = null,
+        ?ExecutionScope $scope = null,
         ?ChildDelivery $childDelivery = null,
         ?IdempotencyResolver $idempotency = null,
     ): WorkflowRunner {
@@ -176,7 +176,7 @@ abstract class TestCase extends Orchestra
             clock: $clock ?? $this->app->make(ClockInterface::class),
             policies: $policies ?? $this->app->make(PolicyResolver::class),
             redactor: $redactor ?? $this->app->make(ErrorRedactor::class),
-            logging: $logging ?? $this->app->make(LoggingContext::class),
+            scope: $scope ?? $this->app->make(ExecutionScope::class),
             childDelivery: $childDelivery ?? $this->app->make(ChildDelivery::class),
             idempotency: $idempotency ?? $this->app->make(IdempotencyResolver::class),
         );

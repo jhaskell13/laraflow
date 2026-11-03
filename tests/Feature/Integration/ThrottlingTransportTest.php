@@ -12,10 +12,13 @@ use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\RateLimitPolicy;
+use Laraflow\Integration\Http\RateLimitScope;
 use Laraflow\Integration\Http\ThrottlingTransport;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Tests\Support\RecordingSleeper;
 use Laraflow\Tests\Support\ScriptedTransport;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\WorkflowExecution;
 
 class ThrottlingTransportTest extends TestCase
 {
@@ -77,6 +80,95 @@ class ThrottlingTransportTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    /**
+     * docs/connectors.md, "Retries and rate limits": under scope tenant,
+     * one budget per connection per tenant of the running execution.
+     * Two tenants bursting against one shared account are held to the
+     * ceiling separately, and the same tenant twice is held once.
+     */
+    public function test_a_tenant_scoped_budget_is_counted_per_tenant_of_the_running_execution(): void
+    {
+        $policy = new RateLimitPolicy(maxRequests: 1, perSeconds: 60, scope: RateLimitScope::Tenant);
+        $scope = $this->app->make(ExecutionScope::class);
+        $transport = $this->throttling(new ScriptedTransport([
+            ConnectorResponse::fake(), ConnectorResponse::fake(), ConnectorResponse::fake(),
+        ]), $policy, 'slack', 'shared');
+
+        $scope->enter($this->execution(tenantId: 'acme'));
+        $transport->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
+        $scope->leave();
+
+        // Another tenant on the same connection has a budget of its own.
+        $scope->enter($this->execution(tenantId: 'globex'));
+        $transport->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
+        $scope->leave();
+
+        // The first tenant's budget is spent.
+        $scope->enter($this->execution(tenantId: 'acme'));
+
+        try {
+            $this->expectException(ThrottledException::class);
+            $transport->send(new ConnectorRequest('GET', '/b'), new HttpOptions);
+        } finally {
+            $scope->leave();
+        }
+    }
+
+    public function test_a_tenant_scoped_budget_falls_back_to_the_connection_outside_a_tenant(): void
+    {
+        $policy = new RateLimitPolicy(maxRequests: 1, perSeconds: 60, scope: RateLimitScope::Tenant);
+        $scope = $this->app->make(ExecutionScope::class);
+        $transport = $this->throttling(new ScriptedTransport([
+            ConnectorResponse::fake(), ConnectorResponse::fake(),
+        ]), $policy, 'slack', 'shared');
+
+        // Outside any execution: the connection's bucket.
+        $transport->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
+
+        // Inside an execution created without a tenant: the same bucket,
+        // which is now spent. There is no tenant to scope by, and the
+        // policy must not invent one.
+        $scope->enter($this->execution(tenantId: null));
+
+        try {
+            $this->expectException(ThrottledException::class);
+            $transport->send(new ConnectorRequest('GET', '/b'), new HttpOptions);
+        } finally {
+            $scope->leave();
+        }
+    }
+
+    public function test_a_connection_scoped_budget_ignores_the_tenant(): void
+    {
+        $policy = new RateLimitPolicy(maxRequests: 1, perSeconds: 60);
+        $scope = $this->app->make(ExecutionScope::class);
+        $transport = $this->throttling(new ScriptedTransport([
+            ConnectorResponse::fake(), ConnectorResponse::fake(),
+        ]), $policy, 'slack', 'shared');
+
+        $scope->enter($this->execution(tenantId: 'acme'));
+        $transport->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
+        $scope->leave();
+
+        $scope->enter($this->execution(tenantId: 'globex'));
+
+        try {
+            $this->expectException(ThrottledException::class);
+            $transport->send(new ConnectorRequest('GET', '/b'), new HttpOptions);
+        } finally {
+            $scope->leave();
+        }
+    }
+
+    protected function execution(?string $tenantId): WorkflowExecution
+    {
+        return new WorkflowExecution(
+            id: 1,
+            workflow: 'App\\Workflows\\Shared',
+            tenantId: $tenantId,
+        );
+    }
+
     protected function throttling(ScriptedTransport $inner, RateLimitPolicy $policy, string $connector, string $connection): ThrottlingTransport
     {
         return new ThrottlingTransport(
@@ -85,6 +177,7 @@ class ThrottlingTransportTest extends TestCase
             new Connection($connector, $connection),
             $this->app->make(RateLimiter::class),
             $this->sleeper,
+            $this->app->make(ExecutionScope::class),
         );
     }
 }

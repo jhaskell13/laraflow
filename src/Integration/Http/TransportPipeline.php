@@ -7,6 +7,7 @@ namespace Laraflow\Integration\Http;
 use Closure;
 use Illuminate\Cache\RateLimiter;
 use Laraflow\Integration\Connection;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Support\Sleeper;
 use Psr\Clock\ClockInterface;
@@ -28,6 +29,7 @@ class TransportPipeline
         protected RateLimiter $limiter,
         protected ConnectorObserver $observer,
         protected LoggingContext $logging,
+        protected ExecutionScope $scope,
     ) {}
 
     /**
@@ -44,7 +46,7 @@ class TransportPipeline
         $transport = $base;
 
         if ($options->rateLimit !== null) {
-            $transport = new ThrottlingTransport($transport, $options->rateLimit, $connection, $this->limiter, $this->sleeper);
+            $transport = new ThrottlingTransport($transport, $options->rateLimit, $connection, $this->limiter, $this->sleeper, $this->scope);
         }
 
         if ($options->retries->enabled()) {

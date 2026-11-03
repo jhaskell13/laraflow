@@ -413,6 +413,14 @@ return [
         // account, or here for every connection; a connection sets
         // rate_limit => false to lift a ceiling set here.
         //
+        // 'scope' => 'tenant' counts one budget per connection *per
+        // tenant* of the running execution (its durable tenant_id), for
+        // an account many tenants share, so one tenant's burst cannot
+        // spend the ceiling the others are held to. The default,
+        // 'connection', is one budget for the account. A call made
+        // outside any execution, or from one without a tenant, draws on
+        // the connection's budget either way.
+        //
         // Best effort: the check and the count are not one atomic cache
         // operation, so a window can run slightly over under enough
         // concurrency. The provider's own 429 remains the backstop.

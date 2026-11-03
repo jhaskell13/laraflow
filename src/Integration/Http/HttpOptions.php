@@ -101,7 +101,7 @@ final readonly class HttpOptions
         }
 
         if ($rateLimit !== null && $rateLimit !== false && ! is_array($rateLimit)) {
-            throw new ConnectorConfigurationException("{$connection->path()}.rate_limit must be an array with max, per, and max_wait, or false to lift an inherited ceiling.");
+            throw new ConnectorConfigurationException("{$connection->path()}.rate_limit must be an array with max, per, max_wait, and scope, or false to lift an inherited ceiling.");
         }
 
         try {

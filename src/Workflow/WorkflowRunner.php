@@ -27,7 +27,7 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
-use Laraflow\Support\LoggingContext;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Psr\Clock\ClockInterface;
@@ -77,7 +77,7 @@ class WorkflowRunner
         ClockInterface $clock,
         PolicyResolver $policies,
         ErrorRedactor $redactor,
-        protected LoggingContext $logging,
+        protected ExecutionScope $scope,
         protected ChildDelivery $childDelivery,
         protected IdempotencyResolver $idempotency,
     ) {
@@ -201,12 +201,12 @@ class WorkflowRunner
         // so every log record written while this execution is in
         // flight — including the application's own, from inside a step
         // — carries its identity, and none written afterwards do.
-        $this->logging->enter($execution);
+        $this->scope->enter($execution);
 
         try {
             return $this->runClaimed($execution, $workflow, $ignoreRetrySchedule);
         } finally {
-            $this->logging->leave();
+            $this->scope->leave();
         }
     }
 
@@ -860,7 +860,7 @@ class WorkflowRunner
         // they would be attributed to the previous step, or to none
         // at all on the first one.
         $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt, $stepExecution->step);
-        $this->logging->enterStep($stepExecution);
+        $this->scope->enterStep($stepExecution);
 
         $this->event(new WorkflowStepStarted(
             ...$this->outcomes->identity($execution),

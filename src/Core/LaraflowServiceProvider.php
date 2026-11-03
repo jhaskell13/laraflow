@@ -40,6 +40,7 @@ use Laraflow\Queue\QueueChildDelivery;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
@@ -102,6 +103,7 @@ class LaraflowServiceProvider extends ServiceProvider
             limiter: $app->make(RateLimiter::class),
             observer: $app->make(ConnectorObserver::class),
             logging: $app->make(LoggingContext::class),
+            scope: $app->make(ExecutionScope::class),
         ));
         $this->app->singleton(HttpOptions::class, fn (Container $app): HttpOptions => HttpOptions::fromConfig($app->make(Config::class)));
 
@@ -180,6 +182,14 @@ class LaraflowServiceProvider extends ServiceProvider
             return new LoggingContext($enabled ? $app->make(ContextRepository::class) : null);
         });
 
+        // One record per process of which execution is running, told at
+        // the same moments as the log context so the two cannot drift.
+        // Read by whatever runs beneath the runner without an execution
+        // in hand — the tenant-scoped connector rate limit, for one.
+        $this->app->singleton(ExecutionScope::class, fn (Container $app): ExecutionScope => new ExecutionScope(
+            $app->make(LoggingContext::class),
+        ));
+
         $this->app->singleton(EventEmitter::class, fn (Container $app): EventEmitter => new EventEmitter(
             $app->make(EventDispatcher::class),
             $app->make(LoggerInterface::class),
@@ -203,7 +213,7 @@ class LaraflowServiceProvider extends ServiceProvider
             clock: $app->make(ClockInterface::class),
             policies: $app->make(PolicyResolver::class),
             redactor: $app->make(ErrorRedactor::class),
-            logging: $app->make(LoggingContext::class),
+            scope: $app->make(ExecutionScope::class),
             childDelivery: $app->make(ChildDelivery::class),
             idempotency: $app->make(IdempotencyResolver::class),
         ));

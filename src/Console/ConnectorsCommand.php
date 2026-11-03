@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Core\LaraflowManager;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\Http\RateLimitScope;
 use Laraflow\Integration\HttpConnector;
 use Throwable;
 
@@ -125,7 +126,8 @@ class ConnectorsCommand extends Command
         $row[5] = $options->retries->enabled() ? $options->retries->maxAttempts.' attempts' : 'off';
         $row[6] = $options->rateLimit === null
             ? 'off'
-            : "{$options->rateLimit->maxRequests}/{$options->rateLimit->perSeconds}s";
+            : "{$options->rateLimit->maxRequests}/{$options->rateLimit->perSeconds}s"
+                .($options->rateLimit->scope === RateLimitScope::Tenant ? ' per tenant' : '');
 
         return $row;
     }
