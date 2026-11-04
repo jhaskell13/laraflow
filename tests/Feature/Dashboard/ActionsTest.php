@@ -276,6 +276,18 @@ class ActionsTest extends TestCase
         $this->assertNotNull($execution->next_retry_at, 'Due immediately, for recover or a worker.');
     }
 
+    public function test_a_buffered_signal_is_not_called_due_and_is_not_dispatched(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
+
+        $response = $this->followingRedirects()->post('/laraflow/executions/1/signal', ['signal' => 'later-approval', 'deliver' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('buffered. The execution is not waiting on it yet');
+        $response->assertDontSee('is due now');
+        $this->assertSame(ExecutionStatus::Waiting->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
     public function test_a_signal_the_execution_is_not_waiting_on_is_refused_by_name(): void
     {
         $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);

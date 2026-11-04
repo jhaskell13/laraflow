@@ -322,7 +322,7 @@ Styling polish and live filtering were taken between steps 8 and 9 at the user's
 - ~~The dashboard is absent from an application that has not mounted it: no routes, no assets, no queries.~~ Met: `tests/Feature/Dashboard/MountingTest.php`, and against a real application in `.github/actions/install-walk`.
 - ~~An operator can take an execution from failed to recovered without leaving the browser, and the record afterwards is indistinguishable from the console's.~~ Met: `tests/Feature/Dashboard/ActionsTest.php`, which drives the real runner and asserts the persisted record.
 
-### Milestone 9 — Parallelism and compensation
+### Milestone 9 — Parallelism and compensation ✅
 
 The two capabilities deferred from Milestone 7, each specified in `docs/advanced-workflows.md` before a line of code.
 
@@ -361,9 +361,9 @@ Sixteen steps across 2 November 2026, contract first as every milestone since th
 - ~~Triggers: an opt-in signal endpoint with signed payloads, so approvals and webhooks reach `signal()` through routes and middleware the package ships rather than every application re-deriving them.~~ Semantics fixed in `docs/triggers.md` before implementation (step 4); shipped in steps 10–13, named provider triggers included.
 - ~~Per-tenant isolation and throttling: concurrency and rate ceilings per tenant, enforced at claim time, with the fairness rule documented.~~ Semantics fixed in `docs/tenancy.md` before implementation (step 4); shipped in steps 14–16.
 - ~~Operator ergonomics: `laraflow:signal`, `laraflow:children`, bulk cancel and re-run by filter, and structured JSON output on every command for automation.~~ Shipped in steps 17–20; the generators and `laraflow:install` stay human on purpose, being scaffolding rather than operations.
-- The leftovers, taken first (steps 1–3): ~~the prose that had not followed the code out of Milestones 7–9, and the runner table that never listed `signal()`~~; ~~the per-tenant rate-limit bucket deferred from Milestone 8, on the ambient `ExecutionScope` that audit said it needed~~; ~~`dragonmantank/cron-expression` declared rather than inherited~~. The release tags 0.3.0–0.5.0 were found never to have been cut and are to be cut by hand on the merge commits that converted the changelog.
+- The leftovers, taken first (steps 1–3): ~~the prose that had not followed the code out of Milestones 7–9, and the runner table that never listed `signal()`~~; ~~the per-tenant rate-limit bucket deferred from Milestone 8, on the ambient `ExecutionScope` that audit said it needed~~; ~~`dragonmantank/cron-expression` declared rather than inherited~~. The release tags 0.3.0–0.5.0 were found never to have been cut, and were cut by hand on the merge commits that converted the changelog.
 
-The three decisions that shape everything downstream, taken in the contracts: a **tick is a row** whose unique `(schedule, instant)` index is the once-per-tick guarantee, committed in one transaction with the execution it starts; a **trigger is a signed `POST`** whose signature binds timestamp, execution, signal, and body, verified before any read, with no environment bypass and no inbox; and a **tenant ceiling is enforced in `claim()`** and nowhere else, honest about the instant and exact in the steady state, with fairness stated as a sizing rule rather than promised as a cap.
+The three decisions that shape everything downstream, taken in the contracts: a **tick is a row** whose unique `(schedule, instant)` index is the once-per-tick guarantee, committed in one transaction with the execution it starts; a **trigger is a signed `POST`** whose signature binds timestamp, execution, signal, and body, verified before any read, with no environment bypass and no store of seen signatures; and a **tenant ceiling is enforced in `claim()`** and nowhere else, honest about the instant and exact in the steady state, with fairness stated as a sizing rule rather than promised as a cap.
 
 #### How it closed
 

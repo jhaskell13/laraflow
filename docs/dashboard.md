@@ -4,7 +4,7 @@
 
 ## What it is
 
-The console already answers "show me": `laraflow:list`, `laraflow:show`, and `laraflow:summary` run on the public `ExecutionRepository` contract alone, and `tests/Feature/ProjectContractsTest.php` reads their source to keep them there ([inspection-and-observability.md](inspection-and-observability.md), *The principle*). **The dashboard is that same surface rendered in a browser.** It is not a new view of the data; it is the same view with a different renderer, and the same test holds it to the same contract.
+The console already answers "show me": `laraflow:list`, `laraflow:show`, and `laraflow:summary` run on the public `ExecutionReader` contract alone, and `tests/Feature/ProjectContractsTest.php` reads their source to keep them there ([inspection-and-observability.md](inspection-and-observability.md), *The principle*). **The dashboard is that same surface rendered in a browser.** It is not a new view of the data; it is the same view with a different renderer, and the same test holds it to the same contract.
 
 That sentence decides most of what follows. A page that needs something the contract cannot answer does without it, or the contract gains the method deliberately — with its index — as a change to the public API, never as a private shortcut for the dashboard.
 
@@ -13,7 +13,7 @@ That sentence decides most of what follows. A page that needs something the cont
 - **Off unless mounted.** An application that has not called `Dashboard::routes()` has no dashboard: no routes, no assets, no queries, nothing in `route:list`. A test proves the absence.
 - **Denied unless allowed.** Once mounted, every route — including the stylesheet — passes through one authorization check. The default allows the `local` environment and nothing else. A dashboard that is open by default is a data leak with a nice font.
 - **The application owns the HTTP boundary.** It chooses the path, the middleware (session, CSRF, authentication), and the authorization rule. The package ships the pages and the check; it does not ship an opinion about how your users log in.
-- **Nothing the console cannot do.** Every row and number is obtainable from `ExecutionRepository` and `IdempotencyStore`; every action goes through the same `WorkflowRunner` and `WorkflowDispatcher` methods the console commands call. The dashboard has no privileged path.
+- **Nothing the console cannot do.** Every row and number is obtainable from `ExecutionReader` and `IdempotencyStore`; every action goes through the same `WorkflowRunner` and `WorkflowDispatcher` methods the console commands call. The dashboard has no privileged path.
 - **Redaction carries over.** `laraflow:connectors` never prints a credential and `laraflow:show --attempts` never prints a remembered value. The dashboard inherits both rules.
 - **Works without JavaScript.** Every page is a full server render and every action is a `<form>`. Script is progressive enhancement — refresh, confirmation — and a browser without it sees the same data and can take the same actions.
 - **No build step, anywhere.** The stylesheet is one hand-written CSS file committed to the repository and served by the package. Installing the dashboard adds nothing to an application's `package.json`, requires no `npm`, and reaches no CDN — an operator's tool has to work behind a firewall.
@@ -127,7 +127,7 @@ A repeatable filter takes at most twenty values and a pagination trail at most f
 
 ### Pagination
 
-`ExecutionRepository::list()` paginates by keyset: a cursor names the last row of a page and the next page starts strictly after it. That is stable under concurrent inserts and costs the same on page 1000 as on page 1, and it is one-directional on purpose. The dashboard offers *next* and *first*; *previous* works by carrying the cursors already visited in the query string, so stepping back replays a cursor the repository issued rather than inventing an offset. There is no "page 7 of 40" — a count of pages over a table being written to would be wrong before it was rendered.
+`ExecutionReader::list()` paginates by keyset: a cursor names the last row of a page and the next page starts strictly after it. That is stable under concurrent inserts and costs the same on page 1000 as on page 1, and it is one-directional on purpose. The dashboard offers *next* and *first*; *previous* works by carrying the cursors already visited in the query string, so stepping back replays a cursor the repository issued rather than inventing an offset. There is no "page 7 of 40" — a count of pages over a table being written to would be wrong before it was rendered.
 
 ## Actions
 

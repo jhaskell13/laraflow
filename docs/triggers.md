@@ -95,11 +95,11 @@ The response is JSON with a `status`, and the HTTP code says which kind of answe
 
 | Code | `status` | When |
 |---|---|---|
-| `202` | `recorded` | The signal is durable. `delivery` says what became of the execution: `queued` (a worker will resume it), `ran` (the sync driver ran it in this request; `execution_status` carries where it rested — `completed`, or `failed` with the failure on the record), `pending` (recorded, and the push did not land; a fixed `message` says `laraflow:recover` delivers it). Nothing a step or a broker threw is ever on the response: a provider keeps response bodies, and the record — where the redactor governs — is where failures live. |
+| `202` | `recorded` | The signal is durable. `delivery` says what became of the execution: `queued` (a worker will resume it), `ran` (the sync driver ran it in this request; `execution_status` carries where it rested — `completed`, or `failed` with the failure on the record), `pending` (recorded, and the push did not land; a fixed `message` says `laraflow:recover` delivers it), `buffered` (the execution is unfinished but not yet parked on that name; the signal is kept in its signal inbox for the step that waits on it, nothing is handed to the queue, and a fixed `message` says so). Nothing a step or a broker threw is ever on the response: a provider keeps response bodies, and the record — where the redactor governs — is where failures live. |
 | `401` | `refused` | Verification failed. No other information. |
 | `413` | `too_large` | Before verification: the body exceeds `triggers.max_body_bytes`. Said the same whether or not the request was signed. |
 | `404` | `not_found` | Signed, and no such execution. Signed first, so an unsigned caller cannot enumerate. |
-| `409` | `not_waiting` | Signed, and the execution can never take that signal — finished or compensating, or a reserved name. (A signal for an unfinished execution not yet parked on it is kept in the signal inbox and answered `202`.) `SignalRefusedException`'s message is the `message`. |
+| `409` | `not_waiting` | Signed, and the execution can never take that signal — finished or compensating, or a reserved name. (A signal for an unfinished execution not yet parked on it is kept in the signal inbox and answered `202` with `delivery: buffered`.) `SignalRefusedException`'s message is the `message`. |
 | `413` | `too_large` | Signed, and the payload exceeds `execution.max_payload_bytes`. |
 | `422` | `invalid` | The body is not a JSON object, or the signal name is empty, over-long, or reserved. The `message` names the rule. |
 
@@ -171,7 +171,7 @@ An approval **page** is the application's. Laraflow does not serve one, and does
 
 ## Observability
 
-- **Events.** `TriggerAccepted` after a recorded signal — trigger name (`signed` for the direct endpoint), execution id, signal — and `TriggerRefused` after a refusal — trigger name, the reason as a backed enum (`unsigned`, `stale`, `invalid_signature`, `unknown_execution`, `not_waiting`, `invalid_payload`, `too_large`, `resolver_failed`), and the execution id and signal when the URL carried them. No payload, no headers, no key, no client address: an application that wants the address correlates through its own request log, which has it.
+- **Events.** `TriggerAccepted` after a recorded signal — trigger name (`signed` for the direct endpoint), execution id, signal — and `TriggerRefused` after a refusal — trigger name, the reason as a backed enum (`unsigned`, `body_too_large`, `stale`, `invalid_signature`, `unknown_execution`, `not_waiting`, `invalid_payload`, `too_large`, `resolver_failed`), and the execution id and signal when the URL carried them. No payload, no headers, no key, no client address: an application that wants the address correlates through its own request log, which has it.
 - **Logs.** Every refusal at `warning` with the same fields — except a resolver failure, which is the application's own code breaking and logs at `error` with the exception class and never the message, which may quote the body. Every accepted signal logs at `info`, and the existing `WorkflowExecutionSignalled` event fires as it does for any `signal()` call.
 - **The dashboard** shows a signalled execution as it shows any other; nothing is added for triggers, because a trigger leaves no record of its own — the signal is the record.
 
@@ -197,7 +197,7 @@ The one-way doors, fixed by this document:
 1. Off unless mounted; refused unless signed; no environment bypass; a mount with no key refuses at the mount.
 2. The signed string is version, timestamp, execution id, signal name, and body hash — bound to the target, independent of the path.
 3. Verification precedes every database read, and every verification failure is the same `401`.
-4. No inbox and no signature store: replay is bounded by the signal contract and the tolerance, and the residual window is documented with its defences rather than closed with a second durability scheme.
+4. No store of seen signatures: replay is bounded by the signal contract and the tolerance, and the residual window is documented with its defences rather than closed with a second durability scheme.
 5. Delivery is attempted on every recorded signal and reported in `Handoff`'s terms; the endpoint never answers "recorded" without saying what happened next.
 6. Named triggers require a verifier and resolve to one intent or nothing; everything after resolution is the signed endpoint's path.
 7. No `GET`, and no approval page: the page is the application's.

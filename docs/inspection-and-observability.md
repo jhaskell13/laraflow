@@ -6,11 +6,11 @@ Everything stated here is exercised by `tests/Feature/Workflow/ExecutionQueryTes
 
 ## The principle
 
-**Anything the console can show you, your application can show you.** Every Laraflow command runs on the same public `ExecutionRepository` methods described below; none touches an Eloquent model, and a test reads each command's source to keep it that way. The opt-in dashboard ([dashboard.md](dashboard.md)) is the same surface rendered in a browser, held to this document by the same test — so it is a demonstration of the principle rather than an exception to it. If you find yourself querying `laraflow_*` tables directly, the API is missing something — open an issue rather than depending on the schema, which is frozen as an implementation detail but carries no compatibility promise of its own.
+**Anything the console can show you, your application can show you.** Every Laraflow command runs on the same public `ExecutionReader` methods described below; none touches an Eloquent model, and a test reads each command's source to keep it that way. The opt-in dashboard ([dashboard.md](dashboard.md)) is the same surface rendered in a browser, held to this document by the same test — so it is a demonstration of the principle rather than an exception to it. If you find yourself querying `laraflow_*` tables directly, the API is missing something — open an issue rather than depending on the schema, which is frozen as an implementation detail but carries no compatibility promise of its own.
 
 ## Reading executions
 
-`ExecutionRepository` returns plain `WorkflowExecution`, `StepExecution`, and `StepAttempt` value objects.
+`ExecutionReader` — the Public, read-only half of `ExecutionRepository`, resolved from the container to the same instance — returns plain `WorkflowExecution`, `StepExecution`, and `StepAttempt` value objects.
 
 | Method | Returns | Cost |
 |---|---|---|
@@ -80,7 +80,7 @@ do {
 
 Why keyset: offset pagination over a table that is being written to skips or repeats rows as earlier pages shift underneath it, and page 1000 costs a thousand pages of scanning. A keyset cursor is stable under concurrent inserts and costs the same on every page — both proven by test.
 
-The page size is clamped to `ExecutionRepository::MAX_PAGE_SIZE` (500). The bound lives on the contract rather than the implementation so no implementation can forget it; the page reports the `limit` actually applied. Treat the cursor as opaque and pass back exactly what you were given — a malformed one is rejected rather than guessed at.
+The page size is clamped to `ExecutionReader::MAX_PAGE_SIZE` (500). The bound lives on the contract rather than the implementation so no implementation can forget it; the page reports the `limit` actually applied. Treat the cursor as opaque and pass back exactly what you were given — a malformed one is rejected rather than guessed at.
 
 ## Correlation
 
@@ -207,11 +207,11 @@ Every listener is observational: one that throws is logged and swallowed, and ca
 | `laraflow:show {id}` | One execution: steps, correlation and tenant, finish time, queue timing, retry schedule, cancellation, scrub marker, and with `--attempts` the full history |
 | `laraflow:summary` | Counts by status for a scope, then what needs attention: retries due now, waits due for delivery, running steps past their deadline, stalled schedules, executions a tenant ceiling is holding, the oldest unfinished execution (`waiting` included). **Exits non-zero when anything needs attention**, so it doubles as a scheduled health check or deploy gate |
 | `laraflow:children {id}` | The children of a sub-workflow or fan-out parent, as the listing prints them |
-| `laraflow:signal {id} {signal}` | Records a signal for a waiting execution, and with `--deliver` hands it on |
+| `laraflow:signal {id} {signal}` | Records a signal for a waiting execution, and with `--deliver` hands it on; a signal for an execution not yet parked on the name is buffered in its signal inbox, and said so |
 
 The summary deliberately has no per-workflow breakdown: that needs a `GROUP BY` the contract does not expose, and `--workflow=` scopes the same numbers through an indexed filter instead.
 
-Two commands act on many executions at once. `laraflow:cancel` and `laraflow:execute` without an id take the listing's filter options and act on what they match, oldest first, up to `--limit` (default 100) — the morning after an outage, `laraflow:execute --status=failed --since='-1 day' --queue --force` hands every failed execution of the last day back to the workers. A filter is required: there is no form of either command that acts on everything. `--dry-run` prints the rows and changes nothing; outside a dry run the production confirmation applies unless `--force`, exactly as `laraflow:prune` asks — and under `--json` **in production**, `--force` (or `--dry-run`) is required outright, because a machine cannot answer the prompt; outside production neither form asks and the exit codes stay identical. Each row is its own attempt — a refusal (already cancelled, not runnable, claimed by a worker) is a row, not a failure of the run, and a step that fails again is persisted on its execution and reported in the row while the rest of the batch goes on. The exit is non-zero when any row failed.
+Two commands act on many executions at once. `laraflow:cancel` and `laraflow:execute` without an id take the listing's filter options and act on what they match, oldest first, up to `--limit` (default 100) — the morning after an outage, `laraflow:execute --status=failed --since='-1 day' --queue --force` hands every failed execution of the last day back to the workers. A filter is required: there is no form of either command that acts on everything. `--dry-run` prints the rows and changes nothing; outside a dry run the production confirmation applies unless `--force`, exactly as `laraflow:prune` asks — and under `--json` **in production**, `--force` (or `--dry-run`) is required outright, because a machine cannot answer the prompt; outside production neither form asks and the exit codes stay identical. Only what the command can act on is selected — completed and cancelled executions never are, and a `--status` naming only those is refused. Each row is its own attempt — a refusal (not runnable, claimed by a worker) is a row, not a failure of the run, and a step that fails again is persisted on its execution and reported in the row while the rest of the batch goes on. The exit is non-zero when any row failed.
 
 ### Machine-readable output
 
@@ -222,22 +222,41 @@ Every operating command takes `--json` and prints one JSON document on standard 
 {"command": "laraflow:show", "ok": false, "error": "Execution [999] was not found."}
 ```
 
-`ok` is the exit code as a boolean; `error` is the message the human form prints — on a refusal, and (with `error_class`) on a run whose step failed. The rest is per command:
+`ok` is the exit code as a boolean; `error` is the message the human form prints — on a refusal, and (with `error_class`) on a run whose step failed. Two variations on the envelope:
+
+- **An unexpected exception** — anything a command did not refuse by name — is still one document, with exit 1: `{"command": "…", "ok": false, "error": "…", "exception": "Fully\\Qualified\\Class"}`. `error` has passed through the configured `ErrorRedactor`; the class is there for a script to branch on, and there is no trace.
+- **Health, not an error.** `laraflow:summary` and `laraflow:schedules` exit non-zero when something needs a person, and say so with `"ok": false, "reason": "needs_attention"` and no `error` — the command worked, and what it found is the answer. `reason` is present only on that exit.
+
+The rest is per command:
 
 | Command | Document |
 |---|---|
 | `list`, `children` | `executions` (each the execution record plus `steps: {total, completed, skipped}`), `shown`, `total`, `next_cursor`; `children` adds `parent` |
 | `show` | `execution` — the record with `input`, `context`, `steps` (full step records), `waiting_on` (what a parked execution waits for: `kind` signal / timer / child / join and its specifics), and `started_by` (the schedule tick, or null); with `--attempts`, `attempts` and `remembered` (keys and statuses, never values) |
-| `summary` | `total`, `counts` by status, `needs_attention`, and `attention`: `due_retries`, `due_waits`, `deferred` (execution ids), `overdue_steps` (`execution`, `step`), `stalled_schedules` (classes), `oldest_unfinished` (id or null) |
-| `start`, `demo`, `execute {id}`, `signal --deliver`, `execute --queue` | A run: `execution` (with `steps`), `outcome` (the resulting status), `message`; a run that failed adds `error` and `error_class` and is `ok: false`. A handoff to the queue: `execution`, `handoff` (`queued`, `ran`, `refused`, `push-failed`, `step-failed`), `message` |
-| `signal` (without `--deliver`) | `execution`, `signal`, `handoff: null`, `message`; with `--deliver`, the handoff document plus `signal`, and `execution` carries `steps` whenever the handoff shows the record |
+| `summary` | `total`, `counts` by status, `needs_attention`, and `attention`: `due_retries`, `due_waits`, `deferred` (execution ids), `overdue_steps` (`execution`, `step`), `stalled_schedules` (classes), `oldest_unfinished` (id or null); `reason` as above |
+| `start`, `demo`, `execute {id}` in-process | A run: `execution` (with `steps`), `outcome` (the resulting status), `message`; a run that failed adds `error` and `error_class` and is `ok: false` |
+| `start --queue`, `demo --queue`, `execute {id} --queue`, `signal --deliver` | A handoff, not a run: `execution`, `handoff`, `message`. `handoff` is `queued` (pushed; a worker owns it), `ran` (a `sync` connection ran it in this process — `execution` carries `steps` and its resulting status), `refused` (not runnable or claimed; nothing was pushed), `push_failed` (the broker refused the push; recovery delivers it), or `step_failed` (a `sync` connection ran it and a step failed; persisted, `ok: false`). `signal --deliver` adds `signal` and `recorded` |
+| `signal` (without `--deliver`, or buffered) | `execution`, `signal`, `recorded`, `handoff: null`, `message`. `recorded` is `resumed` (a step parked on that name took the payload; the execution is due now) or `buffered` (kept in the signal inbox until a step waits on the name — nothing became due, so `--deliver` hands nothing on) |
 | `cancel {id}` | `execution`, `outcome` (`cancelled` or `requested`), `message` |
-| `cancel`, `execute` by filter | `dry_run`, `matched`, `selected`, `actions` (`execution`, `workflow`, `outcome`, `message`), `counts`; `execute` adds `queue` |
-| `recover` | `dry_run`, `sync`, `candidates` (the candidate — `execution`, `workflow`, `status`, `reason`, `attempts`, `fruitless_claims`, `abandoned`, `workflow_missing`, `interrupted_since` — plus `action`), `counts`, `needs_attention` |
+| `cancel`, `execute` by filter | `dry_run`, `matched` (the actionable set the filter selects), `selected`, `ignored_statuses` (any `--status` values naming statuses the command never acts on), `actions` (`execution`, `workflow`, `outcome`, `message`), `counts`; `execute` adds `queue`. Outcomes and counts below |
+| `recover` | `dry_run`, `sync`, `candidates` (the candidate — `execution`, `workflow`, `status`, `reason`, `attempts`, `fruitless_claims`, `abandoned`, `workflow_missing`, `interrupted_since` — plus `action`), `counts` (`dispatched`, `ran`, `abandoned`, `unrecoverable`, `skipped`, `failed`), `needs_attention`. The same shape on an empty day |
 | `prune` | `dry_run`, `policy` (the five bounds, `prune_ticks_after_days` included), `warnings`, `report` (`scanned`, `scrubbed`, `attempt_executions`, `attempt_rows`, `deleted`, `deleted_failed`, `skipped`, `touched`, `tick_rows`) |
 | `connectors` | `check`, `connectors` (`connector`, `connection`, `base_url`, `api_version`, `timeout`, `retries`, `rate_limit`, `credentials` — names, never values), `problems` (`connector`, `connection`, `error`) |
 | `schedule` | `enabled`, `dry_run`, `actions` (`workflow`, `outcome`, `tick_at`, `execution`, `missed`, `overlapped_execution_id`, `delivery`, `detail`), `redispatched`, `orphans`, `needs_attention` |
-| `schedules` | `schedules` (the schedule record plus `last_tick`, `next_due_at`, `state`: ok / paused / stalled / orphaned), `needs_attention` |
+| `schedules` | `schedules` (the schedule record plus `last_tick`, `next_due_at`, `state`: ok / paused / stalled / orphaned), `needs_attention`; with `--pause`, `--resume`, or `--forget`, `action` (`name` — `pause`, `resume`, or `forget` — `workflow`, `message`), and the exit is the action's own result rather than the listing's health; `reason` as above |
+
+**Bulk outcomes.** Each `actions[].outcome` is one word, and `counts` tallies them into fixed buckets — every key present, zero or not:
+
+| | `actions[].outcome` | `counts` |
+|---|---|---|
+| `cancel` | `cancelled`, `requested` (a live worker owns it and stops at its next step boundary), `already_cancelled`, `refused` (the runtime's refusal, in `message`), `failed` | `cancelled`, `requested`, `skipped` (the `already_cancelled` rows), `refused`, `failed` |
+| `cancel --dry-run` | `would_cancel`, `would_request`, `already_cancelled`, `would_refuse` | the same four words |
+| `execute` | the status the execution came to (`completed`, `retrying`, `waiting`, `cancelled`, `failed`, …), `queued`, `refused`, `failed` | `ran` (`completed`, `retrying`, or `waiting` — it moved forward), `queued`, `cancelled` (a cancellation honoured mid-run), `refused`, `failed` (anything else, including a status no run should leave) |
+| `execute --dry-run` | `would_run`, `would_queue`, `would_refuse` | the same three words |
+
+A dry run's outcome is a prediction from status, not a rehearsal: a row predicted `would_run` can still be refused when the real run reaches it.
+
+**Recovery actions.** `recover`'s `candidates[].action` is `dispatched`; `completed`, `ran_retrying` (ran inline and scheduled another retry), or `ran_cancelled` (honoured a cancellation) under `--sync`; `abandoned` or `unrecoverable` (workflow class missing); one of `skipped_completed`, `skipped_claimed`, `skipped_parked`, `skipped_rescheduled`, or `skipped_deferred` (a tenant ceiling deferred the claim) when the execution moved between scan and action; `failed`; and under `--dry-run`, `would_dispatch` or `would_run`.
 
 Instants are ISO 8601 with an offset (`2026-11-04T02:00:00+00:00`); enums are their backing strings; ids are integers. The execution record is the same object wherever it appears — `id`, `workflow`, `status`, `plan_version`, `correlation_id`, `tenant_id`, the parent links, `error` and `error_class`, every timestamp, `claimed`, `duration_ms`, `fruitless_claims`, `deferred_until`, `deferrals`, `cancel_reason`, `payloads_scrubbed_at` — and a listing omits `input` and `context` where the detail view includes them, as the human forms do. New fields may be added before 1.0; a consumer should read by key, not by position.
 

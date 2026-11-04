@@ -252,31 +252,50 @@ final class WorkflowRunner
      * Durably record a signal for an execution waiting on it. The
      * payload becomes the waiting step's output, bounded by the same
      * payload limit as any other durable value, and the execution
-     * becomes due immediately. Recording is not delivery: hand the id
+     * becomes due immediately; for an unfinished execution not yet
+     * parked on the name, the signal is kept in the signal inbox for
+     * the park that asks for it. Recording is not delivery: hand the id
      * to the dispatcher for the fast path, or let laraflow:recover
-     * pick it up.
+     * pick it up. recordSignal() says which of the two happened.
      *
      * @param  array<array-key, mixed>  $payload
      *
      * @throws InvalidSignalException for an empty, over-long, or reserved name.
-     * @throws SignalRefusedException when the execution is not waiting on this signal.
+     * @throws SignalRefusedException when the execution can never park on this signal.
      * @throws UnserializableValueException if the payload is not JSON-serializable.
      * @throws PayloadTooLargeException if the payload exceeds execution.max_payload_bytes.
      */
     public function signal(int $executionId, string $signal, array $payload = []): WorkflowExecution
     {
+        return $this->recordSignal($executionId, $signal, $payload)->execution;
+    }
+
+    /**
+     * @experimental signal(), returning the receipt: whether a parked
+     * step took the payload (the execution is due now) or the inbox
+     * buffered it until a step parks on the name.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws InvalidSignalException for an empty, over-long, or reserved name.
+     * @throws SignalRefusedException when the execution can never park on this signal.
+     * @throws UnserializableValueException if the payload is not JSON-serializable.
+     * @throws PayloadTooLargeException if the payload exceeds execution.max_payload_bytes.
+     */
+    public function recordSignal(int $executionId, string $signal, array $payload = []): SignalReceipt
+    {
         Wait::assertApplicationSignal($signal);
 
         DurableValue::check($payload, 'signal', $this->options->maxPayloadBytes);
 
-        $execution = $this->repository->recordSignal($executionId, $signal, $payload, $this->now());
+        $receipt = $this->repository->recordSignal($executionId, $signal, $payload, $this->now());
 
         $this->event(new WorkflowExecutionSignalled(
-            ...$this->outcomes->identity($execution),
+            ...$this->outcomes->identity($receipt->execution),
             signal: $signal,
         ));
 
-        return $execution;
+        return $receipt;
     }
 
     /**

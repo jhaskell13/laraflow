@@ -87,12 +87,15 @@ laraflow:prune
     --prune-attempts-after=   override laraflow.retention.prune_attempts_after_days
     --delete-after=           override laraflow.retention.delete_after_days
     --delete-failed-after=    override laraflow.retention.delete_failed_after_days
+    --prune-ticks-after=      override laraflow.retention.prune_ticks_after_days
     --limit=                  executions per tier per run        (default 1000)
     --chunk=                  executions per write               (default 100)
     --workflow=               only this workflow class
     --tenant=                 only this tenant
     --dry-run                 report; change nothing; never asks
     --force                   skip the production confirmation
+    --json                    one JSON document instead of the report; in production,
+                              requires --force or --dry-run (a machine cannot answer the prompt)
 ```
 
 Every option overrides the configured value for one invocation, which is how one workflow or one tenant is pruned on a different schedule from everything else:

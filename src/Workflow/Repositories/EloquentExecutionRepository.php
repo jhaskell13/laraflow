@@ -26,6 +26,7 @@ use Laraflow\Workflow\Models\SignalInboxModel;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
+use Laraflow\Workflow\SignalReceipt;
 use Laraflow\Workflow\StepAttempt;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepExecution;
@@ -422,8 +423,8 @@ class EloquentExecutionRepository implements ExecutionRepository
         string $signal,
         array $payload,
         DateTimeImmutable $at
-    ): WorkflowExecution {
-        $this->transaction(function () use ($id, $signal, $payload, $at) {
+    ): SignalReceipt {
+        $buffered = $this->transaction(function () use ($id, $signal, $payload, $at): bool {
             // Whether anything is parked on this name is decided by a
             // read, not by the payload UPDATE's affected-row count: a
             // duplicate delivery rewriting an identical payload counts
@@ -450,10 +451,10 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ->lockForUpdate()
                 ->first(['id', 'wait_signal']);
 
-            $this->deliverSignal($id, $signal, $payload, $at, $row);
+            return $this->deliverSignal($id, $signal, $payload, $at, $row);
         });
 
-        return $this->find($id);
+        return new SignalReceipt($this->find($id), $buffered);
     }
 
     public function park(
@@ -700,10 +701,11 @@ class EloquentExecutionRepository implements ExecutionRepository
      *   would let a child's outcome answer a park it was never for.
      *
      * @param  array<array-key, mixed>  $payload
+     * @return bool True when the signal was buffered, false when a parked step took it.
      *
      * @throws SignalRefusedException
      */
-    protected function deliverSignal(int $id, string $signal, array $payload, DateTimeImmutable $at, ?StepExecutionModel $row): void
+    protected function deliverSignal(int $id, string $signal, array $payload, DateTimeImmutable $at, ?StepExecutionModel $row): bool
     {
         $status = WorkflowExecutionModel::query()
             ->whereKey($id)
@@ -735,7 +737,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                     ->whereKey($id)
                     ->update($this->counted(['next_retry_at' => $at]));
 
-                return;
+                return false;
             }
         }
 
@@ -764,7 +766,7 @@ class EloquentExecutionRepository implements ExecutionRepository
         if ($existing !== null) {
             $existing->fill($values)->save();
 
-            return;
+            return true;
         }
 
         try {
@@ -772,6 +774,8 @@ class EloquentExecutionRepository implements ExecutionRepository
         } catch (UniqueConstraintViolationException) {
             SignalInboxModel::query()->where($key)->firstOrFail()->fill($values)->save();
         }
+
+        return true;
     }
 
     /**

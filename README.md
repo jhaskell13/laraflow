@@ -367,7 +367,7 @@ Publish the configuration file if you need to change defaults:
 php artisan vendor:publish --tag=laraflow-config
 ```
 
-This creates `config/laraflow.php` (abridged here — the shipped file also configures the bundled Slack connector, the `workflows.max_depth` and `workflows.max_members` bounds on sub-workflow nesting and fan-out width, and carries a documenting comment block per section):
+This creates `config/laraflow.php` (abridged here — the shipped file also has the `idempotency`, `schedules`, `tenants`, `dashboard`, and `triggers` sections, `recovery.redispatch_after`, `retention.prune_ticks_after_days`, `triggers.max_body_bytes`, `dashboard.action_gate`, the bundled Slack connector, the `workflows.max_depth` and `workflows.max_members` bounds on sub-workflow nesting and fan-out width, and a documenting comment block per section; [`config/laraflow.php`](config/laraflow.php) is the complete reference):
 
 ```php
 return [
@@ -950,12 +950,12 @@ Multi-tenant applications already stamp executions with `tenantId`; ceilings mak
 
 ## Inspecting and correlating executions
 
-The stable way to read executions is the `Laraflow\Workflow\ExecutionRepository` contract, which returns plain value objects. Everything the console shows, it reads through this same contract — no command touches an Eloquent model, and a test keeps it that way.
+The stable way to read executions is the `Laraflow\Workflow\ExecutionReader` contract, the read-only half of `ExecutionRepository`, which returns plain value objects. Everything the console shows, it reads through this same contract — no command touches an Eloquent model, and a test keeps it that way.
 
 ```php
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 
-$repository = app(ExecutionRepository::class);
+$repository = app(ExecutionReader::class);
 
 $execution = $repository->find($executionId);
 
@@ -972,6 +972,8 @@ foreach ($repository->attemptHistory($execution) as $attempt) {
     echo "{$attempt->attempt}: {$attempt->status->value} in {$attempt->durationMs()} ms";
 }
 ```
+
+From the terminal, `laraflow:list`, `laraflow:show`, and `laraflow:summary` read the same contract; `laraflow:children` lists a sub-workflow's child or a fan-out's members; `laraflow:signal` records a signal (and with `--deliver` hands the execution on); `laraflow:schedules` lists schedules and their health; and `laraflow:cancel` and `laraflow:execute` without an id act on every execution a filter matches — bulk cancel and re-run, oldest first, bounded by `--limit`, with `--dry-run`. Every operating command takes `--json` and prints one document with the human form's exit code. The commands and the JSON shapes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md#the-console).
 
 ### Listing and filtering
 
@@ -1243,7 +1245,7 @@ Laraflow is honest about what it does not yet do. These are the known gaps as of
 
 ## The dashboard
 
-Everything the console shows, in a browser: a filterable list of executions, one execution in full with its steps, attempts, waits, and remembered keys, and an overview with counts by status and what needs attention. It reads the same public `ExecutionRepository` the commands read — a test holds it there — so it can show nothing your own application could not.
+Everything the console shows, in a browser: a filterable list of executions, one execution in full with its steps, attempts, waits, and remembered keys, and an overview with counts by status and what needs attention. It reads the same public `ExecutionReader` the commands read — a test holds it there — so it can show nothing your own application could not.
 
 It is **off until you mount it**, and **denied until you say who may**:
 

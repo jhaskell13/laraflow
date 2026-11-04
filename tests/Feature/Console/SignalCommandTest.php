@@ -115,6 +115,30 @@ class SignalCommandTest extends TestCase
         $this->assertSame($id, $document['execution']);
     }
 
+    public function test_a_buffered_signal_says_so_and_deliver_hands_nothing_on(): void
+    {
+        $id = $this->parked();
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:signal', [
+            'execution' => (string) $id,
+            'signal' => 'later-approval',
+            '--deliver' => true,
+            '--json' => true,
+        ]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('buffered', $document['recorded']);
+        $this->assertNull($document['handoff']);
+        $this->assertStringContainsString('not waiting on it yet', $document['message']);
+        $this->assertStringNotContainsString('due now', $document['message']);
+        $this->assertTrue($this->repository()->find($id)->isWaiting());
+        $this->assertSame(0, StepTwo::$runs);
+
+        ['output' => $output] = $this->callCommand('laraflow:signal', ['execution' => (string) $id, 'signal' => 'manager-approval', '--json' => true]);
+        $this->assertSame('resumed', json_decode($output, true, 512, JSON_THROW_ON_ERROR)['recorded']);
+    }
+
     protected function parked(): int
     {
         return $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow)->id;

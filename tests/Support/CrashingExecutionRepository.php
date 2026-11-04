@@ -111,7 +111,7 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId, $availableBefore));
     }
 
-    public function recordSignal(int $id, string $signal, array $payload, DateTimeImmutable $at): WorkflowExecution
+    public function recordSignal(int $id, string $signal, array $payload, DateTimeImmutable $at): \Laraflow\Workflow\SignalReceipt
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->recordSignal($id, $signal, $payload, $at));
     }

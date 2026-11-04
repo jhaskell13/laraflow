@@ -168,7 +168,8 @@ class SignedEndpointTest extends TestCase
         // An unfinished execution keeps a signal for another name in its
         // inbox, for a park that may ask for it: accepted, not refused.
         $id = $this->parked();
-        $this->signed($id, 'wrong-signal', self::PAYLOAD)->assertStatus(202);
+        $this->signed($id, 'wrong-signal', self::PAYLOAD)->assertStatus(202)
+            ->assertJson(['status' => 'recorded', 'delivery' => 'buffered']);
 
         // Replayed after the resume ran it to the end: finished, nothing
         // will park again, and that is the conflict.

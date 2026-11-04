@@ -22,9 +22,11 @@ use Laraflow\Workflow\WorkflowRunner;
  * Delivers a signal to a waiting execution from the terminal — the
  * console form of the dashboard's signal action and of a trigger
  * request, through the same WorkflowRunner::signal() and the same
- * Handoff. Recording is not delivery: without --deliver the execution
- * is due now and laraflow:recover or a worker resumes it; with it, the
- * execution is handed to the queue in the same breath.
+ * Handoff. Recording is not delivery: without --deliver a parked
+ * execution is due now and laraflow:recover or a worker resumes it;
+ * with it, the execution is handed to the queue in the same breath. A
+ * signal for an execution not yet parked on the name is buffered in its
+ * inbox, and there is nothing to deliver until a step waits on it.
  */
 final class SignalCommand extends Command
 {
@@ -52,7 +54,7 @@ final class SignalCommand extends Command
         }
 
         try {
-            $execution = $runner->signal($id, $signal, $payload);
+            $receipt = $runner->recordSignal($id, $signal, $payload);
         } catch (WorkflowException $exception) {
             // Not waiting on it, a reserved or over-long name, a payload
             // past the limit: the runtime's words, as every caller
@@ -60,13 +62,23 @@ final class SignalCommand extends Command
             return $this->refuse($exception->getMessage(), ['execution' => $id, 'signal' => $signal]);
         }
 
-        if (! (bool) $this->option('deliver')) {
-            $message = "Signal [{$signal}] recorded. Execution [{$id}] is due now; laraflow:recover, or a worker, delivers it. "
-                ."Or deliver it from here with: laraflow:signal {$id} {$signal} --deliver";
+        $execution = $receipt->execution;
+        $recorded = $receipt->buffered ? 'buffered' : 'resumed';
+
+        if ($receipt->buffered || ! (bool) $this->option('deliver')) {
+            // A buffered signal made nothing due: the step that waits on
+            // the name consumes it when it parks, so --deliver has
+            // nothing to hand on.
+            $message = $receipt->buffered
+                ? "Signal [{$signal}] buffered. Execution [{$id}] is not waiting on it yet; "
+                    .'the step that waits on it takes it when it parks, and nothing is delivered until then.'
+                : "Signal [{$signal}] recorded. Execution [{$id}] is due now; laraflow:recover, or a worker, delivers it. "
+                    ."Or deliver it from here with: laraflow:signal {$id} {$signal} --deliver";
 
             return $this->respond([
                 'execution' => JsonReport::execution($execution),
                 'signal' => $signal,
+                'recorded' => $recorded,
                 'handoff' => null,
                 'message' => $message,
             ], fn () => $this->components->info($message));
@@ -75,7 +87,7 @@ final class SignalCommand extends Command
         return $this->reportHandoff(
             Handoff::attempt($dispatcher, $repository, $execution),
             $repository,
-            ['signal' => $signal],
+            ['signal' => $signal, 'recorded' => $recorded],
         );
     }
 

@@ -125,7 +125,7 @@ final class TriggerController
     {
         try {
             $this->repository->find($intent->executionId);
-            $execution = $this->runner->signal($intent->executionId, $intent->signal, $intent->payload);
+            $receipt = $this->runner->recordSignal($intent->executionId, $intent->signal, $intent->payload);
         } catch (ExecutionNotFoundException $exception) {
             return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::UnknownExecution, 404, 'not_found', $exception->getMessage());
         } catch (SignalRefusedException $exception) {
@@ -136,7 +136,22 @@ final class TriggerController
             return $this->refusal($trigger, $intent->executionId, $intent->signal, TriggerRefusalReason::InvalidPayload, 422, 'invalid', $exception->getMessage());
         }
 
+        $execution = $receipt->execution;
+
         $this->reporter->accepted($trigger, $execution->id, $intent->signal);
+
+        // Buffered in the inbox: nothing became due, so nothing is
+        // handed on; the step that waits on the name takes it.
+        if ($receipt->buffered) {
+            return new JsonResponse([
+                'status' => 'recorded',
+                'trigger' => $trigger,
+                'execution' => $execution->id,
+                'signal' => $intent->signal,
+                'delivery' => 'buffered',
+                'message' => 'The execution is not waiting on this signal yet; it is kept until a step waits on it.',
+            ], 202);
+        }
 
         $handoff = Handoff::attempt($this->dispatcher, $this->repository, $execution);
 

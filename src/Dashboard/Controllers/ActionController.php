@@ -123,9 +123,20 @@ final class ActionController
 
         try {
             $payload = JsonObject::parse($this->string($request, 'payload'), 'signal payload');
-            $this->runner->signal($id, $name, $payload);
+            $receipt = $this->runner->recordSignal($id, $name, $payload);
         } catch (InvalidArgumentException|WorkflowException $exception) {
             return $this->toExecution($request, $id, Outcome::ERROR, $exception->getMessage());
+        }
+
+        // Buffered: nothing became due, so there is nothing to dispatch
+        // whether or not delivery was asked for.
+        if ($receipt->buffered) {
+            return $this->toExecution(
+                $request,
+                $id,
+                Outcome::INFO,
+                "Signal [{$name}] buffered. The execution is not waiting on it yet; the step that waits on it takes it when it parks.",
+            );
         }
 
         if (! $request->boolean('deliver')) {

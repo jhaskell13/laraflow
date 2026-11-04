@@ -273,6 +273,9 @@ interface ExecutionStore
      * docs/advanced-workflows.md); recording does not deliver — the
      * queue fast path and laraflow:recover do.
      *
+     * The receipt says which of the two happened: `buffered` is false
+     * when a parked step took the payload, true when the inbox kept it.
+     *
      * @param  array<array-key, mixed>  $payload
      *
      * @throws SignalRefusedException
@@ -282,7 +285,7 @@ interface ExecutionStore
         string $signal,
         array $payload,
         DateTimeImmutable $at
-    ): WorkflowExecution;
+    ): SignalReceipt;
 
     /**
      * Park an execution on the wait its claimed step returned, in one
