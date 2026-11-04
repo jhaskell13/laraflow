@@ -68,8 +68,9 @@ trait ScansForRecovery
         ?DateTimeImmutable $availableBefore = null
     ): array {
         return $this->scan($limit, $workflow, $tenantId, $availableBefore)
-            ->where('status', ExecutionStatus::Retrying->value)
-            ->where('next_retry_at', '<=', $dueBefore)
+            // The predicate the attention scan and the metrics snapshot
+            // use (ScansForAttention), so "due" means one thing.
+            ->tap(fn (Builder $query) => $this->whereRetryDue($query, $dueBefore))
             ->orderBy('next_retry_at')
             ->orderBy('id')
             ->get()
@@ -85,9 +86,7 @@ trait ScansForRecovery
         ?DateTimeImmutable $availableBefore = null
     ): array {
         return $this->scan($limit, $workflow, $tenantId, $availableBefore)
-            ->where('status', ExecutionStatus::Waiting->value)
-            ->whereNotNull('next_retry_at')
-            ->where('next_retry_at', '<=', $dueBefore)
+            ->tap(fn (Builder $query) => $this->whereWaitDue($query, $dueBefore))
             ->orderBy('next_retry_at')
             ->orderBy('id')
             ->get()

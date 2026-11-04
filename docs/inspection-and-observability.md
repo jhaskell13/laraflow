@@ -262,11 +262,11 @@ Instants are ISO 8601 with an offset (`2026-11-04T02:00:00+00:00`); enums are th
 
 ## Connector calls
 
-Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is the connector's verdict after its error mapper has run, so a `200` the mapper rejects (Slack's `ok: false`) is announced as a failure — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, and `attempts`. `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
+Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is the connector's verdict after its error mapper has run, so a `200` the mapper rejects (Slack's `ok: false`) is announced as a failure — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, `attempts`, and `tenantId` (the running execution's, null outside one; added in 0.7.0). `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
 
 Both carry identifiers and measurements only. The target is the **path**, never the query string, which may carry a token; there are no headers, options, or bodies on either; and the failure message passes through the configured `ErrorRedactor` and honours `events.include_error_messages`, exactly as workflow failure events do.
 
-Neither carries a correlation id, deliberately: a connector can be called from anywhere, including outside a workflow. When one is called from inside a step, Laravel's log context already holds the identifiers, so a listener reads them from there:
+Neither carries a correlation id, deliberately: it is unbounded, and a connector can be called from anywhere, including outside a workflow. When one is called from inside a step, Laravel's log context already holds the identifiers, so a listener reads them from there:
 
 ```php
 Event::listen(function (ConnectorRequestSent $event): void {

@@ -15,10 +15,13 @@ namespace Laraflow\Events;
  * headers, or response bodies. The target is the path alone, because a
  * query string may carry a credential.
  *
- * Correlation and tenant identifiers are not on this event. A connector
- * can be called outside any workflow, and when it is called inside one
- * Laravel's log context already carries them: read
- * `Context::get('laraflow.correlation_id')` in a listener.
+ * The tenant is the running execution's, read from the durable record
+ * the tenant-scoped rate limit reads (docs/tenancy.md), and null for a
+ * call made outside any execution or inside one created without a
+ * tenant — so a metrics bridge can attribute a call without guessing
+ * (docs/metrics.md). The correlation id is not here: it is unbounded,
+ * never a metric label, and Laravel's log context already carries it
+ * inside a run — read `Context::get('laraflow.correlation_id')`.
  */
 final readonly class ConnectorRequestSent
 {
@@ -37,6 +40,8 @@ final readonly class ConnectorRequestSent
      *                           including any transport retries and throttle waits.
      * @param  int  $attempts  Wire attempts spent; more than one means a
      *                         transport retry policy repeated the request.
+     * @param  string|null  $tenantId  The running execution's tenant, if any.
+     *                                 Added in 0.7.0.
      */
     public function __construct(
         public string $connector,
@@ -47,5 +52,6 @@ final readonly class ConnectorRequestSent
         public bool $successful,
         public int $durationMs,
         public int $attempts = 1,
+        public ?string $tenantId = null,
     ) {}
 }

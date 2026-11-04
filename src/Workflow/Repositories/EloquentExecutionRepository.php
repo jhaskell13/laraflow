@@ -49,6 +49,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     // group's shared invariants next to the methods that rely on them.
     use Concerns\AppliesRetention;
     use Concerns\QueriesExecutions;
+    use Concerns\ScansForAttention;
     use Concerns\ScansForRecovery;
 
     protected ClockInterface $clock;
@@ -665,12 +666,8 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function deferred(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
     {
         return array_values($this->filtered($filter)
-            ->where('deferred_until', '>', $now)
-            // Terminal rows cannot be deferred, but a deferred pending
-            // execution an operator then cancelled still carries its
-            // stamp; what this answers is "what is a ceiling holding",
-            // and nothing holds finished work.
-            ->whereNotIn('status', [ExecutionStatus::Completed->value, ExecutionStatus::Cancelled->value])
+            // Shared with the snapshot's count (ScansForAttention).
+            ->tap(fn ($query) => $this->whereDeferred($query, $now))
             ->orderBy('deferred_until')
             ->limit(min(max(1, $limit), self::MAX_PAGE_SIZE))
             ->get()

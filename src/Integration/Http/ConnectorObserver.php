@@ -11,6 +11,7 @@ use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\ExecutionScope;
 use SensitiveParameter;
 use Throwable;
 
@@ -23,6 +24,10 @@ use Throwable;
  *
  * Owning it here keeps ObservingTransport to its one job and keeps the
  * redaction chokepoint from being duplicated at a second call site.
+ *
+ * The tenant comes from the execution scope at the moment the call
+ * finishes — the same source ThrottlingTransport's tenant bucket reads —
+ * never from anything ambient to the worker.
  */
 final class ConnectorObserver
 {
@@ -31,6 +36,7 @@ final class ConnectorObserver
     public function __construct(
         protected EventEmitter $events,
         ErrorRedactor $redactor,
+        protected ExecutionScope $scope,
         protected bool $includeErrorMessages = true,
         protected int $maxErrorLength = 65535,
     ) {
@@ -48,6 +54,7 @@ final class ConnectorObserver
             successful: $response->successful(),
             durationMs: $durationMs,
             attempts: $response->attempts(),
+            tenantId: $this->scope->tenantId(),
         ));
     }
 
@@ -62,6 +69,7 @@ final class ConnectorObserver
             error: $this->message($exception),
             durationMs: $durationMs,
             attempts: $attempts,
+            tenantId: $this->scope->tenantId(),
         ));
     }
 

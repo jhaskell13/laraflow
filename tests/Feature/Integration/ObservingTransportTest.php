@@ -16,9 +16,11 @@ use Laraflow\Integration\Http\ConnectorObserver;
 use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\ObservingTransport;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\TestCase;
+use Laraflow\Workflow\WorkflowExecution;
 use RuntimeException;
 use Throwable;
 
@@ -75,6 +77,37 @@ class ObservingTransportTest extends TestCase
         Event::assertDispatched(ConnectorRequestFailed::class, fn (ConnectorRequestFailed $e): bool => $e->errorClass === TransportException::class
             && $e->durationMs === 1500
             && $e->attempts === 4);
+    }
+
+    public function test_both_events_name_the_running_executions_tenant_and_only_that(): void
+    {
+        $scope = $this->app->make(ExecutionScope::class);
+
+        // Outside any execution: no tenant to name, and none invented.
+        $this->transport(ConnectorResponse::fake(200))->send(new ConnectorRequest('get', '/a'), new HttpOptions);
+        Event::assertDispatched(ConnectorRequestSent::class, fn (ConnectorRequestSent $e): bool => $e->path === '/a' && $e->tenantId === null);
+
+        $scope->enter(new WorkflowExecution(id: 1, workflow: 'App\\Workflows\\Shared', tenantId: 'acme'));
+
+        try {
+            $this->transport(ConnectorResponse::fake(200))->send(new ConnectorRequest('get', '/b'), new HttpOptions);
+
+            try {
+                $this->transport(new RuntimeException('boom'))->send(new ConnectorRequest('get', '/c'), new HttpOptions);
+            } catch (RuntimeException) {
+            }
+
+            // An execution created without a tenant is the same as none.
+            $scope->enter(new WorkflowExecution(id: 2, workflow: 'App\\Workflows\\Shared', tenantId: null));
+            $this->transport(ConnectorResponse::fake(200))->send(new ConnectorRequest('get', '/d'), new HttpOptions);
+            $scope->leave();
+        } finally {
+            $scope->leave();
+        }
+
+        Event::assertDispatched(ConnectorRequestSent::class, fn (ConnectorRequestSent $e): bool => $e->path === '/b' && $e->tenantId === 'acme');
+        Event::assertDispatched(ConnectorRequestFailed::class, fn (ConnectorRequestFailed $e): bool => $e->path === '/c' && $e->tenantId === 'acme');
+        Event::assertDispatched(ConnectorRequestSent::class, fn (ConnectorRequestSent $e): bool => $e->path === '/d' && $e->tenantId === null);
     }
 
     public function test_any_other_throwable_counts_as_one_attempt(): void

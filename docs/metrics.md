@@ -30,16 +30,16 @@ A bridge publishes both. Counters from events, gauges from the snapshot — neve
 | `oldestUnfinishedAgeSeconds` | Seconds since the oldest unfinished execution was created, or null when there is none. |
 | `retriesDue` | Executions in `retrying` whose backoff has elapsed. |
 | `waitsDue` | Executions in `waiting` whose resume time or timeout has passed. |
-| `overdueSteps` | Running steps past their deadline ([retry-and-failure-policy.md](retry-and-failure-policy.md)). |
+| `overdueSteps` | Running or compensating executions with a running step past its deadline ([retry-and-failure-policy.md](retry-and-failure-policy.md)), counted once per execution — as the attention scan lists them. |
 | `deferred` | Executions a tenant ceiling is holding at `$now` ([tenancy.md](tenancy.md)). |
 | `stalledSchedules` | Schedules with due ticks standing unclaimed ([schedules.md](schedules.md)). |
 | `takenAt` | `$now`, as given. |
 
-**Every field is an exact count.** The attention scan that `laraflow:summary` reads is bounded by `ExecutionReader::MAX_PAGE_SIZE` because it lists rows to show them; a gauge that silently saturates at 500 would lie exactly when it matters. The snapshot counts in the database instead, one bounded query per field — the number of queries is fixed, never proportional to the number of executions or workflows — and the store gains the count queries it needs to do so (`ExecutionStore` is experimental; [public-api.md](public-api.md)).
+**Every field is an exact count.** The attention scan that `laraflow:summary` reads is bounded by `ExecutionReader::MAX_PAGE_SIZE` because it lists rows to show them; a gauge that silently saturates at 500 would lie exactly when it matters. The snapshot counts in the database instead: one grouped count, four attention counts, the oldest unfinished row, and the registered schedules — a fixed number of queries, never proportional to the number of executions or workflows. The counts are `ExecutionStore::countAttention()` and `countByWorkflowAndStatus()` (experimental; [public-api.md](public-api.md)).
 
-**Same answer as the operator surfaces.** A field the attention scan also reports means the same thing: `retriesDue` counts what `laraflow:summary` lists as due retries, `stalledSchedules` what it lists as stalled. They are computed from the same predicates, so a dashboard built on metrics and the console cannot disagree about what needs attention — only about how much of it they show.
+**Same answer as the operator surfaces.** A field the attention scan also reports means the same thing: `retriesDue` counts what `laraflow:summary` lists as due retries, `stalledSchedules` what it lists as stalled. Each count and its list share one predicate in code, so a dashboard built on metrics and the console cannot disagree about what needs attention — only about how much of it they show. An execution a tenant ceiling is holding is `deferred`, never also due.
 
-`$scope` narrows every field to one tenant or workflow, as the console's filter options do; the bridges take the unscoped snapshot.
+`$scope` narrows every field as `laraflow:summary`'s options do — workflow, tenant, correlation, parent, creation window — except `stalledSchedules`, which a schedule's workflow and tenant scope and nothing else can. A scope may not name statuses or a finished window: each field names the statuses it counts, and a scope that also did could only make fields silently zero, so `take()` refuses it. The bridges take the unscoped snapshot.
 
 ## Naming
 
@@ -68,7 +68,7 @@ Labels are what make a series useful and what make a metrics bill explode. Every
 
 **The tenant label is opt-in.** A tenant id is bounded by the application's customer list, which for some applications is ten and for others is a hundred thousand. Each bridge's configuration has a `tenant_label` switch, off by default; when on, the `tenant` label is added to every execution, step, and connector series that the event can attribute to a tenant, and to no others. An execution without a tenant is reported with the label absent (Prometheus: empty), never with a placeholder that could collide with a real tenant id.
 
-The connector events do not carry a tenant id today (0.6.0); 0.7.0 adds `?string $tenantId` to `ConnectorRequestSent` and `ConnectorRequestFailed`, read from the running execution as the tenant-scoped rate limit already is, so a connector call made inside an execution can be attributed and one made outside any execution has the label absent. Until then the connector series carry no tenant label.
+The connector events carry the running execution's tenant id from 0.7.0, read from the execution's durable record as the tenant-scoped rate limit reads it; a call made outside any execution has the label absent.
 
 ## The series
 

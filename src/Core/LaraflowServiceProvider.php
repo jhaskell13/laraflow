@@ -109,6 +109,7 @@ final class LaraflowServiceProvider extends ServiceProvider
             return new ConnectorObserver(
                 events: $app->make(EventEmitter::class),
                 redactor: $app->make(ErrorRedactor::class),
+                scope: $app->make(ExecutionScope::class),
                 includeErrorMessages: $options->includeErrorMessages,
                 maxErrorLength: $options->maxErrorLength,
             );
