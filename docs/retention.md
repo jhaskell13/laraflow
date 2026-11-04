@@ -167,6 +167,10 @@ Run that from a scheduled job that completes before the prune runs. One edge: th
 
 The idempotency store ([idempotency.md](idempotency.md)) holds the results of side effects, and those results are payload. The **scrub** tier clears every record's value for `completed` and `cancelled` executions and leaves the record, its key, and its status — a scrubbed record still keeps the work from running again, it just no longer remembers the answer. Scrub never touches a `failed` execution's records, for the reason it never touches its input and context: a re-run against discarded values would repeat side effects the record says already happened. **Delete** removes the records with their execution through the same orphan-safe path as attempts and steps. Attempt pruning does not touch them.
 
+## Schedule tick history
+
+`retention.prune_ticks_after_days` (null — off, like every bound here) deletes rows from `laraflow_schedule_ticks` claimed at least that many days ago, applied by the same `laraflow:prune` run. Ticks are not executions: they hold no payloads and block no recovery, so the tier is a plain bounded delete, unscoped by workflow or tenant — a tick belongs to a schedule. Pruning a tick never touches the execution it started, and pruning an execution never touches its tick; the two deliberately share no foreign key ([schedules.md](schedules.md#persistence)). A per-minute schedule writes about half a million rows a year, which is what this bound is for.
+
 ## Sub-workflows and fan-out members
 
 Parent-child links are plain columns, not foreign keys, so retention can prune a long-finished parent while its children's audit records live on. The trade-off is a dangling `parent_execution_id` on those children: the parent filter simply returns nothing for it, `laraflow:show` names an id that no longer resolves, and a live child's depth walk treats the pruned link as the root. A child that finishes after its parent was deleted signals no one — a recorded signal for a missing execution is a logged no-op.

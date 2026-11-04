@@ -23,6 +23,14 @@ class InvalidExecutionOptionsException extends WorkflowException
         );
     }
 
+    public static function invalidEncoding(string $name): self
+    {
+        return new self(
+            "Execution option [{$name}] is not valid UTF-8. "
+            .'An identifier the character guard cannot inspect is one the log and the record cannot be trusted with.'
+        );
+    }
+
     public static function controlCharacters(string $name): self
     {
         return new self(

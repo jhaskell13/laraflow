@@ -57,12 +57,4 @@ final class TriggerRegistry
     {
         return $this->triggers[$name] ?? null;
     }
-
-    /**
-     * @return list<NamedTrigger>
-     */
-    public function all(): array
-    {
-        return array_values($this->triggers);
-    }
 }

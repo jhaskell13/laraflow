@@ -44,6 +44,7 @@ class PruneCommand extends Command
         {--prune-attempts-after= : Delete attempt history for finished executions this old (default: laraflow.retention.prune_attempts_after_days)}
         {--delete-after= : Delete completed and cancelled executions this old (default: laraflow.retention.delete_after_days)}
         {--delete-failed-after= : Delete failed executions this old; separate because they can still be recovered (default: laraflow.retention.delete_failed_after_days)}
+        {--prune-ticks-after= : Delete schedule tick history claimed this many days ago (default: laraflow.retention.prune_ticks_after_days)}
         {--limit= : Maximum executions handled per tier in one run (default: laraflow.retention.limit)}
         {--chunk= : Executions written at once (default: laraflow.retention.chunk)}
         {--workflow= : Only consider executions created from this workflow class}
@@ -68,11 +69,13 @@ class PruneCommand extends Command
 
         $dryRun = (bool) $this->option('dry-run');
 
-        if ($this->wantsJson() && ! $dryRun && ! (bool) $this->option('force')) {
-            // A machine cannot answer the production confirmation, and a
-            // prune that deletes durable records must not hang a pipeline
-            // on a prompt nor skip the question because nobody could hear it.
-            return $this->refuse('laraflow:prune --json must pass --force (or --dry-run): a machine cannot answer the production confirmation.');
+        if ($this->wantsJson() && ! $dryRun && ! (bool) $this->option('force') && $this->laravel->environment('production')) {
+            // Exactly where the human form would prompt: a machine cannot
+            // answer the production confirmation, and a prune that deletes
+            // durable records must not hang a pipeline on a prompt nor
+            // skip the question because nobody could hear it. Outside
+            // production neither form asks, and the exit codes stay equal.
+            return $this->refuse('laraflow:prune --json must pass --force (or --dry-run) in production: a machine cannot answer the confirmation.');
         }
 
         if (! $this->wantsJson()) {
@@ -108,6 +111,7 @@ class PruneCommand extends Command
                 'prune_attempts_after_days' => $policy->pruneAttemptsAfterDays,
                 'delete_after_days' => $policy->deleteAfterDays,
                 'delete_failed_after_days' => $policy->deleteFailedAfterDays,
+                'prune_ticks_after_days' => $policy->pruneTicksAfterDays,
             ],
             'warnings' => $policy->warnings(),
             'report' => [
@@ -119,6 +123,7 @@ class PruneCommand extends Command
                 'deleted_failed' => $report->deletedFailed,
                 'skipped' => $report->skipped,
                 'touched' => $report->touched(),
+                'tick_rows' => $report->tickRows,
             ],
         ], fn () => $this->report($report, $policy));
     }
@@ -138,6 +143,7 @@ class PruneCommand extends Command
             'prune-attempts-after' => ['prune_attempts_after_days', 'a number of days'],
             'delete-after' => ['delete_after_days', 'a number of days'],
             'delete-failed-after' => ['delete_failed_after_days', 'a number of days'],
+            'prune-ticks-after' => ['prune_ticks_after_days', 'a number of days'],
             'limit' => ['limit', 'a number of executions'],
             'chunk' => ['chunk', 'a number of executions'],
         ] as $option => [$key, $unit]) {
@@ -181,6 +187,7 @@ class PruneCommand extends Command
             'laraflow.retention.prune_attempts_after_days — delete attempt history',
             'laraflow.retention.delete_after_days — delete completed and cancelled executions',
             'laraflow.retention.delete_failed_after_days — delete failed executions, which can still be recovered',
+            'laraflow.retention.prune_ticks_after_days — delete schedule tick history',
         ]);
 
         $this->components->info(
@@ -211,6 +218,7 @@ class PruneCommand extends Command
                     ? 'row count unknown until the run'
                     : $report->attemptRows.' attempt row(s)'),
                 $this->row('payloads scrubbed', $policy->scrubAfterDays, $report->scrubbed, 'input, context, and step outputs'),
+                $this->row('ticks pruned', $policy->pruneTicksAfterDays, $report->tickRows, 'schedule tick history; executions untouched'),
             ])),
         );
 
@@ -261,6 +269,7 @@ class PruneCommand extends Command
         }
 
         $logger->info('Laraflow pruned finished executions.', [
+            'tick_rows' => $report->tickRows,
             'deleted' => $report->deleted,
             'deleted_failed' => $report->deletedFailed,
             'attempt_executions' => $report->attemptExecutions,

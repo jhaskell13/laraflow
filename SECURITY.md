@@ -7,9 +7,11 @@ Security fixes land on `main` and are released in the newest version. The policy
 | Version | Supported |
 |---------|-----------|
 | `main` (development) | Yes |
-| `0.5.x` (latest minor) | Yes |
+| `0.6.x` (latest minor) | Yes |
 | Previous minor | For 90 days after the next minor |
 | Anything older | No — upgrade |
+
+The trigger endpoints' signature verification ([docs/triggers.md](docs/triggers.md)) is in scope the way the claim discipline is: a way to have a signal accepted without a valid signature over the documented signed string, to learn a configured key, or to distinguish refusal reasons from the response would be a vulnerability.
 
 ## Reporting a vulnerability
 

@@ -350,7 +350,7 @@ class ProjectContractsTest extends TestCase
         $this->assertNull(config('laraflow.errors.redactor'), 'No redactor by default.');
         $this->assertNull(config('laraflow.execution.max_payload_bytes'), 'No payload limit by default.');
 
-        foreach (['scrub_after_days', 'prune_attempts_after_days', 'delete_after_days', 'delete_failed_after_days'] as $bound) {
+        foreach (['scrub_after_days', 'prune_attempts_after_days', 'delete_after_days', 'delete_failed_after_days', 'prune_ticks_after_days'] as $bound) {
             $this->assertNull(config("laraflow.retention.{$bound}"), "Retention bound {$bound} must ship disabled.");
         }
 

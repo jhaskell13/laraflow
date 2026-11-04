@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 use DateTimeImmutable;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -45,6 +46,7 @@ class RetentionService
 
     public function __construct(
         protected ExecutionRepository $repository,
+        protected ScheduleRepository $schedules,
         ClockInterface $clock,
     ) {
         $this->clock = $clock;
@@ -73,8 +75,31 @@ class RetentionService
         $this->deleteTier($run);
         $this->attemptsTier($run);
         $this->scrubTier($run);
+        $this->ticksTier($run);
 
         return $run->report;
+    }
+
+    /**
+     * Schedule tick history under `prune_ticks_after_days`, aged by when
+     * each tick was claimed. Ticks are not executions — they never hold
+     * payloads and never block recovery — so the tier is a plain bounded
+     * delete through the schedule repository, scoped by nothing: a tick
+     * belongs to a schedule, not to a workflow filter or a tenant.
+     */
+    protected function ticksTier(RetentionRun $run): void
+    {
+        if ($run->policy->pruneTicksAfterDays === null) {
+            return;
+        }
+
+        $before = $run->now->modify("-{$run->policy->pruneTicksAfterDays} days");
+
+        $rows = $run->dryRun
+            ? $this->schedules->countTicksBefore($before)
+            : $this->schedules->pruneTicks($before, $run->policy->limit);
+
+        $run->report = $run->report->with(tickRows: $rows);
     }
 
     /**

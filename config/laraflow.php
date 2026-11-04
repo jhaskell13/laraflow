@@ -243,6 +243,14 @@ return [
     | so discarding one should be a decision you took, not a side
     | effect of configuring general retention.
     |
+    | prune_ticks_after_days: delete schedule tick history
+    | (laraflow_schedule_ticks) older than this many days, counted from
+    | when each tick was claimed. The table grows by one row per tick
+    | that fires — about half a million a year for a per-minute
+    | schedule. Pruning a tick never touches the execution it started,
+    | and executions are pruned on their own bounds; the two never
+    | reference each other by foreign key for exactly this reason.
+    |
     | limit: most executions handled per tier per run. chunk: how many
     | are written at once.
     |
@@ -253,6 +261,7 @@ return [
         'prune_attempts_after_days' => env('LARAFLOW_RETENTION_PRUNE_ATTEMPTS_AFTER_DAYS'),
         'delete_after_days' => env('LARAFLOW_RETENTION_DELETE_AFTER_DAYS'),
         'delete_failed_after_days' => env('LARAFLOW_RETENTION_DELETE_FAILED_AFTER_DAYS'),
+        'prune_ticks_after_days' => env('LARAFLOW_RETENTION_PRUNE_TICKS_AFTER_DAYS'),
         'limit' => env('LARAFLOW_RETENTION_LIMIT', 1000),
         'chunk' => env('LARAFLOW_RETENTION_CHUNK', 100),
     ],

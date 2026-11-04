@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow\Scheduling;
 
 use DateTimeImmutable;
+use RuntimeException;
 
 /**
  * @internal What a schedule row's health is, answered one way for the
@@ -34,13 +35,20 @@ final class ScheduleStatus
             return false;
         }
 
-        $due = Ticks::mostRecent($row->cron, $row->timezone, $now);
+        try {
+            $due = Ticks::mostRecent($row->cron, $row->timezone, $now);
 
-        if ($due->getTimestamp() <= $row->lastTickAt->getTimestamp()) {
+            if ($due->getTimestamp() <= $row->lastTickAt->getTimestamp()) {
+                return false;
+            }
+
+            return count(Ticks::between($row->cron, $row->timezone, $row->lastTickAt, $due, cap: self::STALLED_AT)) >= self::STALLED_AT;
+        } catch (RuntimeException) {
+            // A row whose expression no longer computes (edited by hand,
+            // or a declaration bug an old row outlived) must not take
+            // the listing, the summary, and the overview down with it.
             return false;
         }
-
-        return count(Ticks::between($row->cron, $row->timezone, $row->lastTickAt, $due, cap: self::STALLED_AT)) >= self::STALLED_AT;
     }
 
     /**
@@ -55,14 +63,18 @@ final class ScheduleStatus
             return null;
         }
 
-        if ($row->lastTickAt !== null) {
-            $standing = Ticks::between($row->cron, $row->timezone, $row->lastTickAt, Ticks::mostRecent($row->cron, $row->timezone, $now), cap: 1);
+        try {
+            if ($row->lastTickAt !== null) {
+                $standing = Ticks::between($row->cron, $row->timezone, $row->lastTickAt, Ticks::mostRecent($row->cron, $row->timezone, $now), cap: 1);
 
-            if ($standing !== []) {
-                return $standing[0];
+                if ($standing !== []) {
+                    return $standing[0];
+                }
             }
-        }
 
-        return Ticks::nextAfter($row->cron, $row->timezone, $now);
+            return Ticks::nextAfter($row->cron, $row->timezone, $now);
+        } catch (RuntimeException) {
+            return null;
+        }
     }
 }

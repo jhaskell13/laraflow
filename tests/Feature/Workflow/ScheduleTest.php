@@ -23,6 +23,7 @@ use Laraflow\Workflow\Models\ScheduleTickModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Scheduling\ScheduleAction;
 use Laraflow\Workflow\Scheduling\Scheduler;
+use Laraflow\Workflow\Scheduling\ScheduleRegistry;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Scheduling\SchedulerOptions;
 use Laraflow\Workflow\Scheduling\SchedulerRun;
@@ -278,7 +279,9 @@ class ScheduleTest extends TestCase
         // Too fresh: nothing is healed yet.
         $this->assertSame([], $this->scheduler()->run()->redispatched);
 
-        $this->clock->advance(301);
+        // Well past the 300s window: the base is the real clock, and a
+        // slow engine container must not eat the margin.
+        $this->clock->advance(400);
         $run = $this->scheduler()->run();
 
         $this->assertSame([$scheduled], $run->redispatched, 'The lost dispatch is re-pushed; the held execution is not.');
@@ -509,6 +512,64 @@ class ScheduleTest extends TestCase
                 && $event->missed === 0
                 && $event->caughtUp === false;
         });
+    }
+
+    /**
+     * The Milestone 10 audit's worst finding, held closed: Eloquent
+     * stores a value's own wall-clock and reads columns back in the
+     * application timezone, so a scheduler that normalised instants to
+     * UTC fired hourly schedules once per hour *plus the offset* and
+     * re-dispatched duplicates on every run in any non-UTC application.
+     * The suite otherwise runs in UTC, which is exactly how it hid.
+     */
+    public function test_schedules_keep_time_in_an_application_that_is_not_utc(): void
+    {
+        $previous = date_default_timezone_get();
+        date_default_timezone_set('America/New_York');
+
+        try {
+            NightlyWorkflow::$cron = '0 * * * *';
+            $this->clock->set(new DateTimeImmutable('2026-11-03 09:30:00', new DateTimeZone('America/New_York')));
+
+            $scheduler = $this->scheduler();
+            $this->assertSame([ScheduleAction::NOT_DUE], $this->outcomes($scheduler->run()), 'Registration never backfills, in any zone.');
+
+            $this->clock->set(new DateTimeImmutable('2026-11-03 10:00:30', new DateTimeZone('America/New_York')));
+
+            $run = $scheduler->run();
+            $this->assertSame([ScheduleAction::STARTED], $this->outcomes($run));
+            $this->assertSame(
+                '2026-11-03 15:00',
+                $run->actions[0]->tickAt?->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i'),
+                '10:00 New York is 15:00 UTC: the instant, not the wall-clock, is what the tick names.',
+            );
+
+            $again = $scheduler->run();
+            $this->assertSame([ScheduleAction::NOT_DUE], $this->outcomes($again), 'The claimed tick reads back as the instant it was.');
+            $this->assertSame([], $again->redispatched, 'A freshly created execution is not a lost dispatch.');
+            $this->assertSame(1, WorkflowExecutionModel::query()->count());
+
+            $execution = $this->executions()->find($this->startedId($run));
+            $this->assertSame('schedule:NightlyWorkflow@2026-11-03T15:00Z', $execution->correlationId, 'The correlation id renders the instant as UTC wherever the app lives.');
+        } finally {
+            date_default_timezone_set($previous);
+        }
+    }
+
+    /**
+     * docs/schedules.md, "Registration": a package registers through the
+     * registry from its provider, and both paths end in the same place.
+     */
+    public function test_a_programmatically_registered_schedule_ticks_like_a_listed_one(): void
+    {
+        config()->set('laraflow.schedules.workflows', []);
+        $this->app->make(ScheduleRegistry::class)->register(NightlyWorkflow::class);
+
+        $scheduler = $this->scheduler();
+        $scheduler->run();
+        $this->clock->set('2026-11-04 02:00:30');
+
+        $this->assertSame([ScheduleAction::STARTED], $this->outcomes($scheduler->run()));
     }
 
     /**

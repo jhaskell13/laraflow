@@ -1,6 +1,6 @@
 # Triggers: signals over HTTP
 
-> This document is the design contract for Milestone 10's triggers, written before any of it is built. The enforcing suites will be `tests/Feature/Triggers/`, and the install walk will drive the endpoint over real HTTP. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
+> This document was written as the design contract for Milestone 10's triggers before any of it was built, and is now the shipped contract. The enforcing suites are `tests/Feature/Triggers/` and `tests/Unit/Triggers/`, and the install walk drives the endpoint over real HTTP. The repository's usual rule applies: if the code and this document disagree, one of them has a bug.
 >
 > The configuration and the command this document names are shipped and held to it by the contracts test.
 
@@ -38,14 +38,14 @@ Triggers::routes();
     'path' => env('LARAFLOW_TRIGGERS_PATH', 'laraflow/triggers'),
     'middleware' => ['api'],
     'key' => env('LARAFLOW_TRIGGERS_KEY'),
-    'previous_keys' => [],
+    'previous_keys' => [...],   // LARAFLOW_TRIGGERS_PREVIOUS_KEYS, comma-separated
     'tolerance' => env('LARAFLOW_TRIGGERS_TOLERANCE', 300),
 ],
 ```
 
-- **`path`** and **`middleware`** behave as the dashboard's do, with the same call-time overrides: `Triggers::routes(path: 'hooks/laraflow', middleware: [])` for an application mounting inside a group that already supplies its stack. The default middleware is `api`, which in a Laravel application carries request throttling and no session; an application that wants a tighter rate limit on this endpoint than on its API puts one here.
-- **`key`** is the shared secret the signed endpoint verifies against: at least 32 bytes, any encoding, read from the environment and never from a committed file. **`previous_keys`** is a list of keys still accepted, for rotation: set the new key, move the old one here, and remove it once every signer has moved. A request is verified against the current key first and each previous key after, and which one matched is logged at debug so a rotation can be finished with evidence.
-- **`tolerance`** is how far, in seconds, a request's timestamp may be from the server's clock in either direction (default 300). Past it, the request is refused as stale however well it is signed.
+- **`path`** and **`middleware`** behave as the dashboard's do, with the same call-time overrides: `Triggers::routes(path: 'hooks/laraflow', middleware: [])` for an application mounting inside a group that already supplies its stack. The default middleware is `api`, which carries no session — the signature stands in for CSRF protection — and, on Laravel 12/13, **no throttle unless the application opted in with `throttleApi()`**. Put a rate limit here explicitly (`'middleware' => ['api', 'throttle:60,1']`): verification is cheap but not free, and an endpoint that changes workflow state deserves a ceiling.
+- **`key`** is the shared secret the signed endpoint verifies against: at least 32 bytes, any encoding, read from the environment and never from a committed file. **`previous_keys`** is a list of keys still accepted, for rotation — read from `LARAFLOW_TRIGGERS_PREVIOUS_KEYS`, comma-separated, so a rotation needs no published configuration file (which also means a key must not contain a comma): set the new key, move the old one there, and remove it once every signer has moved. Every key, previous included, must meet the 32-byte floor — a short key would weaken the endpoint for as long as the rotation lasts — and a request is verified against the current key first and each previous key after, with the match logged at debug so a rotation can be finished with evidence. Use a different key per environment: the signed string carries no audience, so staging and production sharing one key would honour each other's signatures.
+- **`tolerance`** is how far, in seconds, a request's timestamp may be from the server's clock in either direction (default 300; a negative value clamps to 0). Past it, the request is refused as stale however well it is signed. Keep it near the default: it is the replay window.
 
 Mounting with `key` blank throws a `LogicException` naming the setting. Mounting twice registers the routes twice, as it would any route group; the dashboard's guidance applies.
 
@@ -54,11 +54,13 @@ Mounting with `key` blank throws a `LogicException` naming the setting. Mounting
 ```
 POST {path}/executions/{id}/signals/{signal}
 X-Laraflow-Timestamp: 1762159200
-X-Laraflow-Signature: v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8c2
+X-Laraflow-Signature: v1=4e5f94e3f18a84cde2bef9b49fd2e03a731fc10a6a8615a85d0642e16a175829
 Content-Type: application/json
 
 {"approved_by": "ops@example.com", "note": "Looks right."}
 ```
+
+(The signature shown is real: this body, this timestamp, execution 42, and the key `an-example-key-32-bytes-long-okay`.)
 
 - **`{id}`** is the execution's integer id (anything else is not a route, as on the dashboard). **`{signal}`** is the signal name, URL-encoded; the usual rules apply at `signal()` — non-empty, at most 255 characters, not beginning with `laraflow.` in any casing.
 - **The body** is the payload: a JSON object, or empty for a signal that carries nothing. A JSON list, a scalar, or malformed JSON is refused, exactly as the dashboard's payload field and the start command's `--input` refuse them, and for the same reason: the payload lands in the context under the signal's name, and the context is an object. The body is bounded by `execution.max_payload_bytes` at `signal()`, as every signal payload is; the application's web server bounds it before that.
@@ -79,7 +81,7 @@ Verification, in order, before any database read:
 2. The signature compared in constant time against the HMAC under the current key, then each previous key.
 3. Only then: the execution looked up, the signal recorded, the delivery attempted.
 
-Every verification failure is one answer — `401` with `{"status": "refused"}` and no further detail — so a caller cannot learn from the response whether the key, the timestamp, or the format was the problem, nor whether the execution exists. The log line says which, at `warning`, with the execution id and signal from the URL and never the body.
+Every verification failure is one answer — `401` with `{"status": "refused"}` and no further detail — so a caller cannot learn from the response whether the key, the timestamp, or the format was the problem, nor whether the execution exists. The log line says which, at `warning`, with the execution id and the signal from the URL — the signal bounded to 255 bytes and stripped of control bytes first, since nothing upstream has validated it — and never the body.
 
 ### Replay
 
@@ -91,14 +93,14 @@ The response is JSON with a `status`, and the HTTP code says which kind of answe
 
 | Code | `status` | When |
 |---|---|---|
-| `202` | `recorded` | The signal is durable. `delivery` says what became of the execution, in `Handoff`'s terms: `queued` (a worker will resume it), `ran` (the sync driver, or the execution rested without needing a worker — its resulting `execution.status` is included), `pending` (recorded, but the push failed; `laraflow:recover` delivers it, and the message says so). |
+| `202` | `recorded` | The signal is durable. `delivery` says what became of the execution: `queued` (a worker will resume it), `ran` (the sync driver ran it in this request; `execution_status` carries where it rested — `completed`, or `failed` with the failure on the record), `pending` (recorded, and the push did not land; a fixed `message` says `laraflow:recover` delivers it). Nothing a step or a broker threw is ever on the response: a provider keeps response bodies, and the record — where the redactor governs — is where failures live. |
 | `401` | `refused` | Verification failed. No other information. |
 | `404` | `not_found` | Signed, and no such execution. Signed first, so an unsigned caller cannot enumerate. |
 | `409` | `not_waiting` | Signed, and the execution is not waiting on that signal — resumed already, timed out, finished, or parked on another name. `SignalRefusedException`'s message is the `message`. |
 | `413` | `too_large` | The payload exceeds `execution.max_payload_bytes`. |
 | `422` | `invalid` | The body is not a JSON object, or the signal name is empty, over-long, or reserved. The `message` names the rule. |
 
-Every non-`401` answer carries `execution` (the id) and `signal`; `message` is the runtime's own wording where the runtime refused. A `5xx` is what it is anywhere: the database was down, and the signal was not recorded.
+Every answer that is *about a signal* also carries `trigger`, `execution` (the id), and `signal`; `message` is the runtime's own wording where the runtime refused. Three answers are about the trigger itself and carry `trigger` alone: `200 {"status":"ignored"}` from a resolver that matched nothing, `404 {"status":"not_found"}` for a name no trigger is registered under (names are slugs, not secrets), and the resolver's `500 {"status":"error"}`. A `5xx` before the `202` usually means the signal was not recorded — and retrying is safe either way, because a duplicate overwrites the same wait or is refused.
 
 ## Named triggers for providers
 
@@ -131,7 +133,7 @@ POST {path}/{name}
 - **The resolver** turns the verified request into a `SignalIntent` — execution id, signal name, payload — or `null` to acknowledge an event that signals nothing (`200 {"status": "ignored"}`), which is most of what a webhook endpoint receives. A resolver that throws is a `500`, logged with the trigger's name and never the body: the application's mapping failed, and the provider should retry.
 - **Everything after resolution is the signed endpoint's path**: the same `signal()`, the same delivery, the same answers. A provider that retries on non-`2xx` gets `202` for a recorded signal and `200` for an ignored event, and `409` when the execution has moved on — which is the right answer for an event that arrived late and the one a provider stops retrying.
 
-`register()` is called before `routes()`, from a service provider's `boot()`; a name may be registered once, must be a URL-safe slug, and may not be `executions` (the signed endpoint's prefix). The signed endpoint is not a named trigger — it addresses executions directly and signs with Laraflow's scheme — and an application needs neither to use the other.
+`register()` is called from a service provider's `boot()`, before or after `routes()` — triggers resolve against the registry at request time; a name may be registered once, must be a URL-safe slug, and may not be `executions` (the signed endpoint's prefix). The signed endpoint is not a named trigger — it addresses executions directly and signs with Laraflow's scheme — and an application needs neither to use the other.
 
 ## Signing a request
 
@@ -167,7 +169,7 @@ An approval **page** is the application's. Laraflow does not serve one, and does
 ## Observability
 
 - **Events.** `TriggerAccepted` after a recorded signal — trigger name (`signed` for the direct endpoint), execution id, signal — and `TriggerRefused` after a refusal — trigger name, the reason as a backed enum (`unsigned`, `stale`, `invalid_signature`, `unknown_execution`, `not_waiting`, `invalid_payload`, `too_large`, `resolver_failed`), and the execution id and signal when the URL carried them. No payload, no headers, no key, no client address: an application that wants the address correlates through its own request log, which has it.
-- **Logs.** Every refusal at `warning` with the same fields; every accepted signal at `info`. The existing `WorkflowExecutionSignalled` event fires as it does for any `signal()` call.
+- **Logs.** Every refusal at `warning` with the same fields — except a resolver failure, which is the application's own code breaking and logs at `error` with the exception class and never the message, which may quote the body. Every accepted signal logs at `info`, and the existing `WorkflowExecutionSignalled` event fires as it does for any `signal()` call.
 - **The dashboard** shows a signalled execution as it shows any other; nothing is added for triggers, because a trigger leaves no record of its own — the signal is the record.
 
 ## What this is not
@@ -199,8 +201,8 @@ The one-way doors, fixed by this document:
 
 ## Enforcement
 
-- `tests/Feature/Triggers/MountingTest.php` — unmounted means absent; mounted at the configured path and middleware; refused at the mount with no key, naming the setting; refused by name without the router.
-- `tests/Feature/Triggers/SignedEndpointTest.php` — the roadmap's exit criterion: an unsigned request is refused with the execution still waiting and no payload written; a signed one records the payload and resumes the execution (the sync driver runs it to completion in the test). Also: a stale timestamp; a wrong key; a previous key during rotation; a signature for another execution presented against this one; a tampered body; each answer in the table above with its code and `status`; `404` only after verification; no body in any log line.
+- `tests/Feature/Triggers/MountingTest.php` — unmounted means absent; mounted at the configured path and middleware; refused at the mount with no key or a short one, naming the setting. (The router-absent refusal is guarded in code; its absence cannot be staged under Testbench, which aliases the router class.)
+- `tests/Feature/Triggers/SignedEndpointTest.php` — the roadmap's exit criterion: an unsigned request is refused with the execution still waiting and no payload written; a signed one records the payload and resumes the execution (the sync driver runs it to completion in the test, and a queued delivery answers `queued`). Also: a stale timestamp; a wrong key; a previous key during rotation; a signature for another execution presented against this one; a tampered body; each answer in the table above with its code and `status`; `404` only after verification; a failing step's exception text absent from the response; a hostile signal bounded before it is logged; no body in any log line.
 - `tests/Feature/Triggers/NamedTriggerTest.php` — the verifier runs first; `null` acknowledges; an intent is delivered through the same path; a throwing resolver is a `500` without the body; a duplicate or reserved name is refused at registration.
 - `tests/Unit/Triggers/TriggerSignatureTest.php` — the scheme byte for byte against a fixture, so a signer in another language can be checked against the same vector.
 - `.github/actions/install-walk` — over real HTTP against a real application: `curl` unsigned is `401` and the execution stays `waiting`; `curl` signed with `openssl` is `202` and the execution completes.

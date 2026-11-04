@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
+use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\JsonReport;
 use Laraflow\Support\WorkflowName;
@@ -31,6 +33,7 @@ use Psr\Clock\ClockInterface;
 class SchedulesCommand extends Command
 {
     use DisplaysExecutions;
+    use ParsesExecutionFilters;
 
     protected $signature = 'laraflow:schedules
         {--pause= : Stop a schedule naming ticks until resumed; takes the workflow class}
@@ -43,7 +46,12 @@ class SchedulesCommand extends Command
     public function handle(ScheduleRepository $schedules, ScheduleRegistry $registry, ClockInterface $clock): int
     {
         $now = $clock->now();
-        $live = $registry->classes();
+
+        try {
+            $live = $registry->classes();
+        } catch (InvalidArgumentException $exception) {
+            return $this->refuse($exception->getMessage());
+        }
 
         $acted = $this->act($schedules, $live, $now);
 
@@ -200,7 +208,7 @@ class SchedulesCommand extends Command
             $row->missedTickPolicy->value.($row->withoutOverlapping ? ' <fg=gray>(no overlap)</>' : ''),
             $this->lastTickCell($lastTick),
             $this->lagCell($lastTick),
-            $nextDue === null ? '—' : $nextDue->format('Y-m-d H:i'),
+            $nextDue === null ? '—' : $nextDue->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i'),
             $this->stateCell($row, $orphaned, $stalled),
         ];
     }
@@ -217,7 +225,7 @@ class SchedulesCommand extends Command
             TickOutcome::SkippedOverlap => 'skipped (overlap)',
         };
 
-        return $tick->tickAt->format('Y-m-d H:i')." <fg=gray>({$outcome})</>";
+        return $tick->tickAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i')." <fg=gray>({$outcome})</>";
     }
 
     /**
@@ -251,16 +259,5 @@ class SchedulesCommand extends Command
             'paused' => '<fg=yellow>paused</>',
             default => '<fg=green>ok</>',
         };
-    }
-
-    protected function stringOption(string $name): ?string
-    {
-        $value = $this->option($name);
-
-        if (! is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        return trim($value);
     }
 }

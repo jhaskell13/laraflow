@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Laraflow\Console;
 
+use DateTimeZone;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\Scheduling\ScheduleAction;
@@ -37,12 +39,20 @@ class ScheduleCommand extends Command
 
     protected $description = 'Run one scheduler tick: claim due schedule ticks and start their executions';
 
-    public function handle(Scheduler $scheduler): int
+    public function handle(): int
     {
-        $run = $scheduler->run(
-            dryRun: (bool) $this->option('dry-run'),
-            sync: (bool) $this->option('sync'),
-        );
+        try {
+            // Resolved here rather than injected: the scheduler's options
+            // are validated as they are read, and a malformed setting must
+            // be this command's one-document refusal, not a container
+            // exception past the --json contract.
+            $run = $this->laravel->make(Scheduler::class)->run(
+                dryRun: (bool) $this->option('dry-run'),
+                sync: (bool) $this->option('sync'),
+            );
+        } catch (InvalidArgumentException $exception) {
+            return $this->refuse($exception->getMessage());
+        }
 
         $document = [
             'enabled' => $run->enabled,
@@ -96,7 +106,7 @@ class ScheduleCommand extends Command
 
         foreach ($run->orphans as $workflow) {
             $this->components->warn(
-                "[{$workflow}] has a schedule row and no declaration behind it — unlisted, renamed, or its schedule() removed. "
+                "[{$workflow}] has a schedule row and no declaration behind it — unlisted, or renamed. "
                 .'It names no ticks. Inspect with laraflow:schedules; forget it with --forget once its history is not wanted.'
             );
         }
@@ -113,7 +123,7 @@ class ScheduleCommand extends Command
     {
         return [
             class_basename($action->workflow),
-            $action->tickAt === null ? '—' : $action->tickAt->format('Y-m-d H:i'),
+            $action->tickAt === null ? '—' : $action->tickAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i'),
             $this->coloredOutcome($action),
             $action->missed > 0 ? (string) $action->missed : '—',
             $action->executionId === null ? '—' : (string) $action->executionId,

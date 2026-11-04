@@ -35,9 +35,11 @@
         'action' => route('laraflow.dashboard'),
     ])
 
-    @if ($total === 0)
+    @if ($total === 0 && ($report === null || ! $report->needsAttention()))
         @include('laraflow::dashboard.partials.empty', ['filters' => $filters])
-    @else
+    @endif
+
+    @if ($total > 0)
         <div class="lf-counts">
             @foreach (ExecutionStatus::cases() as $status)
                 <a class="lf-count-card lf-count-card--{{ $status->value }}" href="{{ route('laraflow.executions', $filters->query() + ['status' => [$status->value]]) }}">
@@ -47,8 +49,9 @@
                 </a>
             @endforeach
         </div>
+    @endif
 
-        @if ($report !== null)
+    @if ($report !== null && ($total > 0 || $report->needsAttention()))
             <section class="lf-card">
                 <h2 class="lf-card__title">
                     Needs attention
@@ -118,6 +121,5 @@
                     </p>
                 @endif
             </section>
-        @endif
     @endif
 @endsection

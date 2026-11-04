@@ -14,6 +14,7 @@ use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\RecoveryCandidate;
 use Laraflow\Workflow\RecoveryReason;
@@ -91,14 +92,17 @@ class RecoverCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
+        $counts = ['dispatched' => 0, 'ran' => 0, 'abandoned' => 0, 'unrecoverable' => 0, 'skipped' => 0, 'failed' => 0];
+
         if ($candidates === []) {
+            // The same shape as a run that found work: a consumer's
+            // jq '.counts.failed' must not error on an empty day.
             return $this->respond(
-                ['dry_run' => $dryRun, 'candidates' => [], 'counts' => [], 'needs_attention' => false],
+                ['dry_run' => $dryRun, 'sync' => $sync, 'candidates' => [], 'counts' => $counts, 'needs_attention' => false],
                 fn () => $this->components->info('Nothing to recover.'),
             );
         }
 
-        $counts = ['dispatched' => 0, 'ran' => 0, 'abandoned' => 0, 'unrecoverable' => 0, 'skipped' => 0, 'failed' => 0];
         $rows = [];
         $actions = [];
 
@@ -216,6 +220,14 @@ class RecoverCommand extends Command
             $counts['skipped']++;
 
             return ['rescheduled meanwhile', 'skipped_rescheduled'];
+        } catch (TenantThrottledException) {
+            // The tenant is at a ceiling. The deferral is recorded on
+            // the execution and its own timer owns the next attempt —
+            // a recover run never counts a deferral as a failure
+            // (docs/tenancy.md).
+            $counts['skipped']++;
+
+            return ['<fg=yellow>deferred (tenant at ceiling)</>', 'skipped_deferred'];
         } catch (Throwable $exception) {
             $counts['failed']++;
 

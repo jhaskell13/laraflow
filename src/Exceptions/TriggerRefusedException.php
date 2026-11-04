@@ -9,10 +9,10 @@ use Throwable;
 
 /**
  * A trigger request did not verify. Thrown by a `TriggerVerifier` to
- * refuse a provider's request, and raised internally when the signed
- * endpoint's own verification fails; either way the answer is one
- * `401` and the reason goes to the log and the event, never to the
- * caller (docs/triggers.md, "The signature").
+ * refuse a provider's request; the signed endpoint's own gate answers
+ * without throwing. Either way the answer is one `401` and the reason
+ * goes to the log and the event, never to the caller
+ * (docs/triggers.md, "The signature").
  */
 class TriggerRefusedException extends LaraflowException
 {

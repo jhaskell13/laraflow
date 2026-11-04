@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Exceptions\Workflow;
 
 use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * Another scheduler inserted this tick's row first. Not a fault: with
@@ -17,7 +18,7 @@ class TickAlreadyClaimedException extends WorkflowException
     public static function for(string $workflow, DateTimeImmutable $tickAt): self
     {
         return new self(
-            "The [{$workflow}] tick at {$tickAt->format('Y-m-d H:i')} UTC is already claimed; "
+            "The [{$workflow}] tick at {$tickAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i')} UTC is already claimed; "
             .'another scheduler started its execution.'
         );
     }

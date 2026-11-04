@@ -33,9 +33,6 @@ class NightlyWorkflow extends Workflow
     /** @var list<class-string<Step>> */
     public static array $steps = [StepOne::class];
 
-    /** Declare no schedule at all, for the listed-but-unscheduled case. */
-    public static bool $unscheduled = false;
-
     public static function reset(): void
     {
         self::$cron = '0 2 * * *';
@@ -45,7 +42,6 @@ class NightlyWorkflow extends Workflow
         self::$tenant = null;
         self::$input = null;
         self::$steps = [StepOne::class];
-        self::$unscheduled = false;
     }
 
     public function steps(): array
@@ -55,10 +51,6 @@ class NightlyWorkflow extends Workflow
 
     public function schedule(): ?Schedule
     {
-        if (self::$unscheduled) {
-            return null;
-        }
-
         $schedule = Schedule::cron(self::$cron)->onMissedTicks(self::$policy);
 
         if (self::$timezone !== null) {

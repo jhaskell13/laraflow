@@ -6,7 +6,7 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), run another workflow as a child, run many of them in parallel and wait for all of them, or declare how to undo itself when the workflow fails ([docs/advanced-workflows.md](docs/advanced-workflows.md)). Executions are inspected and operated from the console or from an opt-in [dashboard](#the-dashboard). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching is **not** implemented and is out of scope through 1.0 ([ROADMAP.md](ROADMAP.md)): a fan-out is one step whose members are child executions, and the plan stays a flat, validated list. Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
+> **Status: `0.x`, under active development.** Laraflow runs **linear** workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, park the execution on a delay or a named signal (human approval), run another workflow as a child, run many of them in parallel and wait for all of them, or declare how to undo itself when the workflow fails ([docs/advanced-workflows.md](docs/advanced-workflows.md)). A workflow can declare a cron schedule that fires exactly once per tick however many schedulers race it, signals can arrive over HTTP through signed opt-in endpoints, and tenants can be held to concurrency and rate ceilings at the claim. Executions are inspected and operated from the console — every operating command speaks JSON for automation — or from an opt-in [dashboard](#the-dashboard). The execution, recovery, retention, and connector contracts are documented and CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines; the schema is frozen with a tested upgrade path. Graph branching is **not** implemented and is out of scope through 1.0 ([ROADMAP.md](ROADMAP.md)): a fan-out is one step whose members are child executions, and the plan stays a flat, validated list. Being `0.x`, the public API may still move — see [docs/public-api.md](docs/public-api.md) for what is stable-intent versus experimental.
 
 ## Contents
 
@@ -20,6 +20,9 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 - [Parallelism and compensation](#parallelism-and-compensation)
 - [Changing a deployed workflow](#changing-a-deployed-workflow)
 - [Running on a queue](#running-on-a-queue)
+- [Scheduled workflows](#scheduled-workflows)
+- [Triggers: signals over HTTP](#triggers-signals-over-http)
+- [Tenant ceilings](#tenant-ceilings)
 - [Inspecting and correlating executions](#inspecting-and-correlating-executions)
 - [Retention](#retention)
 - [The dashboard](#the-dashboard)
@@ -52,7 +55,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.5.0
+composer require laraflow/laraflow:^0.6.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
@@ -899,6 +902,52 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 
 Queueing, retry interaction, recovery policy, and event payload safety are specified in full in [docs/queue-and-recovery.md](docs/queue-and-recovery.md).
 
+## Scheduled workflows
+
+A workflow declares its cadence on the class, where it is reviewed and versioned with the steps it runs; the configuration lists which classes are live:
+
+```php
+class NightlyReconciliation extends Workflow
+{
+    public function schedule(): ?Schedule
+    {
+        return Schedule::cron('0 2 * * *')
+            ->timezone('Europe/London')
+            ->input(fn (DateTimeImmutable $tick): array => [
+                'day' => $tick->modify('-1 day')->format('Y-m-d'),
+            ]);
+    }
+
+    public function steps(): array { /* … */ }
+}
+```
+
+```php
+// config/laraflow.php
+'schedules' => ['workflows' => [App\Workflows\NightlyReconciliation::class]],
+```
+
+```php
+// routes/console.php — every minute, like laraflow:recover
+Schedule::command('laraflow:schedule')->everyMinute();
+```
+
+A tick is a row with a unique `(schedule, instant)` index, claimed in the same transaction that creates the execution — so **exactly one execution per tick, however many schedulers race it**, with no lock to lose and no leader to elect. Missed ticks follow a declared policy: `skip` (the default) runs only the latest due tick and counts the gap on its row; `catch_up` replays them oldest first, each execution told *its* tick, bounded per run and by a window. `withoutOverlapping()` declines to run beside the previous tick's unfinished execution and records what it waited on; `tenant()` stamps every execution the schedule starts. `laraflow:schedules` lists every schedule with its last tick, lag, and next due instant — and exits non-zero when one is orphaned or stalled, so the same cron that runs your health checks can watch the scheduler itself. The full contract, missed-tick arithmetic and DST behaviour included, is [docs/schedules.md](docs/schedules.md).
+
+## Triggers: signals over HTTP
+
+A workflow parked on `Wait::forSignal('manager-approval')` is resumed from outside — a button, a Slack interaction, a provider's webhook. Triggers are that controller, shipped once and off unless mounted:
+
+```php
+Triggers::routes(); // POST {path}/executions/{id}/signals/{signal}
+```
+
+Every request to the signed endpoint is verified **before anything is read**: HMAC-SHA256 over the timestamp, execution id, signal name, and body, under `LARAFLOW_TRIGGERS_KEY` (rotation via `LARAFLOW_TRIGGERS_PREVIOUS_KEYS`), within a clock tolerance. Every verification failure is the same `401` — a caller learns nothing from the answer, and there is no `local`-environment bypass. A verified request records the signal through the same `signal()` the console and dashboard use and answers in its words: `202 recorded` with what became of delivery, `404` only after verification, `409` when nothing is waiting on that name. `TriggerSignature::sign()` produces the headers for PHP callers; [docs/triggers.md](docs/triggers.md) gives the three-line `openssl` recipe for everyone else, and `Triggers::register()` mounts named endpoints for providers that sign their own webhooks (Stripe, GitHub), behind your verifier and your mapping of their event to one signal.
+
+## Tenant ceilings
+
+Multi-tenant applications already stamp executions with `tenantId`; ceilings make it load-bearing. `laraflow.tenants.max_concurrent` bounds how many of a tenant's executions may hold a worker at once, `max_claims_per_minute` bounds churn, `overrides` adjusts either per tenant — or bind your own `TenantPolicy` and answer from wherever a tenant's plan lives. Enforcement happens at the claim, the one gate every run passes, so a fresh dispatch, a retry, a resumed wait, and recovery are all bounded by one check. A claim a ceiling turns away is **deferred, not failed**: the status does not move, no attempt is recorded, the row says when delivery is next tried, and the queue job re-pushes itself for that instant without spending a try. The fairness rule is written down in [docs/tenancy.md](docs/tenancy.md): a tenant whose ceiling is below the worker count can never hold every worker, so it cannot starve the rest — held by a test where a tenfold flood buys zero extra delay.
+
 ## Inspecting and correlating executions
 
 The stable way to read executions is the `Laraflow\Workflow\ExecutionRepository` contract, which returns plain value objects. Everything the console shows, it reads through this same contract — no command touches an Eloquent model, and a test keeps it that way.
@@ -1164,12 +1213,15 @@ It fakes HTTP and prevents stray requests, so it needs no credentials and no net
 
 ## Current limitations
 
-Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 9; what comes next lives in [ROADMAP.md](ROADMAP.md).
+Laraflow is honest about what it does not yet do. These are the known gaps as of Milestone 10; what comes next lives in [ROADMAP.md](ROADMAP.md).
 
 - **No graph branching, and none planned before 1.0.** A plan is a flat, validated list of steps. A fan-out runs many workflows in parallel, but it is one step at one position, and the plan either side of it is as linear as it was; Laraflow does not aggregate member outputs, and a member cannot add members. Reduction is the step that follows.
 - **Retries, retention, transport retries, and rate limits are all off by default.** `retry.max_attempts` ships as 1, every `retention.*` bound as null, `http.retries.max_attempts` as 1, and `http.rate_limit` as null; nothing is retried, removed, or throttled until you opt in. With retries on and retention off, the attempt-history table grows without bound.
 - **Timeouts do not interrupt running PHP.** A step past its deadline is *classified* as timed out at the recovery boundary and charged to its retry budget, but a genuinely hung process is bounded only by the queue worker's timeout. Cancelling a running execution is likewise cooperative — the step in flight finishes first.
 - **Side effects are at-least-once — and retries repeat them on purpose.** If a worker dies between a step's external call and its checkpoint, recovery runs the step again; a retry policy re-runs failing steps deliberately. Wrap them in `$context->remember()` so they run once per execution and a crash inside the window is raised rather than repeated ([docs/idempotency.md](docs/idempotency.md)). Transport retries follow the same honesty: a `POST` is repeated only on 429 or when you mark it `asIdempotent()`.
+- **Schedules are minute-grained and declared in code.** A tick is a minute; seconds are refused. Schedules live on workflow classes and are activated in configuration — there is no runtime schedule editor, deliberately ([ROADMAP.md](ROADMAP.md), authoring is a post-1.0 question). Tick counting is exact to ten thousand missed instants and records the bound beyond.
+- **A trigger signature can be replayed inside its tolerance.** The window is bounded by the signal contract (a replay overwrites the same wait or is refused) and by `tolerance`; the one residual case and its defences are documented in [docs/triggers.md](docs/triggers.md#replay). Keys carry no audience: use a different key per environment.
+- **Tenant ceilings are exact in the steady state, not at the instant.** Two claimants counting in the same moment can both pass, so a ceiling of *n* can briefly hold *n* plus the racers — the same honesty as the connector rate limit. And on MySQL, MariaDB, and SQL Server default collations, tenant ids differing only by case are one tenant to every tenant-scoped query ([docs/tenancy.md](docs/tenancy.md)).
 - **No per-workflow aggregates.** The query API filters and counts within one scope; it has no `GROUP BY`. `laraflow:summary --workflow=` scopes the same numbers to one workflow, and a dashboard needing a breakdown should count per workflow it knows about.
 - **No write-time payload redaction.** Input seeds the context on every `execute()` and context is restored on recovery, so rewriting either at write time would corrupt re-runs. Store identifiers rather than secrets; scrub payloads after the fact with retention; redact error messages with `errors.redactor`.
 - **Metrics are events, not an integration.** Durations, queue lag, and connector call timings are on events; turning them into Prometheus, StatsD, or Pulse metrics is a listener you write. Recipes are in [docs/inspection-and-observability.md](docs/inspection-and-observability.md).

@@ -104,10 +104,15 @@ final class TriggerSignature
      */
     public static function matches(string $presented, array $keys, int $timestamp, int $executionId, string $signal, string $body): ?int
     {
+        // The body is hashed once: an unauthenticated caller must not be
+        // able to multiply the cost of its own megabytes by the number
+        // of keys a rotation carries.
+        $signed = self::signedString($timestamp, $executionId, $signal, $body);
+
         $matched = null;
 
         foreach ($keys as $index => $key) {
-            if (hash_equals(self::compute($key, $timestamp, $executionId, $signal, $body), $presented) && $matched === null) {
+            if (hash_equals(hash_hmac('sha256', $signed, $key), $presented) && $matched === null) {
                 $matched = $index;
             }
         }
@@ -153,6 +158,18 @@ final class TriggerSignature
         foreach ($previous as $candidate) {
             if (! is_string($candidate) || trim($candidate) === '') {
                 throw new LogicException('laraflow.triggers.previous_keys must hold keys; found '.get_debug_type($candidate).'.');
+            }
+
+            if (strlen($candidate) < self::MIN_KEY_BYTES) {
+                // A short previous key authenticates exactly as the
+                // current one does; the floor is the floor for every
+                // key a request can verify against. (A comma inside a
+                // key would also land here: the environment variable is
+                // split on commas, so keys must not contain one.)
+                throw new LogicException(
+                    'Every key in laraflow.triggers.previous_keys must be at least '.self::MIN_KEY_BYTES
+                    .' bytes; a shorter key would weaken the endpoint for as long as the rotation lasts.'
+                );
             }
 
             $keys[] = $candidate;

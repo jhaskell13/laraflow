@@ -7,6 +7,7 @@ namespace Laraflow\Workflow;
 use Illuminate\Contracts\Container\Container;
 use Laraflow\Exceptions\Workflow\ChildWorkflowFailedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Exceptions\Workflow\WorkflowDepthExceededException;
 use LogicException;
 
@@ -93,6 +94,14 @@ class ChildWorkflows
             } catch (ExecutionNotRunnableException) {
                 // It finished between the read above and the delivery —
                 // an operator ran it, say. Its outcome is read below.
+            } catch (TenantThrottledException) {
+                // The sync driver runs the child inside this call, and
+                // the child's tenant — the parent's own — is at a
+                // ceiling, which a running parent typically occupies by
+                // itself. Not a failure of the step: the deferral is
+                // recorded on the child, the parent parks on it below,
+                // and the heartbeat re-delivers once a slot frees
+                // (docs/tenancy.md, "Interactions").
             }
 
             $child = $this->repository->find($child->id);

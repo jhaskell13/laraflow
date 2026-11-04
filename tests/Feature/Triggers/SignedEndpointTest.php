@@ -200,6 +200,57 @@ class SignedEndpointTest extends TestCase
         $this->assertTrue($this->executions()->find($id)->isWaiting(), 'Refused means untouched.');
     }
 
+    /**
+     * The audit's security finding, held closed: a provider keeps
+     * response bodies, so nothing a step or a broker said leaves on the
+     * 202 — what became of the run is on the record, and
+     * execution_status says it.
+     */
+    public function test_the_response_never_carries_a_steps_exception_text(): void
+    {
+        StepTwo::$failTimes = 10;
+        $id = $this->parked();
+
+        $response = $this->signed($id, 'manager-approval', self::PAYLOAD);
+
+        $response->assertStatus(202);
+        $response->assertJson(['status' => 'recorded', 'delivery' => 'ran', 'execution_status' => 'failed']);
+        $this->assertStringNotContainsString('step two blew up', (string) $response->getContent());
+        $this->assertTrue($this->executions()->find($id)->isFailed(), 'The failure is on the record, where the redactor governs it.');
+    }
+
+    public function test_a_queued_delivery_answers_queued_and_a_worker_resumes_it(): void
+    {
+        config()->set('queue.default', 'database');
+        $id = $this->parked();
+
+        $response = $this->signed($id, 'manager-approval', self::PAYLOAD);
+
+        $response->assertStatus(202);
+        $response->assertJson(['status' => 'recorded', 'delivery' => 'queued']);
+        $this->assertTrue($this->executions()->find($id)->isWaiting(), 'Recorded and due; the worker resumes it.');
+        $this->assertSame(1, $this->app->make('db')->table('jobs')->count());
+    }
+
+    public function test_a_refused_requests_signal_is_bounded_and_stripped_before_it_is_logged(): void
+    {
+        $hostile = rawurlencode("approval\x0forged".str_repeat('x', 400));
+
+        $this->call('POST', '/laraflow/triggers/executions/1/signals/'.$hostile)->assertUnauthorized();
+
+        $logged = null;
+
+        foreach ($this->logger->records as $record) {
+            if (str_contains($record['message'], 'refused a trigger request')) {
+                $logged = $record['context']['signal'] ?? null;
+            }
+        }
+
+        $this->assertIsString($logged);
+        $this->assertLessThanOrEqual(255, strlen($logged), 'Bounded before anything repeats it.');
+        $this->assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $logged), 'No control byte reaches a log line or a listener.');
+    }
+
     public function test_no_log_line_carries_the_body(): void
     {
         $id = $this->parked();

@@ -12,9 +12,18 @@ use RuntimeException;
 
 /**
  * @internal The tick arithmetic, in one place: a cron expression, a
- * timezone, and the clock in; UTC instants out. Every scheduler that
- * reads the same minute computes the same instants here, which is what
- * makes the unique tick index a guarantee rather than a hope.
+ * timezone, and the clock in; instants out, carried in the caller's
+ * own timezone — the instant is what matters, and keeping the caller's
+ * representation keeps Eloquent writing the same wall-clock convention
+ * as every other Laraflow timestamp. Every scheduler that reads the
+ * same minute computes the same instants here, which is what makes the
+ * unique tick index a guarantee rather than a hope.
+ *
+ * One instant per local minute: on the autumn DST change a local
+ * wall-clock minute occurs twice, and a schedule in that hour must
+ * fire once, not once per occurrence (docs/schedules.md). between()
+ * therefore skips an instant whose local rendering repeats its
+ * predecessor's.
  */
 final class Ticks
 {
@@ -37,7 +46,7 @@ final class Ticks
 
         $previous = (new CronExpression($expression))->getPreviousRunDate($local, 0, true, $timezone);
 
-        return DateTimeImmutable::createFromMutable($previous)->setTimezone(new DateTimeZone('UTC'));
+        return DateTimeImmutable::createFromMutable($previous)->setTimezone($now->getTimezone());
     }
 
     /**
@@ -55,7 +64,7 @@ final class Ticks
             return null;
         }
 
-        return DateTimeImmutable::createFromMutable($next)->setTimezone(new DateTimeZone('UTC'));
+        return DateTimeImmutable::createFromMutable($next)->setTimezone($after->getTimezone());
     }
 
     /**
@@ -74,10 +83,15 @@ final class Ticks
     ): array {
         $cron = new CronExpression($expression);
         $zone = new DateTimeZone($timezone);
-        $utc = new DateTimeZone('UTC');
 
         $instants = [];
         $cursor = DateTime::createFromImmutable($after->setTimezone($zone));
+
+        // The local minute already covered: an instant that renders to
+        // the same local wall-clock as its predecessor is the second
+        // occurrence of a repeated DST hour, and a tick is a local
+        // minute, not a UTC one.
+        $previousKey = $after->setTimezone($zone)->format('Y-m-d H:i');
 
         while (count($instants) < $cap) {
             try {
@@ -88,14 +102,21 @@ final class Ticks
                 break;
             }
 
-            $instant = DateTimeImmutable::createFromMutable($next)->setTimezone($utc);
+            $instant = DateTimeImmutable::createFromMutable($next)->setTimezone($after->getTimezone());
 
             if ($instant > $until) {
                 break;
             }
 
-            $instants[] = $instant;
             $cursor = $next;
+            $key = $instant->setTimezone($zone)->format('Y-m-d H:i');
+
+            if ($key === $previousKey) {
+                continue;
+            }
+
+            $previousKey = $key;
+            $instants[] = $instant;
         }
 
         return $instants;

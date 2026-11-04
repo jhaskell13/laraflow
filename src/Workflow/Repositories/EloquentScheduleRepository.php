@@ -21,12 +21,17 @@ use Laraflow\Workflow\Scheduling\ScheduledWorkflow;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Scheduling\ScheduleTick;
 use Laraflow\Workflow\Scheduling\TickOutcome;
+use Psr\Clock\ClockInterface;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
  */
 class EloquentScheduleRepository implements ScheduleRepository
 {
+    public function __construct(
+        protected ClockInterface $clock,
+    ) {}
+
     public function sync(ScheduleDefinition $definition, DateTimeImmutable $now): ScheduledWorkflow
     {
         $schedule = $definition->schedule;
@@ -196,11 +201,42 @@ class EloquentScheduleRepository implements ScheduleRepository
                 $query->whereNull('laraflow_workflow_executions.dispatched_at')
                     ->orWhere('laraflow_workflow_executions.dispatched_at', '<=', $before);
             })
+            // A deferral is delivery with its own timer; re-pushing a
+            // tenant-deferred execution early only manufactures a claim
+            // a ceiling turns away (docs/tenancy.md).
+            ->where(function (\Illuminate\Database\Eloquent\Builder $query): void {
+                $query->whereNull('laraflow_workflow_executions.deferred_until')
+                    ->orWhere('laraflow_workflow_executions.deferred_until', '<=', $this->clock->now());
+            })
             ->orderBy('laraflow_workflow_executions.id')
             ->limit($limit)
             ->pluck('laraflow_workflow_executions.id')
             ->map(fn (mixed $id): int => (int) $id)
             ->all());
+    }
+
+    public function pruneTicks(DateTimeImmutable $before, int $limit): int
+    {
+        // Keyed deletes, portable everywhere: DELETE ... LIMIT is a
+        // MySQL-ism, and an IN-list over ids the scan just read is the
+        // retention tiers' own shape.
+        $ids = ScheduleTickModel::query()
+            ->where('created_at', '<=', $before)
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->pluck('id')
+            ->all();
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        return ScheduleTickModel::query()->whereIn('id', $ids)->delete();
+    }
+
+    public function countTicksBefore(DateTimeImmutable $before): int
+    {
+        return ScheduleTickModel::query()->where('created_at', '<=', $before)->count();
     }
 
     public function pause(string $workflow, DateTimeImmutable $at): ScheduledWorkflow

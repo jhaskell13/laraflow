@@ -147,7 +147,7 @@ class ExecuteCommand extends Command
 
         foreach ($targets as $target) {
             $actions[] = $action = $dryRun
-                ? ['execution' => $target->id, 'workflow' => $target->workflow, 'outcome' => $queue ? 'would queue' : 'would run', 'message' => null]
+                ? ['execution' => $target->id, 'workflow' => $target->workflow, 'outcome' => $queue ? 'would_queue' : 'would_run', 'message' => null]
                 : $this->executeOne($runner, $repository, $resolver, $dispatcher, $target, $queue);
 
             if (! $dryRun) {
@@ -266,7 +266,8 @@ class ExecuteCommand extends Command
             'completed' => '<fg=green>completed</>',
             'retrying', 'waiting' => "<fg=cyan>{$outcome}</>",
             'queued' => '<fg=green>queued</>',
-            'would run', 'would queue' => "<fg=cyan>{$outcome}</>",
+            'would_run' => '<fg=cyan>would run</>',
+            'would_queue' => '<fg=cyan>would queue</>',
             'refused' => '<fg=gray>refused</>',
             'failed' => '<fg=red>failed</>',
             default => "<fg=gray>{$outcome}</>",
@@ -275,8 +276,13 @@ class ExecuteCommand extends Command
 
     protected function confirmBulk(): bool
     {
-        if ($this->wantsJson() && ! (bool) $this->option('force')) {
-            $this->refuse('A bulk re-run under --json must pass --force (or --dry-run): a machine cannot answer the production confirmation.');
+        if ($this->wantsJson() && ! (bool) $this->option('force') && $this->laravel->environment('production')) {
+            // Exactly where the human form would prompt: a machine
+            // cannot answer the production confirmation, and skipping
+            // the question because nobody could hear it is not an
+            // answer. Outside production neither form asks, and the two
+            // exit codes stay identical.
+            $this->refuse('A bulk re-run under --json must pass --force (or --dry-run) in production: a machine cannot answer the confirmation.');
 
             return false;
         }

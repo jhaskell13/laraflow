@@ -92,9 +92,9 @@ Anything else is a `403`. The default is deliberately narrow: a dashboard mounte
 
 | Page | Reads | Shows |
 |---|---|---|
-| **Overview** | `count()` per status; the attention scan `laraflow:summary` runs | Counts by status; retries and waits due; running steps past their deadline; the oldest unfinished execution |
+| **Overview** | `count()` per status; the attention scan `laraflow:summary` runs | Counts by status; retries and waits due; running steps past their deadline; stalled schedules; executions a tenant ceiling is holding; the oldest unfinished execution |
 | **Executions** | `list()`, `count()`, `stepProgress()` | A filterable page of executions: id, workflow, status, step progress, age, correlation, tenant, duration |
-| **Execution** | `find()`, `steps()`, `attemptHistory()`, `IdempotencyStore::records()` | Everything `laraflow:show --attempts` prints: the record, its steps, each step's attempts, what it is waiting on, its plan version, its parent or children, and the keys it has remembered — never their values |
+| **Execution** | `find()`, `steps()`, `attemptHistory()`, `IdempotencyStore::records()`, `ScheduleRepository::tickForExecution()` | Everything `laraflow:show --attempts` prints: the record, its steps, each step's attempts, what it is waiting on, its plan version, its parent or children, the schedule tick that started it, a deferral note when a tenant ceiling is holding it, and the keys it has remembered — never their values |
 
 The overview's "what needs attention" is the same computation `laraflow:summary` performs. It is extracted from the command into a service both call, so the console and the browser cannot disagree about what is wrong.
 
@@ -118,7 +118,7 @@ Four, each the browser form of a console command, each through the same service:
 |---|---|---|
 | Execute / recover | `laraflow:execute {id}` and `--now` | `WorkflowRunner::execute()`, or `WorkflowDispatcher::dispatchExecution()` when queued |
 | Cancel | `laraflow:cancel {id} --reason=` | `WorkflowRunner::cancel()` |
-| Signal | — (the application calls `signal()`) | `WorkflowRunner::signal()`, then `WorkflowDispatcher::dispatchExecution()` when asked to deliver |
+| Signal | `laraflow:signal` | `WorkflowRunner::signal()`, then `WorkflowDispatcher::dispatchExecution()` when asked to deliver |
 | Start | `laraflow:start {workflow} --input=` | the same resolution and validation, then `WorkflowRunner` or `WorkflowDispatcher` |
 
 Every action is a `POST` with CSRF protection from the application's middleware and passes the same authorization check as every page. Confirmation is two-layered: with script, a dialog before the post; without, each action sits behind a disclosure and its own labelled button, so nothing happens on a stray click either way. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it, from the same `Outcome` definition — a wait as a wait, a retry as a retry, never a parked execution as "done". Whether a dispatch ran the job in the request (a `sync` connection does) is judged from the record, not from configuration, for the reason the Phase C audit recorded.
