@@ -23,7 +23,7 @@ use SensitiveParameter;
  *
  * @internal Default binding. Swap via the container if needed.
  */
-class LaravelHttpTransport implements HttpTransport
+final class LaravelHttpTransport implements HttpTransport
 {
     public function __construct(protected HttpClient $http) {}
 

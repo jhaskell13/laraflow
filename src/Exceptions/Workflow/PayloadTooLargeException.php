@@ -16,7 +16,7 @@ namespace Laraflow\Exceptions\Workflow;
  * Never retried: the same step producing the same output will produce
  * the same size, so another attempt could only repeat the outcome.
  */
-class PayloadTooLargeException extends WorkflowException
+final class PayloadTooLargeException extends WorkflowException
 {
     public static function at(string $path, int $bytes, int $maxBytes): self
     {

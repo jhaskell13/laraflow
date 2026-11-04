@@ -16,7 +16,7 @@ use Laraflow\Integration\ConnectorResponse;
  * provider that reports a last page is better served by a subclass
  * overriding next().
  */
-class PagePaginator implements Paginator
+final class PagePaginator implements Paginator
 {
     /**
      * @param  string  $parameter  Query parameter carrying the page number.

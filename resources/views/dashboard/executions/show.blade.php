@@ -7,6 +7,7 @@
     @var array<int, string> $stepNames           step id => class
     @var \Laraflow\Workflow\IdempotencyRecord[] $remembered
     @var \Laraflow\Workflow\ExecutionPage $children
+    @var \Laraflow\Workflow\Scheduling\ScheduleTick|null $tick
     @var \Laraflow\Workflow\StepExecution[] $overdue
     @var list<array{step: \Laraflow\Workflow\StepExecution, kind: string, childId: int|null}> $waits
     @var bool $queueIsSync
@@ -81,6 +82,18 @@
                     <dt>Parent</dt>
                     <dd><a href="{{ route('laraflow.executions.show', $execution->parentExecutionId) }}">execution {{ $execution->parentExecutionId }}</a> <span class="lf-muted">(this is a sub-workflow)</span></dd>
                 @endif
+                @if ($tick !== null)
+                    <dt>Started by</dt>
+                    <dd>
+                        schedule tick {{ $tick->tickAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i') }} UTC
+                        @if ($tick->outcome === \Laraflow\Workflow\Scheduling\TickOutcome::CaughtUp)
+                            <span class="lf-muted">(caught up)</span>
+                        @endif
+                        @if ($tick->missed > 0)
+                            <span class="lf-muted">({{ $tick->missed }} missed before it)</span>
+                        @endif
+                    </dd>
+                @endif
                 @if ($execution->error !== null)
                     <dt>Error</dt>
                     <dd class="lf-error">{{ $execution->error }}@if ($execution->errorClass !== null) <span class="lf-muted lf-mono">{{ $execution->errorClass }}</span>@endif</dd>
@@ -112,6 +125,10 @@
                 @if ($execution->claimToken !== null)
                     <dt>Claimed at</dt>
                     <dd>{{ Formats::date($execution->claimedAt) }} <span class="lf-muted">(a worker owns or owned this execution)</span></dd>
+                @endif
+                @if ($execution->deferredUntil !== null)
+                    <dt>Deferred</dt>
+                    <dd class="lf-warn">×{{ $execution->deferrals }} <span class="lf-muted">next attempt {{ Formats::date($execution->deferredUntil) }} — its tenant is at a ceiling</span></dd>
                 @endif
                 @if ($execution->fruitlessClaims > 1)
                     <dt>Claims without progress</dt>

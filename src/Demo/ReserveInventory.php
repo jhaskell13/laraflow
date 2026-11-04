@@ -10,7 +10,7 @@ use Laraflow\Workflow\WorkflowContext;
 /**
  * @experimental Ships for the `laraflow:demo` command; not a stable API.
  */
-class ReserveInventory implements Step
+final class ReserveInventory implements Step
 {
     public function handle(WorkflowContext $context): mixed
     {

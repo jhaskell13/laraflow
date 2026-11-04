@@ -58,6 +58,24 @@ abstract class Workflow
     }
 
     /**
+     * The cadence this workflow runs on — or null, the default: not
+     * scheduled.
+     *
+     * A declaration, not an activation: Laraflow starts ticking it only
+     * once the application lists this class under
+     * `laraflow.schedules.workflows` (or a package registers it through
+     * the ScheduleRegistry). The class is the schedule's identity — a
+     * workflow has at most one, and a second cadence for the same steps
+     * is a subclass overriding only this method.
+     *
+     * See docs/schedules.md.
+     */
+    public function schedule(): ?Schedule
+    {
+        return null;
+    }
+
+    /**
      * Retry and timeout policy for this workflow's steps that do not
      * declare one of their own (see Policy\HasStepPolicy). Null falls
      * back to the configured package default, which disables retries.

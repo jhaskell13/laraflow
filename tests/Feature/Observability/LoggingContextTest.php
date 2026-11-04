@@ -7,6 +7,7 @@ namespace Laraflow\Tests\Feature\Observability;
 use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\Facades\Context;
 use Laraflow\Events\WorkflowStepStarted;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\StepOne;
@@ -243,6 +244,9 @@ class LoggingContextTest extends TestCase
     {
         config(['laraflow.logging.context' => false]);
         $this->app->forgetInstance(LoggingContext::class);
+        // The scope is built around the logging context, and the runner
+        // around the scope: rebuilding one means rebuilding the chain.
+        $this->app->forgetInstance(ExecutionScope::class);
         $this->app->forgetInstance(WorkflowRunner::class);
 
         $seen = [];

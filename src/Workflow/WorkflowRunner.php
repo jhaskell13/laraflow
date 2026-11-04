@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\WorkflowExecutionCancelled;
 use Laraflow\Events\WorkflowExecutionCompleted;
+use Laraflow\Events\WorkflowExecutionDeferred;
 use Laraflow\Events\WorkflowExecutionSignalled;
 use Laraflow\Events\WorkflowExecutionStarted;
 use Laraflow\Events\WorkflowStepSkipped;
@@ -19,15 +20,17 @@ use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidSignalException;
 use Laraflow\Exceptions\Workflow\InvalidWorkflowDefinitionException;
+use Laraflow\Exceptions\Workflow\PayloadTooLargeException;
 use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\SignalRefusedException;
 use Laraflow\Exceptions\Workflow\StepPreviouslyFailedException;
 use Laraflow\Exceptions\Workflow\StepTimeoutException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\DurableValue;
 use Laraflow\Support\ErrorRedactor;
-use Laraflow\Support\LoggingContext;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\PolicyResolver;
 use Psr\Clock\ClockInterface;
@@ -43,7 +46,7 @@ use Throwable;
  * step that is not yet completed, checkpointing output and context after
  * each step, and run() is the synchronous combination of the two.
  */
-class WorkflowRunner
+final class WorkflowRunner
 {
     protected ClockInterface $clock;
 
@@ -77,7 +80,7 @@ class WorkflowRunner
         ClockInterface $clock,
         PolicyResolver $policies,
         ErrorRedactor $redactor,
-        protected LoggingContext $logging,
+        protected ExecutionScope $scope,
         protected ChildDelivery $childDelivery,
         protected IdempotencyResolver $idempotency,
     ) {
@@ -182,31 +185,66 @@ class WorkflowRunner
      *                                     before its next_retry_at — the deliberate operator override
      *                                     behind laraflow:execute --now. Without it, an early claim
      *                                     throws RetryNotDueException.
+     * @param  bool  $reexecuteFailed  Claim a `failed` execution and run it
+     *                                 again. True by default because calling this method in-process
+     *                                 *is* the explicit operator action (laraflow:execute, the
+     *                                 dashboard); the queue job passes false unless the delivery was
+     *                                 queued as an operator's re-run, so a duplicate delivery can
+     *                                 never re-run a terminal failure. Recovery passes false.
      */
     public function execute(
         int $executionId,
         Workflow $workflow,
-        bool $ignoreRetrySchedule = false
+        bool $ignoreRetrySchedule = false,
+        bool $reexecuteFailed = true
     ): WorkflowExecution {
         $claimToken = bin2hex(random_bytes(16));
 
-        $execution = $this->repository->claim(
-            $executionId,
-            $claimToken,
-            $this->options->staleAfterSeconds,
-            $ignoreRetrySchedule
-        );
+        try {
+            $execution = $this->repository->claim(
+                $executionId,
+                $claimToken,
+                $this->options->staleAfterSeconds,
+                $ignoreRetrySchedule,
+                $reexecuteFailed,
+            );
+        } catch (TenantThrottledException $deferred) {
+            // The deferral is durable; announce it after the write it
+            // describes, then let the caller decide — the queue job
+            // waits it out, an in-process caller is told.
+            $this->event(new WorkflowExecutionDeferred(
+                executionId: $deferred->executionId,
+                workflow: $deferred->workflow,
+                correlationId: $deferred->correlationId,
+                tenantId: $deferred->tenantId,
+                ceiling: $deferred->ceiling,
+                limit: $deferred->limit,
+                count: $deferred->count,
+                deferredUntil: $deferred->deferredUntil,
+            ));
+
+            $this->logger->info('Laraflow deferred an execution: its tenant is at a ceiling.', [
+                'execution_id' => $deferred->executionId,
+                'tenant_id' => $deferred->tenantId,
+                'ceiling' => $deferred->ceiling->value,
+                'limit' => $deferred->limit,
+                'count' => $deferred->count,
+                'deferred_until' => $deferred->deferredUntil->format(DATE_ATOM),
+            ]);
+
+            throw $deferred;
+        }
 
         // Published before anything runs and restored in the finally,
         // so every log record written while this execution is in
         // flight — including the application's own, from inside a step
         // — carries its identity, and none written afterwards do.
-        $this->logging->enter($execution);
+        $this->scope->enter($execution);
 
         try {
             return $this->runClaimed($execution, $workflow, $ignoreRetrySchedule);
         } finally {
-            $this->logging->leave();
+            $this->scope->leave();
         }
     }
 
@@ -214,30 +252,50 @@ class WorkflowRunner
      * Durably record a signal for an execution waiting on it. The
      * payload becomes the waiting step's output, bounded by the same
      * payload limit as any other durable value, and the execution
-     * becomes due immediately. Recording is not delivery: hand the id
+     * becomes due immediately; for an unfinished execution not yet
+     * parked on the name, the signal is kept in the signal inbox for
+     * the park that asks for it. Recording is not delivery: hand the id
      * to the dispatcher for the fast path, or let laraflow:recover
-     * pick it up.
+     * pick it up. recordSignal() says which of the two happened.
      *
      * @param  array<array-key, mixed>  $payload
      *
      * @throws InvalidSignalException for an empty, over-long, or reserved name.
-     * @throws SignalRefusedException when the execution is not waiting on this signal.
+     * @throws SignalRefusedException when the execution can never park on this signal.
      * @throws UnserializableValueException if the payload is not JSON-serializable.
+     * @throws PayloadTooLargeException if the payload exceeds execution.max_payload_bytes.
      */
     public function signal(int $executionId, string $signal, array $payload = []): WorkflowExecution
+    {
+        return $this->recordSignal($executionId, $signal, $payload)->execution;
+    }
+
+    /**
+     * @experimental signal(), returning the receipt: whether a parked
+     * step took the payload (the execution is due now) or the inbox
+     * buffered it until a step parks on the name.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws InvalidSignalException for an empty, over-long, or reserved name.
+     * @throws SignalRefusedException when the execution can never park on this signal.
+     * @throws UnserializableValueException if the payload is not JSON-serializable.
+     * @throws PayloadTooLargeException if the payload exceeds execution.max_payload_bytes.
+     */
+    public function recordSignal(int $executionId, string $signal, array $payload = []): SignalReceipt
     {
         Wait::assertApplicationSignal($signal);
 
         DurableValue::check($payload, 'signal', $this->options->maxPayloadBytes);
 
-        $execution = $this->repository->recordSignal($executionId, $signal, $payload, $this->now());
+        $receipt = $this->repository->recordSignal($executionId, $signal, $payload, $this->now());
 
         $this->event(new WorkflowExecutionSignalled(
-            ...$this->outcomes->identity($execution),
+            ...$this->outcomes->identity($receipt->execution),
             signal: $signal,
         ));
 
-        return $execution;
+        return $receipt;
     }
 
     /**
@@ -506,15 +564,7 @@ class WorkflowRunner
             if ($stepExecution->isWaiting()) {
                 $resolution = $this->waits->resolve($execution, $stepExecution, $context, $policy, $failurePolicy, $waitsForcedDue, $startedAt);
 
-                if ($resolution->resumed) {
-                    continue;
-                }
-
-                if ($resolution->continueFailure !== null) {
-                    // The step failed under FailurePolicy::Continue; the
-                    // failure is already recorded on the step row.
-                    $firstFailure ??= $resolution->continueFailure;
-
+                if ($this->continuesAfterWait($resolution, $firstFailure)) {
                     continue;
                 }
 
@@ -597,8 +647,26 @@ class WorkflowRunner
                         return $execution;
                     }
 
-                    $this->waits->park($execution, $stepExecution, $context, $output);
-                    $this->cancelIfRequested($execution);
+                    if (! $this->waits->park($execution, $stepExecution, $context, $output)) {
+                        $this->cancelIfRequested($execution);
+
+                        return $execution;
+                    }
+
+                    // The signal it waits on arrived before it parked,
+                    // and was kept in the inbox: the payload is on the
+                    // step and this claim still holds the execution, so
+                    // the wait resolves here, exactly as a claim finding
+                    // the step signalled would resolve it.
+                    $resolution = $this->waits->resolve($execution, $stepExecution, $context, $policy, $failurePolicy, false, $this->now());
+
+                    if ($this->continuesAfterWait($resolution, $firstFailure)) {
+                        continue;
+                    }
+
+                    if ($resolution->terminalFailure !== null) {
+                        return $this->failTerminally($execution, $workflow, $context, $resolution->terminalFailure);
+                    }
 
                     return $execution;
                 }
@@ -655,6 +723,28 @@ class WorkflowRunner
         $this->parents->childFinished($execution);
 
         return $execution;
+    }
+
+    /**
+     * The step loop's reading of a resolved wait: true to go on to the
+     * next step (resumed, or failed under FailurePolicy::Continue — the
+     * failure already on the row and noted in $firstFailure); false when
+     * this claim is done with the execution, for the caller to fail it
+     * terminally or return the resting handle.
+     */
+    protected function continuesAfterWait(StepResolution $resolution, ?Throwable &$firstFailure): bool
+    {
+        if ($resolution->resumed) {
+            return true;
+        }
+
+        if ($resolution->continueFailure !== null) {
+            $firstFailure ??= $resolution->continueFailure;
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -860,7 +950,7 @@ class WorkflowRunner
         // they would be attributed to the previous step, or to none
         // at all on the first one.
         $context->enterStep($stepExecution->position, $stepExecution->attempts, $timeoutAt, $stepExecution->step);
-        $this->logging->enterStep($stepExecution);
+        $this->scope->enterStep($stepExecution);
 
         $this->event(new WorkflowStepStarted(
             ...$this->outcomes->identity($execution),

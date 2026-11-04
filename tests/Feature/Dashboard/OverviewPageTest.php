@@ -36,6 +36,29 @@ class OverviewPageTest extends TestCase
         Dashboard::routes();
     }
 
+    /**
+     * The laraflow:summary rule, held in the browser too: a stalled
+     * schedule with no executions yet is exactly the state a dead
+     * scheduler leaves, and an empty table must not sleep through it.
+     */
+    public function test_an_empty_table_does_not_hide_a_stalled_schedule(): void
+    {
+        config()->set('laraflow.schedules.workflows', [\Laraflow\Tests\Support\NightlyWorkflow::class]);
+
+        $clock = new \Laraflow\Tests\Support\FixedClock('2026-11-03 14:30:00');
+        $this->app->instance(\Psr\Clock\ClockInterface::class, $clock);
+
+        $this->callCommand('laraflow:schedule');
+        $clock->set('2026-11-07 02:01:00');
+
+        $response = $this->get('/laraflow');
+
+        $response->assertOk();
+        $response->assertSee('stalled');
+        $response->assertSee('NightlyWorkflow');
+        $response->assertDontSee('Nothing needs attention');
+    }
+
     public function test_it_counts_by_status_and_links_each_count_to_the_filtered_list(): void
     {
         $runner = $this->app->make(WorkflowRunner::class);
@@ -62,6 +85,44 @@ class OverviewPageTest extends TestCase
         $response->assertSeeInOrder(['lf-count-card--waiting', '1', 'waiting', '25.0%'], false);
         $response->assertSee('executions?status%5B0%5D=failed', false);
         $response->assertSee('nothing');
+    }
+
+    /**
+     * M10 audit: a status filter scopes the cards rather than being
+     * replaced by each card's status. Statuses the filter excludes say
+     * 0, the shares sum to 100%, and each card links to its own status
+     * alone — the card's status wins over the filter's.
+     */
+    public function test_a_status_filter_scopes_the_cards_and_each_card_links_to_its_own_status(): void
+    {
+        $runner = $this->app->make(WorkflowRunner::class);
+
+        $runner->run(new TwoStepWorkflow);
+        $runner->run(new TwoStepWorkflow);
+
+        StepTwo::$failTimes = 1;
+
+        try {
+            $runner->run(new TwoStepWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        $response = $this->get('/laraflow?status[]=failed&tenant=');
+
+        $response->assertOk();
+        $response->assertSeeInOrder(['lf-count-card--completed', '0', 'completed', '0.0%'], false);
+        $response->assertSeeInOrder(['lf-count-card--failed', '1', 'failed', '100.0%'], false);
+        $response->assertDontSee('200.0%');
+        $response->assertSee('executions?status%5B0%5D=completed', false);
+        $response->assertDontSee('status%5B0%5D=failed&amp;status', false);
+
+        // Two statuses in the filter: each counts within the scope, and
+        // the completed card links to completed, not to the filter's pair.
+        $response = $this->get('/laraflow?status[]=failed&status[]=completed');
+
+        $response->assertSeeInOrder(['lf-count-card--completed', '2', 'completed', '66.7%'], false);
+        $response->assertSeeInOrder(['lf-count-card--failed', '1', 'failed', '33.3%'], false);
+        $response->assertSee('href="http://localhost/laraflow/executions?status%5B0%5D=completed"', false);
     }
 
     public function test_what_needs_attention_is_what_the_console_says_needs_attention(): void
@@ -117,7 +178,7 @@ class OverviewPageTest extends TestCase
 
         $this->get('/laraflow')
             ->assertOk()
-            ->assertSee('No retries or waits due and no step past its deadline.')
+            ->assertSee('No retries or waits due, no step past its deadline, no schedule stalled, nothing deferred.')
             ->assertDontSee('is due now');
     }
 

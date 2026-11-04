@@ -13,9 +13,11 @@ use Illuminate\Log\Context\Repository as ContextRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Laraflow\Console\CancelCommand;
+use Laraflow\Console\ChildrenCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
+use Laraflow\Console\Generators\DeprecatedGeneratorName;
 use Laraflow\Console\Generators\MakeConnectorCommand;
 use Laraflow\Console\Generators\MakeStepCommand;
 use Laraflow\Console\Generators\MakeWorkflowCommand;
@@ -23,7 +25,10 @@ use Laraflow\Console\InstallCommand;
 use Laraflow\Console\ListCommand;
 use Laraflow\Console\PruneCommand;
 use Laraflow\Console\RecoverCommand;
+use Laraflow\Console\ScheduleCommand;
+use Laraflow\Console\SchedulesCommand;
 use Laraflow\Console\ShowCommand;
+use Laraflow\Console\SignalCommand;
 use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
 use Laraflow\Events\EventEmitter;
@@ -40,14 +45,19 @@ use Laraflow\Queue\QueueChildDelivery;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
 use Laraflow\Support\ErrorRedactor;
+use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Support\PassthroughRedactor;
 use Laraflow\Support\Sleeper;
 use Laraflow\Support\SystemSleeper;
+use Laraflow\Triggers\TriggerRegistry;
+use Laraflow\Triggers\TriggerReporter;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionStore;
 use Laraflow\Workflow\FanOutWorkflows;
 use Laraflow\Workflow\IdempotencyResolver;
 use Laraflow\Workflow\IdempotencyStore;
@@ -56,15 +66,23 @@ use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\Repositories\EloquentIdempotencyStore;
+use Laraflow\Workflow\Repositories\EloquentScheduleRepository;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionService;
 use Laraflow\Workflow\RunnerOptions;
+use Laraflow\Workflow\Scheduling\Scheduler;
+use Laraflow\Workflow\Scheduling\ScheduleRegistry;
+use Laraflow\Workflow\Scheduling\ScheduleRepository;
+use Laraflow\Workflow\Scheduling\SchedulerOptions;
+use Laraflow\Workflow\Tenancy\ConfigTenantPolicy;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
+use Laraflow\Workflow\Tenancy\TenantPolicy;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
-class LaraflowServiceProvider extends ServiceProvider
+final class LaraflowServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
@@ -102,6 +120,7 @@ class LaraflowServiceProvider extends ServiceProvider
             limiter: $app->make(RateLimiter::class),
             observer: $app->make(ConnectorObserver::class),
             logging: $app->make(LoggingContext::class),
+            scope: $app->make(ExecutionScope::class),
         ));
         $this->app->singleton(HttpOptions::class, fn (Container $app): HttpOptions => HttpOptions::fromConfig($app->make(Config::class)));
 
@@ -116,7 +135,33 @@ class LaraflowServiceProvider extends ServiceProvider
         // package's source of time wholesale.
         $this->app->singleton(ClockInterface::class, Clock::class);
 
+        // Bound by interface so an application whose tenants are rows,
+        // not configuration entries, answers from wherever a tenant's
+        // plan lives; consulted on every bounded claim.
+        $this->app->singleton(TenantPolicy::class, fn (Container $app): TenantPolicy => new ConfigTenantPolicy(
+            $app->make(Config::class),
+        ));
+
+        $this->app->singleton(TenantCeilings::class, function (Container $app): TenantCeilings {
+            $deferral = $this->setting($app->make(Config::class), 'laraflow.tenants.deferral');
+
+            return new TenantCeilings(
+                policy: $app->make(TenantPolicy::class),
+                limiter: $app->make(RateLimiter::class),
+                deferralSeconds: $deferral === null ? 15 : (int) $deferral,
+            );
+        });
+
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+
+        // The two halves of the repository resolve through it rather
+        // than to singletons of their own, so there is one instance per
+        // application and a test or an application that rebinds
+        // ExecutionRepository (instance(), a custom driver) rebinds the
+        // reader and the store with it. A pair of singletons would each
+        // cache whatever they first saw and quietly disagree.
+        $this->app->bind(ExecutionReader::class, fn (Container $app): ExecutionReader => $app->make(ExecutionRepository::class));
+        $this->app->bind(ExecutionStore::class, fn (Container $app): ExecutionStore => $app->make(ExecutionRepository::class));
         $this->app->singleton(IdempotencyStore::class, EloquentIdempotencyStore::class);
 
         $this->app->singleton(IdempotencyResolver::class, fn (Container $app): IdempotencyResolver => new IdempotencyResolver(
@@ -180,6 +225,14 @@ class LaraflowServiceProvider extends ServiceProvider
             return new LoggingContext($enabled ? $app->make(ContextRepository::class) : null);
         });
 
+        // One record per process of which execution is running, told at
+        // the same moments as the log context so the two cannot drift.
+        // Read by whatever runs beneath the runner without an execution
+        // in hand — the tenant-scoped connector rate limit, for one.
+        $this->app->singleton(ExecutionScope::class, fn (Container $app): ExecutionScope => new ExecutionScope(
+            $app->make(LoggingContext::class),
+        ));
+
         $this->app->singleton(EventEmitter::class, fn (Container $app): EventEmitter => new EventEmitter(
             $app->make(EventDispatcher::class),
             $app->make(LoggerInterface::class),
@@ -203,7 +256,7 @@ class LaraflowServiceProvider extends ServiceProvider
             clock: $app->make(ClockInterface::class),
             policies: $app->make(PolicyResolver::class),
             redactor: $app->make(ErrorRedactor::class),
-            logging: $app->make(LoggingContext::class),
+            scope: $app->make(ExecutionScope::class),
             childDelivery: $app->make(ChildDelivery::class),
             idempotency: $app->make(IdempotencyResolver::class),
         ));
@@ -211,21 +264,16 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ChildDelivery::class, fn (Container $app): ChildDelivery => new QueueChildDelivery($app));
 
         $this->app->singleton(ChildWorkflows::class, function (Container $app): ChildWorkflows {
-            $maxDepth = $app->make(Config::class)->get('laraflow.workflows.max_depth');
-
             return new ChildWorkflows(
                 repository: $app->make(ExecutionRepository::class),
                 container: $app,
                 delivery: $app->make(ChildDelivery::class),
-                // Blank means unset, as for every other setting.
-                maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
+                maxDepth: (int) ($this->setting($app->make(Config::class), 'laraflow.workflows.max_depth') ?? 8),
             );
         });
 
         $this->app->singleton(FanOutWorkflows::class, function (Container $app): FanOutWorkflows {
             $config = $app->make(Config::class);
-            $maxDepth = $config->get('laraflow.workflows.max_depth');
-            $maxMembers = $config->get('laraflow.workflows.max_members');
 
             return new FanOutWorkflows(
                 repository: $app->make(ExecutionRepository::class),
@@ -233,9 +281,8 @@ class LaraflowServiceProvider extends ServiceProvider
                 delivery: $app->make(ChildDelivery::class),
                 events: $app->make(EventEmitter::class),
                 logger: $app->make(LoggerInterface::class),
-                // Blank means unset, as for every other setting.
-                maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
-                maxMembers: $maxMembers === null || $maxMembers === '' ? 1000 : (int) $maxMembers,
+                maxDepth: (int) ($this->setting($config, 'laraflow.workflows.max_depth') ?? 8),
+                maxMembers: (int) ($this->setting($config, 'laraflow.workflows.max_members') ?? 1000),
             );
         });
 
@@ -264,11 +311,48 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->app->singleton(AttentionScan::class, fn (Container $app): AttentionScan => new AttentionScan(
             repository: $app->make(ExecutionRepository::class),
+            schedules: $app->make(ScheduleRepository::class),
         ));
 
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),
+            schedules: $app->make(ScheduleRepository::class),
             clock: $app->make(ClockInterface::class),
+        ));
+
+        $this->app->singleton(ScheduleRegistry::class, fn (Container $app): ScheduleRegistry => new ScheduleRegistry(
+            $app,
+            $app->make(Config::class),
+        ));
+
+        $this->app->singleton(ScheduleRepository::class, EloquentScheduleRepository::class);
+
+        $this->app->singleton(
+            SchedulerOptions::class,
+            fn (Container $app): SchedulerOptions => SchedulerOptions::fromConfig($app->make(Config::class)),
+        );
+
+        $this->app->singleton(Scheduler::class, fn (Container $app): Scheduler => new Scheduler(
+            registry: $app->make(ScheduleRegistry::class),
+            schedules: $app->make(ScheduleRepository::class),
+            executions: $app->make(ExecutionRepository::class),
+            runner: $app->make(WorkflowRunner::class),
+            resolver: $app->make(WorkflowResolver::class),
+            dispatcher: $app->make(WorkflowDispatcher::class),
+            events: $app->make(EventEmitter::class),
+            clock: $app->make(ClockInterface::class),
+            logger: $app->make(LoggerInterface::class),
+            options: $app->make(SchedulerOptions::class),
+        ));
+
+        // Triggers: the registry of named endpoints lives on the container
+        // so it belongs to one application instance; the reporter is the
+        // one place a trigger's outcome is logged and announced.
+        $this->app->singleton(TriggerRegistry::class);
+
+        $this->app->singleton(TriggerReporter::class, fn (Container $app): TriggerReporter => new TriggerReporter(
+            $app->make(EventEmitter::class),
+            $app->make(LoggerInterface::class),
         ));
 
         $this->app->singleton(RecoveryService::class, fn (Container $app): RecoveryService => new RecoveryService(
@@ -278,6 +362,7 @@ class LaraflowServiceProvider extends ServiceProvider
             resolver: $app->make(WorkflowResolver::class),
             events: $app->make(EventEmitter::class),
             clock: $app->make(ClockInterface::class),
+            redispatchAfterSeconds: (int) ($this->setting($app->make(Config::class), 'laraflow.recovery.redispatch_after') ?? 60),
         ));
     }
 
@@ -351,6 +436,7 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->commands([
             CancelCommand::class,
+            ChildrenCommand::class,
             ConnectorsCommand::class,
             DemoCommand::class,
             ExecuteCommand::class,
@@ -361,9 +447,17 @@ class LaraflowServiceProvider extends ServiceProvider
             MakeWorkflowCommand::class,
             PruneCommand::class,
             RecoverCommand::class,
+            ScheduleCommand::class,
+            SchedulesCommand::class,
             ShowCommand::class,
+            SignalCommand::class,
             StartCommand::class,
             SummaryCommand::class,
+            // The pre-0.6.0 generator names, hidden and deprecated; see
+            // DeprecatedGeneratorName.
+            new DeprecatedGeneratorName('make:workflow', 'laraflow:make-workflow'),
+            new DeprecatedGeneratorName('make:step', 'laraflow:make-step'),
+            new DeprecatedGeneratorName('make:connector', 'laraflow:make-connector'),
         ]);
     }
 
@@ -377,6 +471,12 @@ class LaraflowServiceProvider extends ServiceProvider
             __DIR__.'/../../config/laraflow.php' => $this->app->configPath('laraflow.php'),
         ], 'laraflow-config');
 
+        // publishes(), not publishesMigrations(): the latter re-dates each
+        // file on publish (the skeleton enables update_date_on_publish),
+        // and the published copies must keep the package's names — the
+        // provider also loads them by default, and Laravel only runs a
+        // migration once because the two share a name. The frozen schema
+        // and docs/upgrading.md depend on those names never changing.
         $this->publishes([
             __DIR__.'/../../database/migrations' => $this->app->databasePath('migrations'),
         ], 'laraflow-migrations');

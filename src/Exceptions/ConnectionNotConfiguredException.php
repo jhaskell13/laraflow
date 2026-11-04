@@ -8,7 +8,7 @@ namespace Laraflow\Exceptions;
  * A connector was asked for a connection its configuration does not
  * declare.
  */
-class ConnectionNotConfiguredException extends ConnectorException
+final class ConnectionNotConfiguredException extends ConnectorException
 {
     /**
      * @param  list<string>  $configured

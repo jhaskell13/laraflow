@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Workflow;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Laraflow\Events\WorkflowExecutionSignalled;
@@ -16,9 +17,11 @@ use Laraflow\Tests\Support\ApprovalStep;
 use Laraflow\Tests\Support\ApprovalWorkflow;
 use Laraflow\Tests\Support\PausedWorkflow;
 use Laraflow\Tests\Support\PauseStep;
+use Laraflow\Tests\Support\StepOne;
 use Laraflow\Tests\Support\StepTwo;
 use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\SignalInboxModel;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
@@ -26,9 +29,11 @@ use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\StepAttemptStatus;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
+use RuntimeException;
 
 /**
  * The wait contract (docs/advanced-workflows.md): a wait is the step's
@@ -144,27 +149,180 @@ class WaitStateTest extends TestCase
         );
     }
 
-    public function test_a_signal_for_the_wrong_name_or_state_is_refused(): void
+    public function test_a_signal_for_another_name_is_kept_and_never_answers_this_wait(): void
     {
         Date::setTestNow('2026-10-28 10:00:00');
         $execution = $this->runner()->run(new ApprovalWorkflow);
 
-        try {
-            $this->runner()->signal($execution->id, 'someone-elses-signal');
-            $this->fail('Expected the signal to be refused.');
-        } catch (SignalRefusedException) {
-            // Expected: waiting, but not on that name.
-        }
+        // Waiting, but not on that name: kept in the inbox for a park
+        // that may ask for it, and nothing about the real wait moves.
+        $kept = $this->runner()->signal($execution->id, 'someone-elses-signal', ['n' => 1]);
 
-        // Nothing durable moved: the real wait is untouched.
+        $this->assertTrue($kept->isWaiting());
         $this->assertNull(WorkflowExecutionModel::query()->sole()->next_retry_at);
         $this->assertNull(StepExecutionModel::query()->where('position', 1)->value('output'));
+        $this->assertSame(['someone-elses-signal'], SignalInboxModel::query()->pluck('name')->all());
 
         $this->runner()->signal($execution->id, 'manager-approval');
         $this->runner()->execute($execution->id, new ApprovalWorkflow);
 
+        // Finished: nothing can park again, so a signal is refused.
         $this->expectException(SignalRefusedException::class);
         $this->runner()->signal($execution->id, 'manager-approval');
+    }
+
+    public function test_a_signal_sent_before_the_step_parks_answers_the_park_in_the_same_claim(): void
+    {
+        // The Milestone 10 audit: a signal that arrived before its step
+        // parked was refused, and the approval was lost to a race the
+        // sender could not see.
+        Event::fake([WorkflowStepWaiting::class]);
+
+        $execution = $this->runner()->start(new ApprovalWorkflow);
+
+        $kept = $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'dana']);
+        $this->assertTrue($kept->isPending(), 'Kept, not delivered: nothing is due.');
+
+        $finished = $this->runner()->execute($execution->id, new ApprovalWorkflow);
+
+        $this->assertTrue($finished->isCompleted(), 'The park found its signal and resumed at once.');
+        $this->assertSame(1, ApprovalStep::$runs);
+        $this->assertSame(1, StepTwo::$runs);
+        $this->assertSame(['approved_by' => 'dana'], StepExecutionModel::query()->where('position', 1)->sole()->output);
+        $this->assertSame(['approved_by' => 'dana'], data_get(WorkflowExecutionModel::query()->sole()->context, 'manager-approval'));
+        $this->assertSame(0, SignalInboxModel::query()->count(), 'Consumed.');
+        Event::assertNotDispatched(WorkflowStepWaiting::class);
+    }
+
+    public function test_a_signal_sent_while_an_earlier_step_runs_is_kept_and_the_latest_wins(): void
+    {
+        $execution = $this->runner()->start(new ApprovalWorkflow);
+
+        StepOne::$beforeReturn = function () use ($execution): void {
+            $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'dana']);
+            $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'alex']);
+        };
+
+        $finished = $this->runner()->execute($execution->id, new ApprovalWorkflow);
+
+        $this->assertTrue($finished->isCompleted());
+        $this->assertSame(['approved_by' => 'alex'], StepExecutionModel::query()->where('position', 1)->sole()->output);
+        $this->assertSame(0, SignalInboxModel::query()->count());
+    }
+
+    public function test_the_inbox_matches_a_name_byte_for_byte(): void
+    {
+        $execution = $this->runner()->start(new ApprovalWorkflow);
+
+        $this->runner()->signal($execution->id, 'Manager-Approval', ['approved_by' => 'mallory']);
+
+        $parked = $this->runner()->execute($execution->id, new ApprovalWorkflow);
+
+        $this->assertTrue($parked->isWaiting(), 'Another name, on an engine that compares case-insensitively too.');
+        $this->assertSame(1, SignalInboxModel::query()->count());
+
+        // And the two names are two rows, not one overwriting the other.
+        $this->runner()->signal($execution->id, 'manager-approval', ['approved_by' => 'dana']);
+        $this->runner()->signal($execution->id, 'Manager-Approval', ['approved_by' => 'mallory']);
+        $this->assertSame(1, SignalInboxModel::query()->count(), 'The real name went onto the waiting step, not the inbox.');
+    }
+
+    public function test_a_signal_landing_while_a_claim_holds_a_parked_step_is_kept_and_consumed_on_the_re_park(): void
+    {
+        $execution = $this->runner()->run(new ApprovalWorkflow);
+
+        // An early claim (an operator's --now, a heartbeat) holds the
+        // execution: it is running, the step still waiting. A signal
+        // arrives in that window, just before the claim re-parks.
+        $repository = new class($this->app->make(ClockInterface::class), $this->app->make(TenantCeilings::class)) extends EloquentExecutionRepository
+        {
+            public ?int $signalOn = null;
+
+            public function park(WorkflowExecution $execution, \Laraflow\Workflow\StepExecution $step, ?DateTimeImmutable $nextEventAt): ?array
+            {
+                if ($this->signalOn !== null) {
+                    $this->recordSignal($this->signalOn, 'manager-approval', ['approved_by' => 'dana'], $this->clock->now());
+                    $this->signalOn = null;
+                }
+
+                return parent::park($execution, $step, $nextEventAt);
+            }
+        };
+        $repository->signalOn = $execution->id;
+
+        $finished = $this->makeRunner(
+            repository: $repository,
+            logger: new \Laraflow\Tests\Support\ArrayLogger,
+            options: new \Laraflow\Workflow\RunnerOptions(staleAfterSeconds: 300),
+            events: $this->app->make(\Laraflow\Events\EventEmitter::class),
+            policies: new \Laraflow\Workflow\Policy\PolicyResolver,
+        )->execute($execution->id, new ApprovalWorkflow, ignoreRetrySchedule: true);
+
+        $this->assertTrue($finished->isCompleted(), 'Refused before the inbox; now it answers the wait.');
+        $this->assertSame(1, ApprovalStep::$runs);
+        $this->assertSame(0, SignalInboxModel::query()->count());
+    }
+
+    public function test_a_signal_for_an_execution_that_cannot_park_again_is_refused(): void
+    {
+        $repository = $this->app->make(\Laraflow\Workflow\ExecutionRepository::class);
+
+        $cancelled = $this->runner()->start(new ApprovalWorkflow);
+        $this->runner()->cancel($cancelled->id);
+
+        StepTwo::$failTimes = 1;
+        $failed = $this->runner()->start(new ApprovalWorkflow);
+        $this->runner()->signal($failed->id, 'manager-approval');
+
+        try {
+            $this->runner()->execute($failed->id, new ApprovalWorkflow);
+        } catch (RuntimeException) {
+            // Step two failed it terminally, after the approval resumed.
+        }
+
+        foreach ([$cancelled->id, $failed->id] as $id) {
+            try {
+                $this->runner()->signal($id, 'manager-approval');
+                $this->fail("Execution {$id} cannot park again; its signal must be refused.");
+            } catch (SignalRefusedException) {
+                // Expected.
+            }
+        }
+
+        // The machinery's names are never buffered, for any execution.
+        $pending = $this->runner()->start(new ApprovalWorkflow);
+
+        $this->expectException(SignalRefusedException::class);
+
+        try {
+            $repository->recordSignal($pending->id, 'laraflow.child.42', [], new DateTimeImmutable);
+        } finally {
+            $this->assertSame(0, SignalInboxModel::query()->count());
+        }
+    }
+
+    public function test_a_buffered_signal_goes_with_its_execution(): void
+    {
+        Date::setTestNow('2026-10-28 10:00:00');
+        $repository = $this->app->make(\Laraflow\Workflow\ExecutionRepository::class);
+
+        $scrubbed = $this->runner()->start(new ApprovalWorkflow);
+        $deleted = $this->runner()->start(new ApprovalWorkflow);
+
+        $this->runner()->signal($scrubbed->id, 'manager-approval', ['secret' => 'x']);
+        $this->runner()->signal($deleted->id, 'manager-approval', ['secret' => 'y']);
+        $this->runner()->cancel($scrubbed->id);
+        $this->runner()->cancel($deleted->id);
+
+        $later = new DateTimeImmutable('2026-12-01 00:00:00');
+
+        // The scrub tier keeps the record and takes payloads — a kept
+        // signal no park will ever consume among them.
+        $repository->scrubPayloads([$scrubbed->id], [ExecutionStatus::Cancelled], $later, $later);
+        $this->assertSame([$deleted->id], SignalInboxModel::query()->pluck('workflow_execution_id')->all());
+
+        $repository->deleteExecutions([$deleted->id], [ExecutionStatus::Cancelled], $later);
+        $this->assertSame(0, SignalInboxModel::query()->count());
     }
 
     public function test_reserved_and_empty_signal_names_are_refused_before_touching_storage(): void
@@ -248,34 +406,32 @@ class WaitStateTest extends TestCase
         $this->runner()->signal($execution->id, 'manager-approval');
     }
 
-    public function test_a_crash_between_park_and_release_heals_by_parking_again(): void
+    public function test_a_park_is_one_write_and_a_worker_dying_in_it_leaves_nothing_half_parked(): void
     {
         Date::setTestNow('2026-10-28 10:00:00');
 
-        // The park checkpoints (step waiting + context), then the worker
-        // dies before releasing the execution.
+        // The step's park and the execution's used to be two commits, a
+        // crash between them leaving the step waiting on an execution
+        // still running — the window that refused a signal. Now the
+        // worker dies before the one write, or after it; never between.
         try {
-            $this->crashingRunner('release', call: 1, phase: 'before')->run(new PausedWorkflow);
+            $this->crashingRunner('park', call: 1, phase: 'before')->run(new PausedWorkflow);
             $this->fail('Expected the simulated crash.');
         } catch (\Laraflow\Tests\Support\SimulatedWorkerCrash) {
             // Worker died.
         }
 
         $row = WorkflowExecutionModel::query()->sole();
-        $this->assertSame(ExecutionStatus::Running->value, $row->status, 'The release never happened.');
+        $this->assertSame(ExecutionStatus::Running->value, $row->status);
+        $this->assertSame(StepStatus::Running->value, StepExecutionModel::query()->where('position', 1)->value('status'), 'Not waiting on a running execution.');
 
-        // A recovering worker reclaims the stale execution and, finding
-        // the wait not due, parks it again rather than resuming early.
+        // A recovering worker reclaims the stale execution, re-runs the
+        // interrupted step (the at-least-once boundary), and parks.
         Date::setTestNow('2026-10-28 10:01:00');
         $healed = $this->runner(staleAfter: 0)->execute($row->id, new PausedWorkflow);
 
         $this->assertTrue($healed->isWaiting());
-        $this->assertSame(1, PauseStep::$runs, 'Healing must not re-run the parked step.');
-        $this->assertSame(
-            '2026-10-28 10:10:00',
-            WorkflowExecutionModel::query()->sole()->next_retry_at?->format('Y-m-d H:i:s'),
-            'The original resume instant stands.',
-        );
+        $this->assertSame(StepStatus::Waiting->value, StepExecutionModel::query()->where('position', 1)->value('status'));
     }
 
     public function test_a_duplicate_signal_before_the_resume_overwrites_the_payload(): void
@@ -429,7 +585,7 @@ class WaitStateTest extends TestCase
      */
     protected function repositoryWithLateCancellationRequest(): EloquentExecutionRepository
     {
-        return new class($this->app->make(ClockInterface::class)) extends EloquentExecutionRepository
+        return new class($this->app->make(ClockInterface::class), $this->app->make(TenantCeilings::class)) extends EloquentExecutionRepository
         {
             private bool $armed = true;
 

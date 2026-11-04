@@ -25,21 +25,60 @@ trait ParsesExecutionFilters
      * parser serve commands with different option sets — a summary has
      * no --status, because it reports every status.
      *
-     * @throws InvalidArgumentException for an unknown status or an unparseable time.
+     * @throws InvalidArgumentException for an unknown status, an unparseable time, an
+     *                                  empty --since/--until window, or more than
+     *                                  FilterInput::MAX_VALUES values in one option.
      */
     protected function filterFromOptions(bool $oldestFirst = false): ExecutionFilter
     {
+        $since = $this->hasOptionDefined('since') ? $this->timeOption('since') : null;
+        $until = $this->hasOptionDefined('until') ? $this->timeOption('until') : null;
+
+        // Before ExecutionFilter can refuse the pair in its own words
+        // (createdAfter, createdBefore), which name nothing an operator
+        // typed.
+        FilterInput::assertWindow($since, $until, '--since', '--until');
+
         return new ExecutionFilter(
-            workflow: $this->hasOptionDefined('workflow') ? $this->arrayOption('workflow') : null,
+            workflow: $this->hasOptionDefined('workflow')
+                ? array_map(FilterInput::workflow(...), $this->listOption('workflow'))
+                : null,
             status: $this->hasOptionDefined('status')
-                ? array_map($this->toStatus(...), $this->arrayOption('status'))
+                ? array_map($this->toStatus(...), $this->listOption('status'))
                 : null,
             correlationId: $this->hasOptionDefined('correlation') ? $this->stringOption('correlation') : null,
             tenantId: $this->hasOptionDefined('tenant') ? $this->stringOption('tenant') : null,
-            createdAfter: $this->hasOptionDefined('since') ? $this->timeOption('since') : null,
-            createdBefore: $this->hasOptionDefined('until') ? $this->timeOption('until') : null,
+            createdAfter: $since,
+            createdBefore: $until,
             oldestFirst: $oldestFirst,
         );
+    }
+
+    /**
+     * A repeatable filter option read as the dashboard reads its query
+     * string — repeated or comma-separated, de-duplicated — and capped
+     * at the same FilterInput::MAX_VALUES. The console refuses past the
+     * cap where the dashboard drops: see FilterInput for why the two
+     * policies differ.
+     *
+     * @return list<string>
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function listOption(string $name): array
+    {
+        $values = FilterInput::values($this->arrayOption($name));
+
+        if (count($values) > FilterInput::MAX_VALUES) {
+            throw new InvalidArgumentException(sprintf(
+                'The --%s option takes at most %d values, got %d.',
+                $name,
+                FilterInput::MAX_VALUES,
+                count($values),
+            ));
+        }
+
+        return $values;
     }
 
     protected function hasOptionDefined(string $name): bool
@@ -99,5 +138,46 @@ trait ParsesExecutionFilters
     protected function statusList(): string
     {
         return FilterInput::statusList();
+    }
+
+    /**
+     * A bulk operation needs a filter: there is no "cancel everything",
+     * because a flag-less command that acts on every execution is a
+     * typo away from an incident.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function assertSomeCriterion(ExecutionFilter $filter, string $verb): void
+    {
+        if ($filter->isEmpty()) {
+            throw new InvalidArgumentException(
+                "A bulk {$verb} needs at least one filter — --status, --workflow, --correlation, --tenant, --since, or --until — "
+                .'or an execution id to act on one. There is no form of this command that acts on everything.'
+            );
+        }
+    }
+
+    /**
+     * One execution or a filter, never both: a command given an id and
+     * a filter has been told two different things to act on.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function assertNoFilter(): void
+    {
+        foreach (['status', 'workflow', 'correlation', 'tenant', 'since', 'until', 'limit', 'dry-run'] as $option) {
+            if (! $this->hasOptionDefined($option)) {
+                continue;
+            }
+
+            $value = $this->option($option);
+            $given = is_array($value) ? $value !== [] : ($value !== null && $value !== false && $value !== '');
+
+            if ($given) {
+                throw new InvalidArgumentException(
+                    "Pass either an execution id or a filter, not both: --{$option} selects executions by filter, and an id was given too."
+                );
+            }
+        }
     }
 }

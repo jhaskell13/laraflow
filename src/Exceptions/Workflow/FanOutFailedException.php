@@ -15,7 +15,7 @@ use Laraflow\Workflow\ChildProgress;
  * members cannot be resumed; a group containing one reports the same
  * outcome on every retry until an operator intervenes.
  */
-class FanOutFailedException extends WorkflowException
+final class FanOutFailedException extends WorkflowException
 {
     /**
      * @param  list<int>  $notCompleted  The first few member ids that did not complete.

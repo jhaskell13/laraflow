@@ -15,6 +15,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowExecution;
@@ -35,7 +36,7 @@ use Throwable;
  * return without doing anything, so a duplicate is a no-op rather than a
  * failed job. See docs/queue-and-recovery.md.
  */
-class ExecuteWorkflowJob implements ShouldQueue
+final class ExecuteWorkflowJob implements ShouldQueue
 {
     use InteractsWithQueue;
     use Queueable;
@@ -52,8 +53,23 @@ class ExecuteWorkflowJob implements ShouldQueue
 
     public int $backoff = 0;
 
+    /**
+     * The failure an operator queued this delivery to re-run, as its
+     * `failed_at` (Y-m-d H:i:s) — set only by an operator's action
+     * (laraflow:execute --queue, the dashboard's execute action, both
+     * through Handoff). Null for every other delivery, so a duplicate or
+     * late delivery finding the execution failed is a no-op, as for
+     * completed: re-running a terminal failure is an explicit action,
+     * never a broker's at-least-once side effect.
+     *
+     * An instant rather than a flag: a duplicate of the operator's own
+     * job, arriving after the re-run it asked for has failed *again*,
+     * must not take that new failure as asked-for too. The opt-in names
+     * one failure and spends with it.
+     */
     public function __construct(
         public readonly int $executionId,
+        public readonly ?string $reexecuteFailedAt = null,
     ) {
         $this->applyQueueSettings();
     }
@@ -84,7 +100,7 @@ class ExecuteWorkflowJob implements ShouldQueue
         $workflow = $resolver->resolve($execution->id, $execution->workflow);
 
         try {
-            $result = $runner->execute($execution->id, $workflow);
+            $result = $runner->execute($execution->id, $workflow, reexecuteFailed: $this->reexecutes($execution));
 
             if (($result->isRetrying() || $result->isWaiting()) && $result->nextRetryAt !== null) {
                 // A retry was durably scheduled, or a wait parked with a
@@ -94,6 +110,11 @@ class ExecuteWorkflowJob implements ShouldQueue
                 // no instant to deliver — the signaller re-dispatches.
                 $this->scheduleRetryDelivery($result, $dispatcher, $config, $logger);
             }
+        } catch (TenantThrottledException $deferred) {
+            // A deferral, not a queue retry: the job returns normally,
+            // tries is untouched, and the queue gains no retry authority.
+            // The execution is re-pushed for the instant the record says.
+            $this->deferDelivery($deferred, $dispatcher, $config, $logger);
         } catch (ExecutionStillWaitingException) {
             // A delivery raced a park: a heartbeat landed after a signal
             // already resumed and re-parked the execution, or a delayed
@@ -116,7 +137,10 @@ class ExecuteWorkflowJob implements ShouldQueue
                 'execution_id' => $execution->id,
             ]);
         } catch (ExecutionNotRunnableException) {
-            $logger->info('Laraflow ignored a delivery for an execution that is already finished (completed or cancelled).', [
+            // Failed is here too unless this delivery is an operator's
+            // queued re-run: a duplicate of the delivery that failed it
+            // must not run it again.
+            $logger->info('Laraflow ignored a delivery for an execution that is already finished (completed, cancelled, or failed).', [
                 'execution_id' => $execution->id,
             ]);
         } catch (ClaimLostException) {
@@ -172,6 +196,18 @@ class ExecuteWorkflowJob implements ShouldQueue
     }
 
     /**
+     * Whether this delivery is the operator's re-run of the execution's
+     * current failure. The claim still decides; a failure this delivery
+     * was not issued for is refused there as not runnable.
+     */
+    protected function reexecutes(WorkflowExecution $execution): bool
+    {
+        return $this->reexecuteFailedAt !== null
+            && $execution->isFailed()
+            && $execution->failedAt?->format('Y-m-d H:i:s') === $this->reexecuteFailedAt;
+    }
+
+    /**
      * Queue a delayed delivery for a scheduled retry — the low-latency
      * path, never the guarantee. The laraflow:recover scan remains the
      * contractual pickup: it needs no queue and catches anything this
@@ -220,6 +256,52 @@ class ExecuteWorkflowJob implements ShouldQueue
             $logger->warning('Laraflow could not queue a delayed retry; laraflow:recover will deliver it.', [
                 'execution_id' => $execution->id,
                 'exception' => $dispatchFailure::class.': '.$dispatchFailure->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * The tenant is at a ceiling: push this execution again for the
+     * instant the deferral names. On the sync driver a delayed push
+     * would run inline at once — the refusal propagates to the
+     * dispatcher's caller instead, as the contract says.
+     */
+    protected function deferDelivery(
+        TenantThrottledException $deferred,
+        WorkflowDispatcher $dispatcher,
+        Config $config,
+        LoggerInterface $logger,
+    ): void {
+        $connection = $this->resolveConnection($config);
+
+        if ($config->get("queue.connections.{$connection}.driver") === 'sync') {
+            throw $deferred;
+        }
+
+        try {
+            $dispatcher->dispatchExecution(
+                $deferred->executionId,
+                $this->connection,
+                $this->queue,
+                $deferred->deferredUntil,
+                // A deferred operator re-run is still one: the row stays
+                // failed through a deferral, and the re-push must carry
+                // the operator's opt-in or it would be refused on arrival.
+                $this->reexecuteFailedAt !== null,
+            );
+
+            $logger->info('Laraflow re-queued a deferred execution for when its tenant may have a slot.', [
+                'execution_id' => $deferred->executionId,
+                'tenant_id' => $deferred->tenantId,
+                'deferred_until' => $deferred->deferredUntil->format('c'),
+            ]);
+        } catch (Throwable $pushFailure) {
+            // The deferral is recorded; the pending scan picks the
+            // execution up once deferred_until passes, where it is
+            // enabled, and laraflow:execute is always there.
+            $logger->warning('Laraflow could not re-queue a deferred execution; laraflow:recover will deliver it.', [
+                'execution_id' => $deferred->executionId,
+                'exception' => $pushFailure::class.': '.$pushFailure->getMessage(),
             ]);
         }
     }

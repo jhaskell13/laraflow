@@ -21,7 +21,7 @@ final class WorkflowName
     /**
      * Forward slashes are accepted as namespace separators, as the
      * generators accept them, because a backslash costs quoting in
-     * every shell; a bare name is looked for where `make:workflow`
+     * every shell; a bare name is looked for where `laraflow:make-workflow`
      * writes, so the class the generator just wrote is reachable by
      * the name it was given. Checked by name only — nothing is built.
      *
@@ -64,14 +64,14 @@ final class WorkflowName
         }
 
         throw new InvalidArgumentException(sprintf(
-            'No workflow class named [%s] exists%s. Give the fully qualified class name, or generate one with make:workflow.',
+            'No workflow class named [%s] exists%s. Give the fully qualified class name, or generate one with laraflow:make-workflow.',
             $name,
             count($candidates) > 1 ? ' (also looked for '.$candidates[0].')' : '',
         ));
     }
 
     /**
-     * Where `make:workflow` writes: the application namespace plus
+     * Where `laraflow:make-workflow` writes: the application namespace plus
      * `Workflows`. Outside a Laravel application skeleton the namespace
      * cannot be read from composer.json, and `App\` is the answer the
      * generators would give there too.

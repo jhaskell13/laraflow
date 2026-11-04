@@ -13,7 +13,7 @@ use Laraflow\Workflow\Workflow;
  * context passing, persisted outputs, attempt metadata, idempotency keys,
  * and (with the `fail` input) failure plus recovery.
  */
-class DemoWorkflow extends Workflow
+final class DemoWorkflow extends Workflow
 {
     public function steps(): array
     {

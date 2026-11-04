@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\IdempotencyKeyModel;
+use Laraflow\Workflow\Models\SignalInboxModel;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
@@ -125,6 +126,13 @@ trait AppliesRetention
                 ->whereIn('workflow_execution_id', $eligible)
                 ->update(['value' => null]);
 
+            // A buffered signal nothing consumed is payload too, and a
+            // finished execution will never park to ask for it: it has
+            // nothing left to keep, so it goes rather than being blanked.
+            SignalInboxModel::query()
+                ->whereIn('workflow_execution_id', $eligible)
+                ->delete();
+
             return $scrubbed;
         });
     }
@@ -209,6 +217,7 @@ trait AppliesRetention
             $this->deleteOrphansOf(StepAttemptModel::class, $ids);
             $this->deleteOrphansOf(StepExecutionModel::class, $ids);
             $this->deleteOrphansOf(IdempotencyKeyModel::class, $ids);
+            $this->deleteOrphansOf(SignalInboxModel::class, $ids);
 
             return $deleted;
         });
@@ -344,7 +353,7 @@ trait AppliesRetention
      * Delete rows of $model among $ids whose parent execution no longer
      * exists.
      *
-     * @param  class-string<StepAttemptModel|StepExecutionModel|IdempotencyKeyModel>  $model
+     * @param  class-string<StepAttemptModel|StepExecutionModel|IdempotencyKeyModel|SignalInboxModel>  $model
      * @param  list<int>  $ids
      */
     protected function deleteOrphansOf(string $model, array $ids): void

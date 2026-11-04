@@ -7,16 +7,18 @@ This policy states which platform versions Laraflow supports, what "supported" m
 | Component | Versions | Status |
 |-----------|----------|--------|
 | PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
-| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each of the four server engines below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
+| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each server engine version below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
 | SQLite | 3.x | Tested: the suite's default (in-memory). |
-| MySQL | 8.0+ | Tested: the full suite runs against MySQL 8.0 in CI, on both Laravel majors, and the install walk ends the job against it. |
-| MariaDB | 10.6+ | Tested: the full suite runs against MariaDB 10.6 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
-| PostgreSQL | 13+ | Tested: the full suite runs against PostgreSQL 13 in CI, on both Laravel majors, and the install walk ends the job against it. |
-| SQL Server | 2019+ | Tested: the full suite runs against SQL Server 2019 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
+| MySQL | 8.4+ | Tested: the full suite runs against MySQL 8.4 (LTS) in CI, on both Laravel majors, and the install walk ends the job against it. The 9.x innovation releases are not a support target. |
+| MariaDB | 10.11+ | Tested: the full suite runs against MariaDB 10.11 and 11.4 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
+| PostgreSQL | 14+ | Tested: the full suite runs against PostgreSQL 14 and 17 in CI, on both Laravel majors, and the install walk ends the job against it. |
+| SQL Server | 2022+ | Tested: the full suite runs against SQL Server 2022 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
 
 Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
 
-**Suggested, not required.** The inspection dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`; `composer.json` lists all three under `suggest`. Every `laravel/framework` application already has them, so nothing changes for an ordinary install, and a container that only runs workflows keeps its footprint. Mounting the dashboard without them refuses by name rather than failing on the first request. They carry the same version constraints as the rest of the `illuminate/*` set.
+**One dependency beyond `illuminate/*`.** Schedules read cron expressions through `dragonmantank/cron-expression` (`^3.4`), which `illuminate/console` only *suggests* — Laravel's own scheduler needs it, so `laravel/framework` requires it and every Laravel application already has it installed, but a package that relied on that would be relying on a dependency it never declared. It is required directly, at the constraint `laravel/framework` 12 and 13 share, so the `prefer-lowest` cell exercises its floor like every other.
+
+**Suggested, not required.** The inspection dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`, and the trigger endpoints need `illuminate/routing` alone; `composer.json` lists all three under `suggest`. Every `laravel/framework` application already has them, so nothing changes for an ordinary install, and a container that only runs workflows keeps its footprint. Mounting the dashboard without them refuses by name rather than failing on the first request. They carry the same version constraints as the rest of the `illuminate/*` set.
 
 **Laravel 11 and below, and PHP 8.1 and below, are not supported and will not be added.** This follows the drop policy below rather than taste:
 
@@ -27,7 +29,16 @@ If an application is pinned to Laravel 10 or 11, the right answer is to upgrade 
 
 The whole test suite runs against any of these engines by setting `LARAFLOW_TEST_DB_DRIVER` and the connection variables documented in [CONTRIBUTING.md](../CONTRIBUTING.md) — that is the mechanism the Milestone 6 CI matrix uses to turn "expected to work" into "tested".
 
-**MongoDB is not a supported persistence backend.** It is not one of Laravel's native database drivers, and Laraflow's durability contract is built on what relational engines provide: a migrated schema, foreign keys, compare-and-set `UPDATE ... WHERE` claiming, and indexed keyset pagination. The third-party `mongodb/laravel-mongodb` Eloquent layer does not change that. A document-store persistence driver is post-1.0 work ("additional persistence drivers only when the abstractions have real consumers"), designed against the `ExecutionRepository` contract rather than by pointing the existing migrations at Mongo.
+**MongoDB is not a supported persistence backend.** It is not one of Laravel's native database drivers, and Laraflow's durability contract is built on what relational engines provide: a migrated schema, foreign keys, compare-and-set `UPDATE ... WHERE` claiming, and indexed keyset pagination. The third-party `mongodb/laravel-mongodb` Eloquent layer does not change that. A document-store persistence driver is post-1.0 work ("additional persistence drivers only when the abstractions have real consumers"), designed against the `ExecutionRepository` contract rather than by pointing the existing migrations at Mongo — see [alternative persistence drivers](#alternative-persistence-drivers).
+
+### Alternative persistence drivers
+
+A persistence driver implements `Laraflow\Workflow\ExecutionRepository` and binds it in the container; the reader and store interfaces resolve through that binding, so one class serves all three. Since 0.6.0 the interface is two halves with different promises ([public-api.md](public-api.md#persistence)):
+
+- **`ExecutionReader` is Public.** `find`, `steps`, `attempts`, `attemptHistory`, `list`, `count`, `stepProgress`, `childProgress`, and `MAX_PAGE_SIZE` follow the deprecation policy below, and will be frozen at 1.0. Applications, the console, and the dashboard read through it alone.
+- **`ExecutionStore` is Experimental.** Claiming, checkpointing, parking, signals, fan-out member creation, the recovery scans, and retention are the engine's own protocol with its storage. Every milestone so far has widened it, and its shape has been proved against exactly one driver, so it is *not* covered by the 1.0 freeze: a minor release may add or change a method, and the changelog will say so. A driver written outside this repository should pin a minor version and run the package's repository tests against itself.
+
+The split is what lets 1.0 promise a stable read API without promising that the write protocol is finished. A store method graduates to Public once a second driver has implemented it unchanged.
 
 ### What "supported" means before 1.0
 
@@ -51,7 +62,21 @@ Reviewed in full for Milestone 6 before the schema freeze; every decision below 
 - `laraflow_step_executions.compensates_step_execution_id` (ninth post-freeze migration, Milestone 9) links a compensation row to the step row it undoes; null on every planned step, which is how the plan is told from what was appended after it. A plain column, **not** a foreign key: a self-reference inside the same table is a second cascade path from the executions row, which SQL Server refuses — the same constraint `laraflow_step_attempts.workflow_execution_id` meets. The rows share a parent and are deleted by it, so nothing is orphaned. Indexed: the compensator reads by it on every claim of a compensating execution.
 - `laraflow_workflow_executions.plan_version` (sixth post-freeze migration, Milestone 8) records which version of its workflow's plan an execution is running, so a declared plan migration can carry it forward after a deploy changes the step list. Default 1, so a row predating the column reads as version 1 — which is what it is. Unindexed: read per claimed execution, never scanned. See [workflow-versioning.md](workflow-versioning.md).
 - `laraflow_idempotency_keys` (seventh post-freeze migration, Milestone 8) is the fourth table: one row per piece of work a step began under `remember()`, keyed `(workflow_execution_id, step_position, key)` and unique on that triple — the constraint is what stops two live workers both performing a side effect. The marker row is inserted before the work and settled after, so a row left `pending` is evidence the work began and no evidence it finished. `value` is `json`, cleared by the scrub tier; the foreign key cascades, and the table is deleted with its execution through the orphan-safe path regardless. See [idempotency.md](idempotency.md).
+- `laraflow_schedules` and `laraflow_schedule_ticks` (tenth and eleventh post-freeze migrations, Milestone 10) are the fifth and sixth tables: one row per registered schedule, synchronised from the workflow class it caches, and one insert-only row per tick claimed. The ticks table's unique `(schedule_id, tick_at)` is the once-per-tick guarantee — every scheduler computes the same instant and exactly one insert wins — the same shape as the idempotency store's unique triple. `workflow_execution_id` on a tick is a plain column, **not** a foreign key, for the trade-off the sub-workflow links already took: tick history outlives the executions retention deletes. Ticks carry no `updated_at` and no `version` counter, deliberately: nothing ever writes a tick twice. See [schedules.md](schedules.md).
+- `laraflow_workflow_executions.deferred_until` / `deferrals` (twelfth post-freeze migration, Milestone 10) record a claim a tenant ceiling turned away — when delivery is next tried, and how many times it has been — without touching the execution's status, so the record says "waiting for a tenant slot" rather than looking like a lost dispatch; the first claim that lands clears both. The same migration adds `(tenant_id, status, claimed_at)`, the index behind the one count every bounded claim makes, and `deferred_until`, behind the attention scan's "what is deferred right now". Both index a populated table: not online on PostgreSQL inside a migration transaction nor on SQL Server outside Enterprise ([upgrading.md](upgrading.md)). See [tenancy.md](tenancy.md).
+- `laraflow_signal_inbox` (thirteenth post-freeze migration, `2026_11_04_000001`, v0.6.0 audit) is the seventh table: one row per execution and signal name holding a signal that arrived before its step parked, unique on `(workflow_execution_id, name_hash)`, deleted with its execution.
+- `2026_11_04_000002` (fourteenth post-freeze migration, v0.6.0 audit) changes no columns or indexes; it changes the timestamp convention — see [Stored timestamps](#stored-timestamps) — rewriting existing rows from `app.timezone` wall-clock to UTC and, on MySQL and MariaDB only, retyping every Laraflow `timestamp` column to `datetime`.
 - Three post-freeze migrations add only indexes: `(payloads_scrubbed_at, status, finished_at)` (fourth, Milestone 7) for the scrub tier's scan, `(status, created_at)` (fifth, Milestone 8) for the opt-in pending scan — each closing a scan whose cost had grown with history rather than with its backlog — and `parent_step_execution_id` (eighth, Milestone 9), so a fan-out's join counts its members in one indexed query rather than reading them. All three appear in the table below.
+
+### Stored timestamps
+
+Every Laraflow timestamp column — the `*_at` columns, `deferred_until`, and Eloquent's own `created_at` and `updated_at` — holds a **UTC** wall-clock with no offset, whatever `app.timezone` is. The conversion happens at the model boundary (`Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc` for attributes, `UtcQueryBuilder` for every comparison and query-builder write), so what reaches application code — `WorkflowExecution`, `StepExecution`, `StepAttempt`, `ScheduleTick`, events, the dashboard, `--json` — is the same instant as before, rendered in the application's zone for display and as ISO 8601 with an offset in JSON.
+
+Why UTC rather than Eloquent's default (the application's wall-clock): in any zone with daylight saving, one local hour a year happens twice. On 1 November 2026, 05:00Z and 06:00Z are both "01:00" in New York, so under the old convention two distinct ticks collided on the ticks table's unique key and the second was reported as taken, and every due-time comparison in that hour (`next_retry_at`, `deferred_until`, `available_at`, wait timeouts) could answer either way. UTC has no repeated hour.
+
+On MySQL and MariaDB the columns are `datetime`, not `timestamp`: a `timestamp` is converted through the session time zone on every read and write, and overflows on 2038-01-19. PostgreSQL (`timestamp without time zone`), SQL Server (`datetime2`), and SQLite store a plain wall-clock already.
+
+A custom `ExecutionRepository`, `ScheduleRepository`, or `IdempotencyStore` that writes Laraflow's tables, and anything reading them directly — a report, a BI export, a hand-written SQL query — must treat the values as UTC. Before v0.6.0's audit they were `app.timezone` wall-clock; the `2026_11_04_000002` migration converts existing rows ([upgrading.md](upgrading.md#the-utc-timestamp-migration)).
 
 ### Indexes, and the ones deliberately absent
 
@@ -72,6 +97,12 @@ Every query the package issues is served by an index:
 | `laraflow_step_executions (workflow_execution_id, position)` unique | "Steps of this execution" reads, `stepProgress()`'s grouping, the plan's one-row-per-position invariant — and the foreign key itself, via the leftmost prefix. |
 | `laraflow_step_attempts (step_execution_id, attempt)` unique | One row per logical attempt; a duplicate delivery cannot double-count. |
 | `laraflow_step_attempts (workflow_execution_id)` | The prune scan and `attemptHistory()`. Not redundant: PostgreSQL, SQLite, and SQL Server create no index for a foreign key on their own; MySQL and MariaDB reuse this one. |
+| `(tenant_id, status, claimed_at)` | The tenant concurrency ceiling: this tenant's executions holding a worker right now — running or compensating with a fresh claim — counted on every bounded claim. |
+| `deferred_until` | The attention scan's count of executions a tenant ceiling is holding past now, scoped like every other number on the summary. |
+| `laraflow_schedules (workflow)` unique | The registry's only lookup: a schedule row by the class that declares it, and the one-schedule-per-workflow invariant. |
+| `laraflow_schedule_ticks (schedule_id, tick_at)` unique | The once-per-tick claim — one insert wins — and, via its prefix, the foreign key and the "latest tick of this schedule" read behind overlap suppression. |
+| `laraflow_schedule_ticks (workflow_execution_id)` | The origin lookup (which tick started this execution), the overlap check, and the scheduler's re-dispatch scan for pending executions its own ticks created. |
+| `laraflow_schedule_ticks (created_at)` | Retention's prune-ticks scan, when the bound ships; the index ships with the table so enabling it needs no second migration. |
 | `laraflow_idempotency_keys (workflow_execution_id, step_position, key)` unique | `remember()`'s marker insert — exactly one of two concurrent attempts succeeds — and the lookup of the record it found; and, by its leading column, every read by execution: the key count behind the cap, `laraflow:show --attempts`, retention's scrub and orphan deletes. The table's only index, so the foreign key needs none of its own. |
 
 Deliberately absent: a single-column `status` index (four composites already lead with `status`; another index on the same prefix only taxes writes) and any index on `laraflow_step_executions.status` (no query filters step rows by status alone).
@@ -101,7 +132,7 @@ Connectors talk to services Laraflow does not control, so a second compatibility
 - A PHP or Laravel version is dropped only in a **minor** release before 1.0, or a **major** release after 1.0, and is announced in the changelog.
 - PHP versions are dropped when they reach end of security support at php.net.
 - Laravel versions are dropped when they leave Laravel's bug-fix window.
-- Database engine versions are dropped when their vendor ends general support.
+- Database engine versions are dropped when their vendor ends general support (for SQL Server, mainstream support). 0.6.0 applied this to MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019; the floors above are the result.
 
 ## Versioning
 
@@ -128,4 +159,4 @@ The database schema is **frozen**: the shipped migrations are immutable, and any
 - **Security vulnerabilities:** see [SECURITY.md](../SECURITY.md). Do not open a public issue.
 - **Questions:** GitHub issues, tagged as a question.
 
-There is no commercial support and no response-time guarantee. Only the latest development snapshot (and, once tagged, the latest minor release) receives fixes.
+There is no commercial support and no response-time guarantee. Which releases receive fixes — the latest minor, and the previous one for a stated window — is defined once, in [SECURITY.md](../SECURITY.md#supported-versions).

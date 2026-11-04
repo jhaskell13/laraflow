@@ -15,7 +15,7 @@ use Laraflow\Integration\ConnectorResponse;
  * A blank cursor means the end, which is how most providers of this
  * shape say so.
  */
-class CursorPaginator implements Paginator
+final class CursorPaginator implements Paginator
 {
     /**
      * @param  string  $cursorPath  Dot path to the cursor in the response body.

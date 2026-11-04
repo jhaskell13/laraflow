@@ -14,7 +14,7 @@ use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
  * instance, for code paths that only have durable state to go on: queue
  * workers, recovery, and the console commands.
  */
-class WorkflowResolver
+final class WorkflowResolver
 {
     public function __construct(
         protected Container $container,

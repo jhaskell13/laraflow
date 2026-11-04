@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Laraflow\Console;
 
 use Illuminate\Console\Command;
+use Laraflow\Console\Concerns\OutputsJson;
 use Laraflow\Core\LaraflowManager;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\CredentialProvider;
+use Laraflow\Integration\Http\RateLimitScope;
 use Laraflow\Integration\HttpConnector;
 use Throwable;
 
@@ -28,11 +30,14 @@ use Throwable;
  * command that called out to every provider to prove reachability
  * would be a different, slower, and much more surprising tool.
  */
-class ConnectorsCommand extends Command
+final class ConnectorsCommand extends Command
 {
+    use OutputsJson;
+
     protected $signature = 'laraflow:connectors
         {connector? : Only show this connector}
-        {--check : Resolve each connector and report configuration problems, exiting non-zero on any}';
+        {--check : Resolve each connector and report configuration problems, exiting non-zero on any}
+        {--json : Print one JSON document instead of the table}';
 
     protected $description = 'List registered connectors, their connections, and how each is configured';
 
@@ -43,18 +48,17 @@ class ConnectorsCommand extends Command
 
         if (is_string($only)) {
             if (! $laraflow->has($only)) {
-                $this->components->error("Connector [{$only}] is not registered.");
-
-                return self::FAILURE;
+                return $this->refuse("Connector [{$only}] is not registered.");
             }
 
             $names = [$only];
         }
 
         if ($names === []) {
-            $this->components->info('No connectors are registered. Declare one under laraflow.integrations.');
-
-            return self::SUCCESS;
+            return $this->respond(
+                ['check' => (bool) $this->option('check'), 'connectors' => [], 'problems' => []],
+                fn () => $this->components->info('No connectors are registered. Declare one under laraflow.integrations.'),
+            );
         }
 
         $rows = [];
@@ -74,11 +78,32 @@ class ConnectorsCommand extends Command
             }
         }
 
-        if ($rows !== []) {
-            $this->table(['Connector', 'Connection', 'Base URL', 'API version', 'Timeout', 'Retries', 'Rate limit', 'Credentials'], $rows);
-        }
+        $failed = $problems !== [] && (bool) $this->option('check');
 
-        return $this->report($problems);
+        return $this->respond([
+            'check' => (bool) $this->option('check'),
+            'connectors' => array_map(fn (array $row): array => [
+                'connector' => $row[0],
+                'connection' => $row[1],
+                'base_url' => $row[2] === '-' ? null : $row[2],
+                'api_version' => $row[3] === '-' ? null : $row[3],
+                'timeout' => $row[4] === '-' ? null : $row[4],
+                'retries' => $row[5] === '-' ? null : $row[5],
+                'rate_limit' => $row[6] === '-' ? null : $row[6],
+                'credentials' => $row[7] === '-' || $row[7] === 'none' ? [] : array_map('trim', explode(',', $row[7])),
+            ], $rows),
+            'problems' => array_map(fn (array $problem): array => [
+                'connector' => $problem[0],
+                'connection' => $problem[1] === '-' ? null : $problem[1],
+                'error' => $problem[2]->getMessage(),
+            ], $problems),
+        ], function () use ($rows, $problems): void {
+            if ($rows !== []) {
+                $this->table(['Connector', 'Connection', 'Base URL', 'API version', 'Timeout', 'Retries', 'Rate limit', 'Credentials'], $rows);
+            }
+
+            $this->report($problems);
+        }, $failed ? self::FAILURE : self::SUCCESS);
     }
 
     /**
@@ -125,7 +150,8 @@ class ConnectorsCommand extends Command
         $row[5] = $options->retries->enabled() ? $options->retries->maxAttempts.' attempts' : 'off';
         $row[6] = $options->rateLimit === null
             ? 'off'
-            : "{$options->rateLimit->maxRequests}/{$options->rateLimit->perSeconds}s";
+            : "{$options->rateLimit->maxRequests}/{$options->rateLimit->perSeconds}s"
+                .($options->rateLimit->scope === RateLimitScope::Tenant ? ' per tenant' : '');
 
         return $row;
     }
@@ -144,22 +170,20 @@ class ConnectorsCommand extends Command
     /**
      * @param  list<array{string, string, Throwable}>  $problems
      */
-    protected function report(array $problems): int
+    protected function report(array $problems): void
     {
         if ($problems === []) {
             if ($this->option('check')) {
                 $this->components->info('Every connector resolved.');
             }
 
-            return self::SUCCESS;
-        }
-
-        foreach ($problems as [$name, $connection, $exception]) {
-            $this->components->error("[{$name}:{$connection}] ".$exception->getMessage());
+            return;
         }
 
         // Without --check these are reported but not fatal: listing what
         // exists should still work when one connection is misconfigured.
-        return $this->option('check') ? self::FAILURE : self::SUCCESS;
+        foreach ($problems as [$name, $connection, $exception]) {
+            $this->components->error("[{$name}:{$connection}] ".$exception->getMessage());
+        }
     }
 }

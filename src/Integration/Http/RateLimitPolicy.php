@@ -13,7 +13,10 @@ use InvalidArgumentException;
  *
  * This is the proactive side of rate limiting — not sending what the
  * provider would refuse — and it is per connection, so two tenants'
- * accounts never throttle each other. Off unless configured.
+ * accounts never throttle each other. A connection many tenants share
+ * may scope the budget per tenant instead (`scope`), so one tenant's
+ * burst cannot spend the ceiling the others are held to. Off unless
+ * configured.
  *
  * When the budget is spent, a wait of at most `maxWaitSeconds` is
  * served in-process; a longer one is refused with ThrottledException,
@@ -25,6 +28,7 @@ final readonly class RateLimitPolicy
         public int $maxRequests,
         public int $perSeconds = 60,
         public int $maxWaitSeconds = 0,
+        public RateLimitScope $scope = RateLimitScope::Connection,
     ) {
         if ($maxRequests < 1) {
             throw new InvalidArgumentException('rate_limit.max must be at least 1.');
@@ -69,10 +73,13 @@ final readonly class RateLimitPolicy
             throw new InvalidArgumentException('rate_limit.max is required when a rate limit is configured.');
         }
 
+        $scope = $value('scope');
+
         return new self(
             maxRequests: (int) $max,
             perSeconds: (int) ($value('per') ?? ($base === null ? 60 : $base->perSeconds)),
             maxWaitSeconds: (int) ($value('max_wait') ?? ($base === null ? 0 : $base->maxWaitSeconds)),
+            scope: $scope === null ? ($base === null ? RateLimitScope::Connection : $base->scope) : RateLimitScope::fromConfig($scope),
         );
     }
 }

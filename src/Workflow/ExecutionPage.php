@@ -24,7 +24,7 @@ use Traversable;
  *
  * @implements IteratorAggregate<int, WorkflowExecution>
  */
-readonly class ExecutionPage implements Countable, IteratorAggregate
+final readonly class ExecutionPage implements Countable, IteratorAggregate
 {
     /**
      * @param  list<WorkflowExecution>  $executions  In the order the filter asked for.

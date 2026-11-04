@@ -10,7 +10,7 @@ use Throwable;
  * No HTTP response was obtained: the connection failed, timed out, or
  * was refused. Never carries request options, which hold credentials.
  */
-class TransportException extends ConnectorException
+final class TransportException extends ConnectorException
 {
     /**
      * Wire attempts spent before giving up; more than one means a

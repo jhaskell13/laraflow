@@ -6,6 +6,7 @@ namespace Laraflow\Tests\Unit\Integration;
 
 use InvalidArgumentException;
 use Laraflow\Integration\Http\RateLimitPolicy;
+use Laraflow\Integration\Http\RateLimitScope;
 use PHPUnit\Framework\TestCase;
 
 class RateLimitPolicyTest extends TestCase
@@ -33,6 +34,30 @@ class RateLimitPolicyTest extends TestCase
         $this->assertSame(2, $overridden->maxWaitSeconds);
 
         $this->assertSame($policy, RateLimitPolicy::fromArray([], $policy));
+    }
+
+    public function test_the_scope_defaults_to_the_connection_and_is_inherited_from_the_base(): void
+    {
+        $fleetWide = RateLimitPolicy::fromArray(['max' => 60, 'scope' => 'tenant']);
+
+        $this->assertNotNull($fleetWide);
+        $this->assertSame(RateLimitScope::Tenant, $fleetWide->scope);
+        $this->assertSame(RateLimitScope::Connection, RateLimitPolicy::fromArray(['max' => 60])?->scope);
+
+        // A connection that says nothing about scope keeps the fleet's;
+        // one that says so goes back to its own account's budget.
+        $this->assertSame(RateLimitScope::Tenant, RateLimitPolicy::fromArray(['max' => 10], $fleetWide)?->scope);
+        $this->assertSame(RateLimitScope::Connection, RateLimitPolicy::fromArray(['scope' => 'connection'], $fleetWide)?->scope);
+        $this->assertSame(RateLimitScope::Tenant, RateLimitPolicy::fromArray(['scope' => ''], $fleetWide)?->scope, 'Blank keeps the base.');
+        $this->assertSame(RateLimitScope::Tenant, RateLimitPolicy::fromArray(['max' => 60, 'scope' => ' Tenant '])?->scope, 'Case and whitespace are forgiven.');
+    }
+
+    public function test_an_unknown_scope_is_refused_by_name(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('rate_limit.scope must be "connection" or "tenant"');
+
+        RateLimitPolicy::fromArray(['max' => 60, 'scope' => 'workflow']);
     }
 
     public function test_false_lifts_an_inherited_ceiling(): void

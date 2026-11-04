@@ -97,7 +97,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         $this->assertEquals($first->startedAt, $reclaimed->startedAt);
     }
 
-    public function test_a_failed_execution_can_be_claimed_again(): void
+    public function test_a_failed_execution_can_be_claimed_again_when_the_caller_opts_in(): void
     {
         $execution = $this->repository()->create('SyncCustomerWorkflow');
 
@@ -105,9 +105,28 @@ class EloquentExecutionRepositoryTest extends TestCase
             ->whereKey($execution->id)
             ->update(['status' => ExecutionStatus::Failed->value]);
 
-        $claimed = $this->repository()->claim($execution->id, 'worker-a', 300);
+        $claimed = $this->repository()->claim($execution->id, 'worker-a', 300, reexecuteFailed: true);
 
         $this->assertSame(ExecutionStatus::Running, $claimed->status);
+    }
+
+    public function test_a_failed_execution_is_not_claimable_without_the_opt_in(): void
+    {
+        $execution = $this->repository()->create('SyncCustomerWorkflow');
+
+        WorkflowExecutionModel::query()
+            ->whereKey($execution->id)
+            ->update(['status' => ExecutionStatus::Failed->value]);
+
+        try {
+            $this->repository()->claim($execution->id, 'worker-a', 300);
+            $this->fail('A plain claim must refuse a terminal failure.');
+        } catch (ExecutionNotRunnableException) {
+            // Refused as not runnable, the same no-op as completed.
+        }
+
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+        $this->assertNull(WorkflowExecutionModel::query()->sole()->claim_token);
     }
 
     public function test_a_completed_execution_cannot_be_claimed(): void
@@ -790,7 +809,7 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-24 09:00:00'));
         $repository->release($execution);
 
-        $reclaimed = $repository->claim($execution->id, 'worker-b', 300);
+        $reclaimed = $repository->claim($execution->id, 'worker-b', 300, reexecuteFailed: true);
 
         $this->assertNull(
             $reclaimed->finishedAt,
@@ -825,11 +844,55 @@ class EloquentExecutionRepositoryTest extends TestCase
         $execution->markFailed('boom', 'RuntimeException', new DateTimeImmutable('2026-10-25 12:00:01'));
         $repository->release($execution);
 
-        $reclaimed = $repository->claim($execution->id, 'worker-b', 300);
+        $reclaimed = $repository->claim($execution->id, 'worker-b', 300, reexecuteFailed: true);
 
         // It has not finished, so it has no duration to report.
         $this->assertNull($reclaimed->durationMs());
         $this->assertNull(WorkflowExecutionModel::query()->sole()->duration_ms);
+    }
+
+    public function test_the_child_of_a_step_is_read_by_the_step_not_by_paging_the_parent(): void
+    {
+        $repository = $this->repository();
+        $parent = $repository->create('App\\Parent', steps: ['App\\FanOut', 'App\\Sub']);
+        [$fanOut, $sub] = $repository->steps($parent);
+
+        // A wide fan-out elsewhere in the same parent: childOfStep()
+        // must not care how many siblings the step's child has.
+        foreach (range(1, 3) as $n) {
+            $repository->create('App\\Member', steps: ['App\\Step'], options: new ExecutionOptions(parentExecutionId: $parent->id, parentStepExecutionId: $fanOut->id));
+        }
+
+        $none = $repository->childOfStep($sub->id);
+        $this->assertNull($none);
+
+        $child = $repository->create('App\\Child', steps: ['App\\Step'], options: new ExecutionOptions(parentExecutionId: $parent->id, parentStepExecutionId: $sub->id));
+
+        $this->assertSame($child->id, $repository->childOfStep($sub->id)?->id);
+    }
+
+    public function test_a_fan_out_member_is_created_once_per_index(): void
+    {
+        $repository = $this->repository();
+        $parent = $repository->create('App\\Parent', steps: ['App\\FanOut']);
+        [$step] = $repository->steps($parent);
+
+        $calls = 0;
+        $make = function () use ($repository, $parent, $step, &$calls): WorkflowExecution {
+            $calls++;
+
+            return $repository->create('App\\Member', steps: ['App\\Step'], options: new ExecutionOptions(parentExecutionId: $parent->id, parentStepExecutionId: $step->id));
+        };
+
+        $this->assertNotNull($repository->createMember($step->id, 0, $make));
+
+        // A second worker resuming the same partial creation counted
+        // zero members too, and reaches member 0 after the first made it.
+        $this->assertNull($repository->createMember($step->id, 0, $make), 'Member 0 exists; nothing is created twice.');
+        $this->assertSame(1, $calls);
+
+        $this->assertNotNull($repository->createMember($step->id, 1, $make));
+        $this->assertSame(2, WorkflowExecutionModel::query()->where('parent_step_execution_id', $step->id)->count());
     }
 
     /**

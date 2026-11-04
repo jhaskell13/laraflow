@@ -193,12 +193,20 @@ return [
     | Enable it (e.g. 300) only if every pending execution in your
     | application is meant to run immediately.
     |
+    | redispatch_after: seconds a queue push is treated as in flight. A
+    | due retry, due wait, or lost pending whose last push became
+    | deliverable (available_at) more recently than this is left to the
+    | worker that will take it, instead of being pushed again on every
+    | recover run. Keep it above your normal queue latency; 0 re-pushes
+    | everything due, as before 0.6.0. Stale claims are unaffected.
+    |
     */
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
         'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
+        'redispatch_after' => env('LARAFLOW_RECOVERY_REDISPATCH_AFTER', 60),
     ],
 
     /*
@@ -243,6 +251,14 @@ return [
     | so discarding one should be a decision you took, not a side
     | effect of configuring general retention.
     |
+    | prune_ticks_after_days: delete schedule tick history
+    | (laraflow_schedule_ticks) older than this many days, counted from
+    | when each tick was claimed. The table grows by one row per tick
+    | that fires — about half a million a year for a per-minute
+    | schedule. Pruning a tick never touches the execution it started,
+    | and executions are pruned on their own bounds; the two never
+    | reference each other by foreign key for exactly this reason.
+    |
     | limit: most executions handled per tier per run. chunk: how many
     | are written at once.
     |
@@ -253,6 +269,7 @@ return [
         'prune_attempts_after_days' => env('LARAFLOW_RETENTION_PRUNE_ATTEMPTS_AFTER_DAYS'),
         'delete_after_days' => env('LARAFLOW_RETENTION_DELETE_AFTER_DAYS'),
         'delete_failed_after_days' => env('LARAFLOW_RETENTION_DELETE_FAILED_AFTER_DAYS'),
+        'prune_ticks_after_days' => env('LARAFLOW_RETENTION_PRUNE_TICKS_AFTER_DAYS'),
         'limit' => env('LARAFLOW_RETENTION_LIMIT', 1000),
         'chunk' => env('LARAFLOW_RETENTION_CHUNK', 100),
     ],
@@ -295,6 +312,101 @@ return [
 
     'idempotency' => [
         'max_keys_per_execution' => env('LARAFLOW_IDEMPOTENCY_MAX_KEYS', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Schedules
+    |--------------------------------------------------------------------------
+    |
+    | Scheduled workflows: a workflow declares its cadence in schedule(),
+    | and listing the class here activates it. The tick run — which you
+    | schedule, every minute, like laraflow:recover — synchronises the
+    | declarations, claims each due tick exactly once across any number
+    | of schedulers, and starts one execution per tick. Nothing below
+    | holds a cron expression: the cadence lives on the class, where it
+    | is reviewed and versioned with the steps it runs.
+    |
+    | enabled: the kill switch. Off, no schedule fires, without any
+    | being unlisted — for the incident where nothing should start.
+    |
+    | workflows: the Workflow classes whose schedules are live in this
+    | environment. A listed class with no schedule() is refused by name
+    | rather than silently never firing.
+    |
+    | max_catch_up: under MissedTickPolicy::CatchUp, the most missed
+    | ticks run per schedule per tick run; the remainder waits for the
+    | next run. catch_up_window: how far back, in seconds, catch-up will
+    | reach at all — missed ticks older than this are counted and
+    | skipped, because a week-long outage should not replay a week of
+    | hourly jobs without a person deciding it should.
+    |
+    | redispatch_after: seconds after which an execution a tick started
+    | that is still pending has its (lost) queue push repeated by the
+    | tick run. Safe to apply where the general pending scan must stay
+    | opt-in: a scheduled execution is never work the application was
+    | deliberately holding. See docs/schedules.md.
+    |
+    | limit: the most actions — ticks claimed plus lost dispatches
+    | re-pushed — one tick run performs.
+    |
+    */
+
+    'schedules' => [
+        'enabled' => env('LARAFLOW_SCHEDULES_ENABLED', true),
+        'workflows' => [],
+        'max_catch_up' => env('LARAFLOW_SCHEDULES_MAX_CATCH_UP', 10),
+        'catch_up_window' => env('LARAFLOW_SCHEDULES_CATCH_UP_WINDOW', 86400),
+        'redispatch_after' => env('LARAFLOW_SCHEDULES_REDISPATCH_AFTER', 300),
+        'limit' => env('LARAFLOW_SCHEDULES_LIMIT', 100),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tenants
+    |--------------------------------------------------------------------------
+    |
+    | Per-tenant ceilings, enforced where every run begins: at the claim.
+    | An execution created with a tenant id is held to its tenant's
+    | ceilings on every claim — a fresh dispatch, a due retry, a resumed
+    | wait, a heartbeat, recovery — and a claim a ceiling turns away
+    | changes nothing about the execution: it stays pending, retrying,
+    | or waiting as it was, with deferred_until and a deferral count on
+    | the row, and the queue job pushes it again for that instant. An
+    | execution with no tenant is never bounded. See docs/tenancy.md.
+    |
+    | max_concurrent: the most of a tenant's executions that may hold a
+    | worker at once — running or compensating with a fresh claim.
+    | Parked, pending, and stale executions hold nothing. Null: no
+    | ceiling. Honest about the instant: two claimants in the same
+    | instant can both count below it, so it is exact in the steady
+    | state and exceeded briefly by at most the workers that raced.
+    |
+    | max_claims_per_minute: the most claims a tenant may make in a
+    | sliding minute, counted in the cache like the connector rate
+    | limit. Bounds churn where max_concurrent bounds occupancy.
+    |
+    | deferral: seconds a turned-away execution waits before its
+    | delivery is tried again, plus up to a fifth of that in jitter
+    | derived from the execution id so a tenant's deferred work does
+    | not all wake at once.
+    |
+    | overrides: per-tenant exceptions, replacing only the keys named:
+    |   'acme' => ['max_concurrent' => 20],
+    |   'trial' => ['max_concurrent' => 1, 'max_claims_per_minute' => 10],
+    |
+    | The fairness rule: tenant B cannot be starved by tenant A if A's
+    | ceiling is below the number of workers, because A can never hold
+    | every worker. A tenant with no ceiling can still starve the rest;
+    | max_concurrent here bounds every tenant without an override.
+    |
+    */
+
+    'tenants' => [
+        'max_concurrent' => env('LARAFLOW_TENANT_MAX_CONCURRENT'),
+        'max_claims_per_minute' => env('LARAFLOW_TENANT_MAX_CLAIMS_PER_MINUTE'),
+        'deferral' => env('LARAFLOW_TENANT_DEFERRAL', 15),
+        'overrides' => [],
     ],
 
     /*
@@ -413,6 +525,14 @@ return [
         // account, or here for every connection; a connection sets
         // rate_limit => false to lift a ceiling set here.
         //
+        // 'scope' => 'tenant' counts one budget per connection *per
+        // tenant* of the running execution (its durable tenant_id), for
+        // an account many tenants share, so one tenant's burst cannot
+        // spend the ceiling the others are held to. The default,
+        // 'connection', is one budget for the account. A call made
+        // outside any execution, or from one without a tenant, draws on
+        // the connection's budget either way.
+        //
         // Best effort: the check and the count are not one atomic cache
         // operation, so a window can run slightly over under enough
         // concurrency. The provider's own 429 remains the backstop.
@@ -490,6 +610,13 @@ return [
         // absent, not hidden.
         'read_only' => env('LARAFLOW_DASHBOARD_READ_ONLY', false),
 
+        // A gate the four actions (start, execute, cancel, signal) must
+        // also pass, on top of the view rule — e.g. 'actOnLaraflow', for
+        // viewers who may look but not touch. Null: whoever may view may
+        // act. A named gate that is never defined denies every action.
+        // Dashboard::authActions() takes precedence. See docs/dashboard.md.
+        'action_gate' => env('LARAFLOW_DASHBOARD_ACTION_GATE'),
+
         // Executions per list page, up to the repository's own ceiling.
         'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
 
@@ -497,6 +624,54 @@ return [
         // refresh off. Only with script — without it the page is static
         // and the browser's reload does the same job.
         'refresh' => env('LARAFLOW_DASHBOARD_REFRESH', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Triggers
+    |--------------------------------------------------------------------------
+    |
+    | Signals over HTTP, off unless the application mounts them by calling
+    | Laraflow\Triggers\Triggers::routes(); these are the defaults it
+    | mounts with. Every request to the signed endpoint is verified
+    | against `key` — HMAC-SHA256 over the timestamp, execution id,
+    | signal, and body — before anything is read, and there is no
+    | environment bypass. Mounting with no key refuses at the mount.
+    | See docs/triggers.md.
+    |
+    */
+
+    'triggers' => [
+        // Where the endpoints answer once mounted.
+        'path' => env('LARAFLOW_TRIGGERS_PATH', 'laraflow/triggers'),
+
+        // The middleware every trigger route runs through. `api` carries
+        // no session — the signature is the whole identity. The throttle
+        // (60 a minute, per client IP) is there by default because these
+        // routes are public and each request costs an HMAC and, once
+        // verified, a database write; replace it with a named limiter
+        // (`throttle:laraflow-triggers`) when a signer sends more.
+        'middleware' => ['api', 'throttle:60,1'],
+
+        // The largest request body read before verification, in bytes.
+        // Larger is refused with 413 before anything is hashed, so an
+        // unauthenticated client cannot make the server hash megabytes.
+        // A signal payload is a small JSON object; 64 KiB is generous.
+        'max_body_bytes' => env('LARAFLOW_TRIGGERS_MAX_BODY_BYTES', 65536),
+
+        // The shared secret the signed endpoint verifies against. At
+        // least 32 bytes; `openssl rand -hex 32`. From the environment,
+        // never a committed file.
+        'key' => env('LARAFLOW_TRIGGERS_KEY'),
+
+        // Keys still accepted during a rotation: set the new key above,
+        // list the old one here (comma-separated in the environment),
+        // remove it once every signer has moved.
+        'previous_keys' => array_values(array_filter(array_map('trim', explode(',', (string) env('LARAFLOW_TRIGGERS_PREVIOUS_KEYS', ''))))),
+
+        // Seconds a request's timestamp may differ from this server's
+        // clock, either way, before it is refused as stale.
+        'tolerance' => env('LARAFLOW_TRIGGERS_TOLERANCE', 300),
     ],
 
     'integrations' => [

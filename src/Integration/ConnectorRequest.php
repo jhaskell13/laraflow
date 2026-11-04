@@ -9,7 +9,7 @@ use Laraflow\Integration\Http\Headers;
 /**
  * An outbound request to an external service, independent of transport.
  */
-readonly class ConnectorRequest
+final readonly class ConnectorRequest
 {
     /**
      * Methods HTTP defines as idempotent: repeating one changes nothing

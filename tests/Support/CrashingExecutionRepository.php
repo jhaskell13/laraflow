@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Support;
 
+use Closure;
 use DateTimeImmutable;
 use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
@@ -50,9 +51,9 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->find($id));
     }
 
-    public function claim(int $id, string $claimToken, int $staleAfterSeconds, bool $ignoreRetrySchedule = false): WorkflowExecution
+    public function claim(int $id, string $claimToken, int $staleAfterSeconds, bool $ignoreRetrySchedule = false, bool $reexecuteFailed = false): WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->claim($id, $claimToken, $staleAfterSeconds, $ignoreRetrySchedule));
+        return $this->call(__FUNCTION__, fn () => $this->inner->claim($id, $claimToken, $staleAfterSeconds, $ignoreRetrySchedule, $reexecuteFailed));
     }
 
     public function steps(WorkflowExecution $execution): array
@@ -95,29 +96,49 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->attemptHistory($execution));
     }
 
-    public function stale(DateTimeImmutable $claimedBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
+    public function stale(DateTimeImmutable $claimedBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null, ?DateTimeImmutable $availableBefore = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->stale($claimedBefore, $limit, $workflow, $tenantId));
+        return $this->call(__FUNCTION__, fn () => $this->inner->stale($claimedBefore, $limit, $workflow, $tenantId, $availableBefore));
     }
 
-    public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
+    public function pendingBefore(DateTimeImmutable $createdBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null, ?DateTimeImmutable $availableBefore = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow, $tenantId));
+        return $this->call(__FUNCTION__, fn () => $this->inner->pendingBefore($createdBefore, $limit, $workflow, $tenantId, $availableBefore));
     }
 
-    public function dueForRetry(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
+    public function dueForRetry(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null, ?DateTimeImmutable $availableBefore = null): array
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId));
+        return $this->call(__FUNCTION__, fn () => $this->inner->dueForRetry($dueBefore, $limit, $workflow, $tenantId, $availableBefore));
     }
 
-    public function recordSignal(int $id, string $signal, array $payload, DateTimeImmutable $at): WorkflowExecution
+    public function recordSignal(int $id, string $signal, array $payload, DateTimeImmutable $at): \Laraflow\Workflow\SignalReceipt
     {
         return $this->call(__FUNCTION__, fn () => $this->inner->recordSignal($id, $signal, $payload, $at));
     }
 
-    public function waitingDue(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null): array
+    public function childOfStep(int $parentStepExecutionId): ?WorkflowExecution
     {
-        return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow, $tenantId));
+        return $this->call(__FUNCTION__, fn () => $this->inner->childOfStep($parentStepExecutionId));
+    }
+
+    public function createMember(int $parentStepExecutionId, int $index, Closure $create): mixed
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->createMember($parentStepExecutionId, $index, $create));
+    }
+
+    public function park(WorkflowExecution $execution, StepExecution $step, ?DateTimeImmutable $nextEventAt): ?array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->park($execution, $step, $nextEventAt));
+    }
+
+    public function waitingDue(DateTimeImmutable $dueBefore, int $limit = 100, ?string $workflow = null, ?string $tenantId = null, ?DateTimeImmutable $availableBefore = null): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->waitingDue($dueBefore, $limit, $workflow, $tenantId, $availableBefore));
+    }
+
+    public function deferred(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->deferred($filter, $now, $limit));
     }
 
     public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void

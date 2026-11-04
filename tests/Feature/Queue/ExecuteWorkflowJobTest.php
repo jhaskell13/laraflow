@@ -65,7 +65,7 @@ class ExecuteWorkflowJobTest extends TestCase
         );
     }
 
-    public function test_the_job_recovers_a_failed_execution_from_its_last_checkpoint(): void
+    public function test_an_operator_queued_re_run_recovers_a_failed_execution_from_its_last_checkpoint(): void
     {
         StepTwo::$failTimes = 1;
 
@@ -79,7 +79,8 @@ class ExecuteWorkflowJobTest extends TestCase
             // Expected.
         }
 
-        $this->work($execution->id);
+        // The opt-in Handoff gives an operator's queued re-run.
+        $this->app->call([$this->operatorRerun($execution->id), 'handle']);
 
         $this->assertSame(
             ExecutionStatus::Completed->value,
@@ -94,6 +95,65 @@ class ExecuteWorkflowJobTest extends TestCase
     // ------------------------------------------------------------------
     // Duplicate and late deliveries
     // ------------------------------------------------------------------
+
+    public function test_a_duplicate_delivery_does_not_re_run_a_terminally_failed_execution(): void
+    {
+        // The Milestone 10 audit's HIGH finding: the claim accepted
+        // `failed` unconditionally, so the broker's second copy of the
+        // delivery that failed the execution ran it all over again.
+        StepTwo::$failTimes = 1;
+
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        try {
+            $this->work($execution->id);
+            $this->fail('The step exception should have propagated.');
+        } catch (RuntimeException) {
+            // The first delivery fails the execution terminally.
+        }
+
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+
+        $this->work($execution->id);
+
+        $this->assertSame(1, StepOne::$runs);
+        $this->assertSame(1, StepTwo::$runs, 'The duplicate delivery must run nothing.');
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+        $this->assertTrue($this->logger->hasRecordContaining('info', 'already finished'));
+    }
+
+    public function test_a_duplicate_of_an_operator_re_run_does_not_re_run_the_next_failure(): void
+    {
+        StepTwo::$failTimes = 2;
+
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        try {
+            $this->work($execution->id);
+        } catch (RuntimeException) {
+            // First failure.
+        }
+
+        $rerun = $this->operatorRerun($execution->id);
+
+        // The clock moves on, so the re-run's failure is a different one.
+        Date::setTestNow(Date::now()->addMinute());
+
+        try {
+            $this->app->call([$rerun, 'handle']);
+            $this->fail('The re-run fails again and should propagate.');
+        } catch (RuntimeException) {
+            // The operator's re-run ran, and failed again.
+        }
+
+        $this->assertSame(2, StepTwo::$runs);
+
+        // The broker delivers the operator's job a second time.
+        $this->app->call([$rerun, 'handle']);
+
+        $this->assertSame(2, StepTwo::$runs, 'The opt-in names one failure, not every later one.');
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+    }
 
     public function test_a_duplicate_delivery_runs_the_steps_exactly_once(): void
     {
@@ -269,6 +329,18 @@ class ExecuteWorkflowJobTest extends TestCase
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /**
+     * The job WorkflowDispatcher builds for an operator's re-run of the
+     * execution's current failure.
+     */
+    protected function operatorRerun(int $executionId): ExecuteWorkflowJob
+    {
+        $failedAt = $this->app->make(ExecutionRepository::class)->find($executionId)->failedAt;
+        $this->assertNotNull($failedAt);
+
+        return new ExecuteWorkflowJob($executionId, $failedAt->format('Y-m-d H:i:s'));
+    }
 
     protected function work(int $executionId): void
     {

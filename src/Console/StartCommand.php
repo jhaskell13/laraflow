@@ -12,7 +12,7 @@ use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\JsonObject;
 use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\ExecutionOptions;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
@@ -25,7 +25,7 @@ use Throwable;
  * generators have written a workflow: nothing else runs a class that
  * did not ship with the package without writing code first.
  */
-class StartCommand extends Command
+final class StartCommand extends Command
 {
     use StartsExecutions;
 
@@ -34,13 +34,14 @@ class StartCommand extends Command
         {--input= : A JSON object that seeds the context, e.g. --input=\'{"order_id": 42}\'}
         {--queue : Dispatch the execution to the queue instead of running it in this process}
         {--correlation= : A correlation id to record on the execution}
-        {--tenant= : A tenant id to record on the execution}';
+        {--tenant= : A tenant id to record on the execution}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Start an execution of a workflow class, inline or on the queue';
 
     public function handle(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowDispatcher $dispatcher,
     ): int {
         try {
@@ -51,9 +52,7 @@ class StartCommand extends Command
                 tenantId: $this->stringOption('tenant'),
             );
         } catch (InvalidArgumentException|WorkflowException $exception) {
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse($exception->getMessage());
         }
 
         try {
@@ -61,23 +60,21 @@ class StartCommand extends Command
         } catch (Throwable $exception) {
             // A workflow with a constructor dependency the container
             // cannot build is a wiring fault, not a workflow fault.
-            $this->components->error("[{$class}] could not be resolved from the container: ".$exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse("[{$class}] could not be resolved from the container: ".$exception->getMessage());
         }
 
         // class_exists() and is_subclass_of() above hold for the name;
         // this holds for what the container chose to bind to it.
         if (! $workflow instanceof Workflow) {
-            $this->components->error(
+            return $this->refuse(
                 "The container resolved [{$class}] to something that is not a ".Workflow::class
                 .'. Check the binding for it in a service provider.'
             );
-
-            return self::FAILURE;
         }
 
-        $this->components->info('Starting '.$workflow::class);
+        if (! $this->wantsJson()) {
+            $this->components->info('Starting '.$workflow::class);
+        }
 
         try {
             if ((bool) $this->option('queue')) {
@@ -88,9 +85,7 @@ class StartCommand extends Command
         } catch (WorkflowException $exception) {
             // start() refusing the plan or the input: nothing was
             // persisted, and the message names what to fix.
-            $this->components->error($exception->getMessage());
-
-            return self::FAILURE;
+            return $this->refuse($exception->getMessage());
         }
     }
 

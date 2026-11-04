@@ -19,7 +19,7 @@ use Symfony\Component\Console\Command\Command as CommandStatus;
 
 /**
  * The Milestone 8 exit criterion for the generators, mechanically: what
- * `make:workflow` and `make:step` write is a workflow `start()` accepts
+ * `laraflow:make-workflow` and `laraflow:make-step` write is a workflow `start()` accepts
  * and `run()` completes, before a line of it is edited.
  *
  * Generated classes are required into the process, so each test uses a
@@ -63,8 +63,8 @@ class GeneratorCommandsTest extends TestCase
         $step = "Reserve{$suffix}";
         $workflow = "Fulfil{$suffix}";
 
-        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('make:step', ['name' => $step])['status']);
-        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('make:workflow', ['name' => $workflow])['status']);
+        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('laraflow:make-step', ['name' => $step])['status']);
+        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('laraflow:make-workflow', ['name' => $workflow])['status']);
 
         $stepPath = $this->generated("Workflows/Steps/{$step}.php");
         $workflowPath = $this->generated("Workflows/{$workflow}.php");
@@ -98,8 +98,8 @@ class GeneratorCommandsTest extends TestCase
     {
         $suffix = $this->suffix();
 
-        $this->callCommand('make:step', ['name' => "Gate{$suffix}", '--conditional' => true]);
-        $this->callCommand('make:step', ['name' => "Child{$suffix}", '--sub-workflow' => true]);
+        $this->callCommand('laraflow:make-step', ['name' => "Gate{$suffix}", '--conditional' => true]);
+        $this->callCommand('laraflow:make-step', ['name' => "Child{$suffix}", '--sub-workflow' => true]);
 
         require_once $this->generated("Workflows/Steps/Gate{$suffix}.php");
         require_once $this->generated("Workflows/Steps/Child{$suffix}.php");
@@ -114,7 +114,7 @@ class GeneratorCommandsTest extends TestCase
 
     public function test_the_two_step_kinds_cannot_be_combined(): void
     {
-        ['status' => $status, 'output' => $output] = $this->callCommand('make:step', [
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:make-step', [
             'name' => 'Never'.$this->suffix(),
             '--conditional' => true,
             '--sub-workflow' => true,
@@ -130,7 +130,7 @@ class GeneratorCommandsTest extends TestCase
         $suffix = $this->suffix();
         $name = "Acme{$suffix}Connector";
 
-        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('make:connector', ['name' => $name])['status']);
+        $this->assertSame(CommandStatus::SUCCESS, $this->callCommand('laraflow:make-connector', ['name' => $name])['status']);
 
         $path = $this->generated("Connectors/{$name}.php");
         $source = File::get($path);
@@ -158,7 +158,7 @@ class GeneratorCommandsTest extends TestCase
 
         File::put($published, str_replace('return null;', "return 'from the published stub';", File::get($published)));
 
-        $this->callCommand('make:step', ['name' => "Shaped{$suffix}"]);
+        $this->callCommand('laraflow:make-step', ['name' => "Shaped{$suffix}"]);
 
         $this->assertStringContainsString(
             'from the published stub',
@@ -170,17 +170,17 @@ class GeneratorCommandsTest extends TestCase
     {
         $suffix = $this->suffix();
 
-        $this->callCommand('make:workflow', ['name' => "Keep{$suffix}"]);
+        $this->callCommand('laraflow:make-workflow', ['name' => "Keep{$suffix}"]);
         $path = $this->generated("Workflows/Keep{$suffix}.php");
         File::put($path, '<?php // edited');
 
         // Laravel's generators report an existing class and exit 0;
         // the file, not the exit code, is what this protects.
-        ['output' => $output] = $this->callCommand('make:workflow', ['name' => "Keep{$suffix}"]);
+        ['output' => $output] = $this->callCommand('laraflow:make-workflow', ['name' => "Keep{$suffix}"]);
         $this->assertStringContainsString('already exists', $output);
         $this->assertSame('<?php // edited', File::get($path), 'The edited file survived.');
 
-        $this->callCommand('make:workflow', ['name' => "Keep{$suffix}", '--force' => true]);
+        $this->callCommand('laraflow:make-workflow', ['name' => "Keep{$suffix}", '--force' => true]);
         $this->assertStringContainsString('extends Workflow', File::get($path));
     }
 
@@ -197,11 +197,11 @@ class GeneratorCommandsTest extends TestCase
         $suffix = $this->suffix();
 
         $written = [
-            $this->callCommand('make:workflow', ['name' => "Styled{$suffix}"]),
-            $this->callCommand('make:step', ['name' => "StyledStep{$suffix}"]),
-            $this->callCommand('make:step', ['name' => "StyledGate{$suffix}", '--conditional' => true]),
-            $this->callCommand('make:step', ['name' => "StyledChild{$suffix}", '--sub-workflow' => true]),
-            $this->callCommand('make:connector', ['name' => "Styled{$suffix}Connector"]),
+            $this->callCommand('laraflow:make-workflow', ['name' => "Styled{$suffix}"]),
+            $this->callCommand('laraflow:make-step', ['name' => "StyledStep{$suffix}"]),
+            $this->callCommand('laraflow:make-step', ['name' => "StyledGate{$suffix}", '--conditional' => true]),
+            $this->callCommand('laraflow:make-step', ['name' => "StyledChild{$suffix}", '--sub-workflow' => true]),
+            $this->callCommand('laraflow:make-connector', ['name' => "Styled{$suffix}Connector"]),
         ];
 
         foreach ($written as $result) {

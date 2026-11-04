@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Workflow;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -290,6 +291,80 @@ class RecoveryServiceTest extends TestCase
         $this->assertSame(5, $candidate->attempts);
         $this->assertFalse($candidate->abandoned, 'Abandoning a policy-live retry would strand every budget above the bound.');
         $this->assertTrue($candidate->retryable());
+    }
+
+    public function test_a_due_retry_already_pushed_is_not_pushed_again_inside_the_window(): void
+    {
+        // The Milestone 10 audit: every recover run re-pushed every due
+        // retry, though the first push was still waiting for a worker.
+        Queue::fake();
+
+        $execution = $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+
+        [$candidate] = $this->service()->scan(300, null, 100, 3);
+        $this->service()->dispatch($candidate);
+
+        // Ten seconds later, the push is still in flight.
+        Date::setTestNow('2026-10-22 10:30:10');
+        $this->assertCount(0, $this->service()->scan(300, null, 100, 3));
+
+        // Once the window has passed, the push is presumed lost.
+        Date::setTestNow('2026-10-22 10:31:01');
+        $again = $this->service()->scan(300, null, 100, 3);
+
+        $this->assertCount(1, $again);
+        $this->assertSame($execution->id, $again[0]->execution->id);
+    }
+
+    public function test_a_delayed_delivery_is_in_flight_until_its_due_time_plus_the_window(): void
+    {
+        Queue::fake();
+
+        $execution = $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        // The fast path: a delayed push for the due time, made at 10:00.
+        $this->app->make(\Laraflow\Queue\WorkflowDispatcher::class)
+            ->dispatchExecution($execution->id, availableAt: new DateTimeImmutable('2026-10-22 10:01:00'));
+
+        Date::setTestNow('2026-10-22 10:01:30');
+        $this->assertSame([], $this->service()->scan(300, null, 100, 3), 'Due, but its delivery has only just become available.');
+
+        Date::setTestNow('2026-10-22 10:02:01');
+        $this->assertCount(1, $this->service()->scan(300, null, 100, 3));
+    }
+
+    public function test_a_lost_pending_already_pushed_is_left_inside_the_window(): void
+    {
+        Queue::fake();
+        Date::setTestNow('2026-10-22 10:00:00');
+
+        $execution = $this->app->make(WorkflowRunner::class)->start(new TwoStepWorkflow);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+        $this->app->make(\Laraflow\Queue\WorkflowDispatcher::class)->dispatchExecution($execution->id);
+
+        Date::setTestNow('2026-10-22 10:30:30');
+        $this->assertSame([], $this->service()->scan(300, 300, 100, 3));
+
+        Date::setTestNow('2026-10-22 10:31:30');
+        $this->assertCount(1, $this->service()->scan(300, 300, 100, 3));
+    }
+
+    public function test_a_zero_window_re_pushes_everything_due(): void
+    {
+        Queue::fake();
+        $this->app['config']->set('laraflow.recovery.redispatch_after', 0);
+        $this->app->forgetInstance(RecoveryService::class);
+
+        $this->makeDueRetryExecution(dueInSeconds: 60);
+
+        Date::setTestNow('2026-10-22 10:30:00');
+        [$candidate] = $this->service()->scan(300, null, 100, 3);
+        $this->service()->dispatch($candidate);
+
+        $this->assertCount(1, $this->service()->scan(300, null, 100, 3));
     }
 
     public function test_scan_leaves_retries_that_are_not_yet_due_alone(): void

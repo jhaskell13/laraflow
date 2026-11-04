@@ -18,7 +18,7 @@ use Laraflow\Integration\Http\RateLimitPolicy;
  * Suggests the wait, so a step that fails with it is retried durably
  * when a slot is due rather than holding a worker for one.
  */
-class ThrottledException extends ConnectorException implements SuggestsRetryDelay
+final class ThrottledException extends ConnectorException implements SuggestsRetryDelay
 {
     public function __construct(string $message, public readonly int $availableInSeconds)
     {
@@ -36,7 +36,7 @@ class ThrottledException extends ConnectorException implements SuggestsRetryDela
         ), $availableInSeconds);
     }
 
-    public function suggestedRetryDelaySeconds(DateTimeInterface $now): ?int
+    public function suggestedRetryDelaySeconds(DateTimeInterface $now): int
     {
         return $this->availableInSeconds;
     }

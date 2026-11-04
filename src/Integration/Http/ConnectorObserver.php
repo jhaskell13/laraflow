@@ -24,7 +24,7 @@ use Throwable;
  * Owning it here keeps ObservingTransport to its one job and keeps the
  * redaction chokepoint from being duplicated at a second call site.
  */
-class ConnectorObserver
+final class ConnectorObserver
 {
     protected ErrorRedactor $redactor;
 

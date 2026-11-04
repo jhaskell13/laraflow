@@ -24,7 +24,7 @@ use Laraflow\Exceptions\Workflow\InvalidStateTransitionException;
  * it may already have performed its side effects once, and will run
  * again. This is the at-least-once boundary.
  */
-class StepExecution
+final class StepExecution
 {
     public function __construct(
         public readonly int $id,

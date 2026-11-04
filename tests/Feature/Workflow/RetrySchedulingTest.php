@@ -25,6 +25,7 @@ use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowRunner;
 use LogicException;
 use RuntimeException;
@@ -421,7 +422,7 @@ class RetrySchedulingTest extends TestCase
         // storage dies there, exactly as a failing database would.
         $runner = $this->makeRunner(
             repository: new CrashingExecutionRepository(
-                new EloquentExecutionRepository($this->clock),
+                new EloquentExecutionRepository($this->clock, $this->app->make(TenantCeilings::class)),
                 'saveStep',
                 3,
                 'before',
@@ -452,7 +453,7 @@ class RetrySchedulingTest extends TestCase
         // The policy under test comes from the workflow; runner and
         // repository share one fixed clock so the schedule is exact.
         return $this->makeRunner(
-            repository: new EloquentExecutionRepository($this->clock),
+            repository: new EloquentExecutionRepository($this->clock, $this->app->make(TenantCeilings::class)),
             logger: $this->logger,
             clock: $this->clock,
         );

@@ -17,7 +17,7 @@ namespace Laraflow\Events;
  * already passed through the configured `ErrorRedactor`. Never request
  * options or headers.
  */
-readonly class ConnectorRequestFailed
+final readonly class ConnectorRequestFailed
 {
     public function __construct(
         public string $connector,

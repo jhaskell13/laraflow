@@ -8,6 +8,21 @@ on:
   # before anything is drafted.
   workflow_call:
 
+# Read-only by default. Nothing here writes to the repository, and the
+# matrix runs `composer update` — third-party code, resolved fresh —
+# with whatever the token can do; a caller (release.yml) can only ever
+# narrow this further, never widen it.
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run in progress there.
+# Main and tag runs are never cancelled: each is the record of a commit.
+# Prefixed so a calling workflow's group, should it ever set one, can
+# not collide with this one and deadlock the call.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Lint, static analysis, and package hygiene run once: they read the
   # source, not the matrix, so repeating them per cell buys nothing.
@@ -16,13 +31,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.4'
           extensions: mbstring, pdo_sqlite, json
           coverage: none
+
+      # Composer's download cache, not vendor/: a stale vendor would
+      # mask a resolution change, a warm download cache only skips the
+      # network. Keyed on everything that changes what gets resolved.
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php8.4-lock-${{ hashFiles('composer.json', 'composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-php8.4-lock-
 
       - name: Validate composer.json
         run: composer validate --strict
@@ -30,9 +58,13 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
-      # Audits the committed lock file — the set applications actually
-      # install. The prefer-lowest leg below deliberately resolves old
-      # dev dependencies and would always fail an audit.
+      # Audits the committed lock file, which pins this repository's
+      # development set. Applications never install it — composer.lock
+      # is export-ignored and a library's lock is ignored by consumers
+      # anyway; they resolve composer.json's constraints themselves. So
+      # this proves the set CI tests with, not what any app will get.
+      # The prefer-lowest leg below deliberately resolves old dev
+      # dependencies and would always fail an audit.
       - name: Audit dependencies
         run: composer audit
 
@@ -71,13 +103,26 @@ jobs:
             dependencies: prefer-lowest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: ${{ matrix.php }}
           extensions: mbstring, pdo_sqlite, json
           coverage: none
+
+      # Composer's download cache, not vendor/: a stale vendor would
+      # mask a resolution change, a warm download cache only skips the
+      # network. Keyed on everything that changes what gets resolved.
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
 
       - name: Pin the Laravel major via Testbench
         run: >
@@ -119,15 +164,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [mysql, mariadb, pgsql, sqlsrv]
+        # Each engine's supported floor and, where the vendor has moved
+        # on, its current release: the floor proves the documented
+        # minimum, the current one catches what a new release changed.
+        # Floors follow docs/compatibility.md's drop policy — raised in
+        # 0.6.0 when MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL
+        # Server 2019's mainstream support ended.
+        db: [mysql-8.4, mariadb-10.11, mariadb-11.4, pgsql-14, pgsql-17, sqlsrv-2022]
         laravel: ['12', '13']
         include:
-          # Each engine's image and the way to ask it whether it is up.
+          # Each cell's image and the way to ask it whether it is up.
           # The engine name doubles as the Laravel connection the
-          # install walk's application is pointed at.
-          - engine: mysql
-            name: MySQL 8.0
-            image: mysql:8.0
+          # install walk's application is pointed at. MySQL 8.4 is both
+          # floor and LTS; the 9.x innovation line is not a support
+          # target. MariaDB 11 images no longer carry the mysql* client
+          # names, so its cells probe with the image's own
+          # healthcheck.sh, and the install database is created with the
+          # client named after the engine.
+          - db: mysql-8.4
+            engine: mysql
+            name: MySQL 8.4
+            image: mysql:8.4
             port: 3306
             extensions: pdo_mysql
             username: laraflow
@@ -135,19 +192,32 @@ jobs:
             options: >-
               --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - engine: mariadb
-            name: MariaDB 10.6
-            image: mariadb:10.6
+          - db: mariadb-10.11
+            engine: mariadb
+            name: MariaDB 10.11
+            image: mariadb:10.11
             port: 3306
             extensions: pdo_mysql
             username: laraflow
             password: secret
             options: >-
-              --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+              --health-cmd="healthcheck.sh --connect --innodb_initialized"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - engine: pgsql
-            name: PostgreSQL 13
-            image: postgres:13
+          - db: mariadb-11.4
+            engine: mariadb
+            name: MariaDB 11.4
+            image: mariadb:11.4
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="healthcheck.sh --connect --innodb_initialized"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: pgsql-14
+            engine: pgsql
+            name: PostgreSQL 14
+            image: postgres:14
             port: 5432
             extensions: pdo_pgsql
             username: laraflow
@@ -155,9 +225,21 @@ jobs:
             options: >-
               --health-cmd="pg_isready -U laraflow"
               --health-interval=5s --health-timeout=5s --health-retries=20
-          - engine: sqlsrv
-            name: SQL Server 2019
-            image: mcr.microsoft.com/mssql/server:2019-latest
+          - db: pgsql-17
+            engine: pgsql
+            name: PostgreSQL 17
+            image: postgres:17
+            port: 5432
+            extensions: pdo_pgsql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="pg_isready -U laraflow"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: sqlsrv-2022
+            engine: sqlsrv
+            name: SQL Server 2022
+            image: mcr.microsoft.com/mssql/server:2022-latest
             port: 1433
             extensions: pdo_sqlsrv
             username: sa
@@ -199,13 +281,26 @@ jobs:
         options: ${{ matrix.options }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: ${{ matrix.php }}
           extensions: mbstring, pdo_sqlite, json, ${{ matrix.extensions }}
           coverage: none
+
+      # Composer's download cache, not vendor/: a stale vendor would
+      # mask a resolution change, a warm download cache only skips the
+      # network. Keyed on everything that changes what gets resolved.
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
 
       - name: Pin the Laravel major via Testbench
         run: >
@@ -260,7 +355,7 @@ jobs:
         run: |
           case "${{ matrix.engine }}" in
             mysql|mariadb)
-              docker exec ${{ job.services.database.id }} mysql -uroot -proot \
+              docker exec ${{ job.services.database.id }} ${{ matrix.engine }} -uroot -proot \
                 -e "CREATE DATABASE laraflow_install; GRANT ALL ON laraflow_install.* TO 'laraflow'@'%';" ;;
             pgsql)
               docker exec ${{ job.services.database.id }} psql -U laraflow -d laraflow_test \
@@ -313,13 +408,26 @@ jobs:
             php: '8.4'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: ${{ matrix.php }}
           extensions: mbstring, pdo_sqlite, json
           coverage: none
+
+      # Composer's download cache, not vendor/: a stale vendor would
+      # mask a resolution change, a warm download cache only skips the
+      # network. Keyed on everything that changes what gets resolved.
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-install-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-install-
 
       - name: Install walk
         uses: ./.github/actions/install-walk

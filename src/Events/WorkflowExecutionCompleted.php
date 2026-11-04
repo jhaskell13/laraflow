@@ -13,7 +13,7 @@ use DateTimeImmutable;
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, or context (see docs/execution-lifecycle.md).
  */
-readonly class WorkflowExecutionCompleted
+final readonly class WorkflowExecutionCompleted
 {
     /**
      * @param  string  $workflow  Workflow class name.

@@ -7,9 +7,13 @@ Security fixes land on `main` and are released in the newest version. The policy
 | Version | Supported |
 |---------|-----------|
 | `main` (development) | Yes |
-| `0.1.x` (latest minor) | Yes |
+| `0.6.x` (latest minor) | Yes |
 | Previous minor | For 90 days after the next minor |
 | Anything older | No — upgrade |
+
+The trigger endpoints' signature verification ([docs/triggers.md](docs/triggers.md)) is in scope the way the claim discipline is: a way to have a signal accepted without a valid signature over the documented signed string, to learn a configured key, or to distinguish refusal reasons from the response would be a vulnerability. So is a way to make the server hash a body over `laraflow.triggers.max_body_bytes` before refusing it.
+
+The dashboard's actions ([docs/dashboard.md](docs/dashboard.md)) are in scope too: a way to perform one cross-origin (the action routes check the session's CSRF token themselves, not only through the application's `web` middleware), to perform one with a request the configured view or action rule refuses, or to read a step's exception text that the configured `ErrorRedactor` would have rewritten.
 
 ## Reporting a vulnerability
 
@@ -49,5 +53,5 @@ Out of scope:
 - Credentials are resolved when a request is built, not when a connector is constructed, and never reach the `Connection` object a connector holds. A cached connector instance carries no credential; a test walks every property of every Laraflow object in the connector graph to keep it that way.
 - Every credential is a `Laraflow\Support\Secret`, which renders as `[redacted]` in string context, JSON, `print_r`, `var_dump`, `var_export`, the array cast, and `serialize`, and yields its value only to `reveal()`. The value is not stored as a property, so renderers that bypass `__debugInfo` have nothing to read.
 - The `Authenticator` contract injects credentials into outbound request options at send time. Connectors must not include request options in exception messages, and Laraflow's own frames keep them out of stack-trace arguments. Two sinks beneath Laraflow remain the application's to configure: `TransportException` keeps the HTTP client's own exception as its `previous`, whose message under Guzzle 7 can carry the full request URL including its query string (Guzzle 8 redacts it), and Laravel's exception handler renders the whole chain; and the bundled transport relies on Guzzle's stripping of `Authorization` on cross-origin redirects — an application-bound `HttpTransport` must do the same. Frames belonging to the HTTP client beneath a connector do carry the authenticated options when `zend.exception_ignore_args` is off, as they would for any PHP HTTP client; production configurations should leave that directive on, and an exception renderer that displays frame arguments should not be exposed publicly.
-- Lifecycle events never carry workflow input, step output, or context, and there is no option to include them. Failure events and log records carry the exception class and message; the message can be disabled for events (`laraflow.events.include_error_messages`) and rewritten everywhere Laraflow retains it by a configured `ErrorRedactor` (`laraflow.errors.redactor`).
+- Lifecycle events never carry workflow input, step output, or context, and there is no option to include them. Failure events and log records carry the exception class and message; the message can be disabled for events (`laraflow.events.include_error_messages`) and rewritten everywhere Laraflow retains it by a configured `ErrorRedactor` (`laraflow.errors.redactor`). The dashboard's flashed action outcomes use the same redacted, length-bounded form; the trigger endpoints' responses carry no exception text at all.
 - The queue payload carries only the execution id; workflow input never reaches the queue backend.

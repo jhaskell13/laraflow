@@ -7,7 +7,7 @@ namespace Laraflow\Support;
 /**
  * @internal Default Sleeper binding.
  */
-class SystemSleeper implements Sleeper
+final class SystemSleeper implements Sleeper
 {
     public function sleep(int $milliseconds): void
     {

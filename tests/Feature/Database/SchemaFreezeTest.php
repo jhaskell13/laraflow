@@ -33,7 +33,7 @@ class SchemaFreezeTest extends TestCase
         'laraflow_workflow_executions' => [
             'available_at', 'cancel_reason', 'cancel_requested_at', 'cancelled_at',
             'claim_token', 'claimed_at', 'completed_at', 'context', 'correlation_id',
-            'created_at', 'dispatched_at', 'duration_ms', 'error', 'error_class',
+            'created_at', 'deferrals', 'deferred_until', 'dispatched_at', 'duration_ms', 'error', 'error_class',
             'failed_at', 'finished_at', 'fruitless_claims', 'id', 'input', 'next_retry_at',
             'parent_execution_id', 'parent_step_execution_id',
             'payloads_scrubbed_at', 'plan_version', 'started_at', 'status', 'tenant_id',
@@ -54,6 +54,19 @@ class SchemaFreezeTest extends TestCase
             'created_at', 'error_class', 'id', 'key', 'settled_at', 'started_at', 'status',
             'step_position', 'updated_at', 'value', 'workflow_execution_id',
         ],
+        'laraflow_schedules' => [
+            'created_at', 'cron', 'declared_at', 'id', 'last_tick_at',
+            'missed_tick_policy', 'paused_at', 'tenant_id', 'timezone',
+            'updated_at', 'version', 'without_overlapping', 'workflow',
+        ],
+        'laraflow_schedule_ticks' => [
+            'created_at', 'id', 'missed', 'missed_from', 'outcome',
+            'overlapped_execution_id', 'schedule_id', 'tick_at',
+            'workflow_execution_id',
+        ],
+        'laraflow_signal_inbox' => [
+            'id', 'name', 'name_hash', 'payload', 'received_at', 'workflow_execution_id',
+        ],
     ];
 
     /**
@@ -67,6 +80,7 @@ class SchemaFreezeTest extends TestCase
         'laraflow_workflow_executions' => [
             ['correlation_id'],
             ['created_at'],
+            ['deferred_until'],
             ['id'],
             ['parent_execution_id'],
             ['parent_step_execution_id'],
@@ -76,6 +90,7 @@ class SchemaFreezeTest extends TestCase
             ['status', 'finished_at'],
             ['status', 'next_retry_at'],
             ['tenant_id'],
+            ['tenant_id', 'status', 'claimed_at'],
             ['workflow', 'status'],
         ],
         'laraflow_step_executions' => [
@@ -91,6 +106,20 @@ class SchemaFreezeTest extends TestCase
         'laraflow_idempotency_keys' => [
             ['id'],
             ['workflow_execution_id', 'step_position', 'key'],
+        ],
+        'laraflow_schedules' => [
+            ['id'],
+            ['workflow'],
+        ],
+        'laraflow_schedule_ticks' => [
+            ['created_at'],
+            ['id'],
+            ['schedule_id', 'tick_at'],
+            ['workflow_execution_id'],
+        ],
+        'laraflow_signal_inbox' => [
+            ['id'],
+            ['workflow_execution_id', 'name_hash'],
         ],
     ];
 
@@ -119,6 +148,12 @@ class SchemaFreezeTest extends TestCase
         '2026_11_01_000002_create_laraflow_idempotency_keys_table.php' => 'e46ed7c81eae3ab357d97f509ab5832deb859caa5322373180c0b8463372df15',
         '2026_11_02_000000_add_join_index_to_laraflow_workflow_executions.php' => '4350920429f896d783ad80b8f8327a847940de5e4731e04a7edd38f3d2ca788a',
         '2026_11_02_000001_add_compensation_link_to_laraflow_step_executions.php' => '8fe8ffa21720edfd96285be64bba807022f7967a6a2a409d3747a1406a15c707',
+        '2026_11_03_000000_create_laraflow_schedules_table.php' => '5bd71e00353881c7bfa628b22ea347d796e74c15452048b494c01971647503da',
+        '2026_11_03_000001_create_laraflow_schedule_ticks_table.php' => '3f836914fcea61aa9bee7a0ba783922da00c67b2ecac489baedb2066c529ae7c',
+
+        '2026_11_04_000000_add_tenant_ceilings_to_laraflow_workflow_executions.php' => 'd5b2401470a8fff070c9ae48e58e1447b7014f7a023ebdd784cf1d43949ad0b3',
+        '2026_11_04_000001_create_laraflow_signal_inbox_table.php' => 'da26d73350cb0ac0c4b073b9500740d0851e84671b2fee67e214c6201d7047bf',
+        '2026_11_04_000002_store_laraflow_timestamps_in_utc.php' => 'ed4e991dccb9a4674068e053a2ca0b9f6239741f5dc7cb083b61e24d122909dd',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void
@@ -170,8 +205,8 @@ class SchemaFreezeTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "[{$table}] is missing. ".self::EXPLANATION);
         }
 
-        // A fifth Laraflow table is a schema change like any other, and
-        // the queue tables this suite creates are Laravel's, not ours.
+        // An eighth Laraflow table is a schema change like any other,
+        // and the queue tables this suite creates are Laravel's, not ours.
         $laraflow = collect(Schema::getTableListing())
             // SQL Server reports tables schema-qualified (dbo.foo).
             ->map(fn (string $table): string => (string) (strrchr($table, '.') ?: '.'.$table))

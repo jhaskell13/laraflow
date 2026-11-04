@@ -19,7 +19,7 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
  * string, and arrays of those — and, when a limit is configured, only
  * payloads small enough to store.
  */
-class DurableValue
+final class DurableValue
 {
     /**
      * Enforce both halves of the contract: the value must be

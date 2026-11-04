@@ -45,7 +45,7 @@
     </main>
 
     <footer class="lf-footer">
-        Every row here is read through Laraflow's public <code>ExecutionRepository</code> contract — the same one the console uses.
+        Every row here is read through Laraflow's public <code>ExecutionReader</code> contract — the same one the console uses.
     </footer>
 </body>
 </html>

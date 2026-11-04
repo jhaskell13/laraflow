@@ -13,7 +13,7 @@ use DateTimeImmutable;
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, context, or signal payloads.
  */
-readonly class WorkflowStepWaiting
+final readonly class WorkflowStepWaiting
 {
     /**
      * @param  string|null  $signal  The signal being waited for, or null for a timed wait.

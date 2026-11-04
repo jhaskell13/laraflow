@@ -19,7 +19,7 @@ use DateTimeImmutable;
  * would never happen. A dry run whose numbers differ from the run it
  * predicts is worse than no dry run at all.
  */
-class RetentionRun
+final class RetentionRun
 {
     public RetentionReport $report;
 

@@ -402,6 +402,9 @@ class RecoverCommandTest extends TestCase
         Queue::assertPushed(ExecuteWorkflowJob::class, 2);
 
         // Blank is unscoped, as it is for every other command's --tenant.
+        // Past the redispatch window, so acme's pending push just made is
+        // presumed lost again rather than skipped as in flight.
+        Date::setTestNow('2026-10-22 10:31:01');
         ['output' => $output] = $this->callCommand('laraflow:recover', ['--tenant' => ' ', '--pending-after' => 60]);
         $this->assertStringContainsString('Handled 4 execution(s)', $output);
     }

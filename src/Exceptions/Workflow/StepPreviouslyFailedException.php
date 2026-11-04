@@ -11,7 +11,7 @@ namespace Laraflow\Exceptions\Workflow;
  * decides the execution's outcome. This is the failure the execution
  * records when no newer one occurred.
  */
-class StepPreviouslyFailedException extends WorkflowException
+final class StepPreviouslyFailedException extends WorkflowException
 {
     public static function forStep(string $step, int $position, ?string $error): self
     {

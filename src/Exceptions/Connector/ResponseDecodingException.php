@@ -13,7 +13,7 @@ use Throwable;
  * the status and declared content type — never the body, which is the
  * provider's and may be large or sensitive.
  */
-class ResponseDecodingException extends ConnectorException
+final class ResponseDecodingException extends ConnectorException
 {
     public static function invalidJson(ConnectorResponse $response, Throwable $previous): self
     {

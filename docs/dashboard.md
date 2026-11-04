@@ -4,7 +4,7 @@
 
 ## What it is
 
-The console already answers "show me": `laraflow:list`, `laraflow:show`, and `laraflow:summary` run on the public `ExecutionRepository` contract alone, and `tests/Feature/ProjectContractsTest.php` reads their source to keep them there ([inspection-and-observability.md](inspection-and-observability.md), *The principle*). **The dashboard is that same surface rendered in a browser.** It is not a new view of the data; it is the same view with a different renderer, and the same test holds it to the same contract.
+The console already answers "show me": `laraflow:list`, `laraflow:show`, and `laraflow:summary` run on the public `ExecutionReader` contract alone, and `tests/Feature/ProjectContractsTest.php` reads their source to keep them there ([inspection-and-observability.md](inspection-and-observability.md), *The principle*). **The dashboard is that same surface rendered in a browser.** It is not a new view of the data; it is the same view with a different renderer, and the same test holds it to the same contract.
 
 That sentence decides most of what follows. A page that needs something the contract cannot answer does without it, or the contract gains the method deliberately — with its index — as a change to the public API, never as a private shortcut for the dashboard.
 
@@ -13,7 +13,7 @@ That sentence decides most of what follows. A page that needs something the cont
 - **Off unless mounted.** An application that has not called `Dashboard::routes()` has no dashboard: no routes, no assets, no queries, nothing in `route:list`. A test proves the absence.
 - **Denied unless allowed.** Once mounted, every route — including the stylesheet — passes through one authorization check. The default allows the `local` environment and nothing else. A dashboard that is open by default is a data leak with a nice font.
 - **The application owns the HTTP boundary.** It chooses the path, the middleware (session, CSRF, authentication), and the authorization rule. The package ships the pages and the check; it does not ship an opinion about how your users log in.
-- **Nothing the console cannot do.** Every row and number is obtainable from `ExecutionRepository` and `IdempotencyStore`; every action goes through the same `WorkflowRunner` and `WorkflowDispatcher` methods the console commands call. The dashboard has no privileged path.
+- **Nothing the console cannot do.** Every row and number is obtainable from `ExecutionReader` and `IdempotencyStore`; every action goes through the same `WorkflowRunner` and `WorkflowDispatcher` methods the console commands call. The dashboard has no privileged path.
 - **Redaction carries over.** `laraflow:connectors` never prints a credential and `laraflow:show --attempts` never prints a remembered value. The dashboard inherits both rules.
 - **Works without JavaScript.** Every page is a full server render and every action is a `<form>`. Script is progressive enhancement — refresh, confirmation — and a browser without it sees the same data and can take the same actions.
 - **No build step, anywhere.** The stylesheet is one hand-written CSS file committed to the repository and served by the package. Installing the dashboard adds nothing to an application's `package.json`, requires no `npm`, and reaches no CDN — an operator's tool has to work behind a firewall.
@@ -51,6 +51,10 @@ That registers the dashboard under the configured path and middleware:
     // absent — not hidden — so there is nothing to find.
     'read_only' => env('LARAFLOW_DASHBOARD_READ_ONLY', false),
 
+    // A gate the actions must also pass, on top of the view rule.
+    // Null: whoever may view may act. See "Authorization".
+    'action_gate' => env('LARAFLOW_DASHBOARD_ACTION_GATE'),
+
     // How many executions a list page shows, up to the repository's
     // own ceiling.
     'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
@@ -86,15 +90,30 @@ The callback receives the request and answers yes or no. Without one, the defaul
 1. the application is running in the `local` environment, **or**
 2. the application has defined a `viewLaraflow` gate and it allows the request's user.
 
-Anything else is a `403`. The default is deliberately narrow: a dashboard mounted in production without an explicit rule denies everyone, which is the failure mode that gets noticed and fixed. The same callback governs the actions; there is no separate "may act" rule in this milestone, because an operator who may see a failed execution is the operator who recovers it. An application that wants to separate the two mounts a read-only dashboard for one audience and a full one for the other.
+Anything else is a `403`. The default is deliberately narrow: a dashboard mounted in production without an explicit rule denies everyone, which is the failure mode that gets noticed and fixed.
+
+### Who may act
+
+By default the view rule is also the action rule: an operator who may see a failed execution is the operator who recovers it, and an application that never configures the split behaves exactly as before. To let some viewers look but not touch, give the four actions a second rule, checked by the `AuthorizeAction` middleware on the `POST` routes alone:
+
+```php
+// Either a callback…
+Dashboard::authActions(fn ($request) => $request->user()?->can('operate-workflows') ?? false);
+
+// …or a gate named in configuration.
+Gate::define('actOnLaraflow', fn ($user) => $user->isOncall());
+// config/laraflow.php: 'dashboard' => ['action_gate' => 'actOnLaraflow', ...]
+```
+
+The callback wins over the gate. The action rule *narrows* the view rule — it is asked only of a request the view rule has already admitted, so it cannot let in anyone `Dashboard::auth()` or `viewLaraflow` refused. A refused action is a `403`, and a viewer who may not act is not offered the forms. A gate named in `action_gate` that the application never defines denies every action rather than falling back to the view rule: a name in configuration says acting is restricted, and a typo must not quietly undo that. Mounting a read-only dashboard for one audience and a full one for another remains an option.
 
 ## Pages
 
 | Page | Reads | Shows |
 |---|---|---|
-| **Overview** | `count()` per status; the attention scan `laraflow:summary` runs | Counts by status; retries and waits due; running steps past their deadline; the oldest unfinished execution |
+| **Overview** | `count()` per status; the attention scan `laraflow:summary` runs | Counts by status; retries and waits due; running steps past their deadline; stalled schedules; executions a tenant ceiling is holding; the oldest unfinished execution |
 | **Executions** | `list()`, `count()`, `stepProgress()` | A filterable page of executions: id, workflow, status, step progress, age, correlation, tenant, duration |
-| **Execution** | `find()`, `steps()`, `attemptHistory()`, `IdempotencyStore::records()` | Everything `laraflow:show --attempts` prints: the record, its steps, each step's attempts, what it is waiting on, its plan version, its parent or children, and the keys it has remembered — never their values |
+| **Execution** | `find()`, `steps()`, `attemptHistory()`, `IdempotencyStore::records()`, `ScheduleRepository::tickForExecution()` | Everything `laraflow:show --attempts` prints: the record, its steps, each step's attempts, what it is waiting on, its plan version, its parent or children, the schedule tick that started it, a deferral note when a tenant ceiling is holding it, and the keys it has remembered — never their values |
 
 The overview's "what needs attention" is the same computation `laraflow:summary` performs. It is extracted from the command into a service both call, so the console and the browser cannot disagree about what is wrong.
 
@@ -108,7 +127,7 @@ A repeatable filter takes at most twenty values and a pagination trail at most f
 
 ### Pagination
 
-`ExecutionRepository::list()` paginates by keyset: a cursor names the last row of a page and the next page starts strictly after it. That is stable under concurrent inserts and costs the same on page 1000 as on page 1, and it is one-directional on purpose. The dashboard offers *next* and *first*; *previous* works by carrying the cursors already visited in the query string, so stepping back replays a cursor the repository issued rather than inventing an offset. There is no "page 7 of 40" — a count of pages over a table being written to would be wrong before it was rendered.
+`ExecutionReader::list()` paginates by keyset: a cursor names the last row of a page and the next page starts strictly after it. That is stable under concurrent inserts and costs the same on page 1000 as on page 1, and it is one-directional on purpose. The dashboard offers *next* and *first*; *previous* works by carrying the cursors already visited in the query string, so stepping back replays a cursor the repository issued rather than inventing an offset. There is no "page 7 of 40" — a count of pages over a table being written to would be wrong before it was rendered.
 
 ## Actions
 
@@ -118,10 +137,12 @@ Four, each the browser form of a console command, each through the same service:
 |---|---|---|
 | Execute / recover | `laraflow:execute {id}` and `--now` | `WorkflowRunner::execute()`, or `WorkflowDispatcher::dispatchExecution()` when queued |
 | Cancel | `laraflow:cancel {id} --reason=` | `WorkflowRunner::cancel()` |
-| Signal | — (the application calls `signal()`) | `WorkflowRunner::signal()`, then `WorkflowDispatcher::dispatchExecution()` when asked to deliver |
+| Signal | `laraflow:signal` | `WorkflowRunner::signal()`, then the shared queue handoff (`WorkflowDispatcher::dispatchExecution()`) when asked to deliver |
 | Start | `laraflow:start {workflow} --input=` | the same resolution and validation, then `WorkflowRunner` or `WorkflowDispatcher` |
 
-Every action is a `POST` with CSRF protection from the application's middleware and passes the same authorization check as every page. Confirmation is two-layered: with script, a dialog before the post; without, each action sits behind a disclosure and its own labelled button, so nothing happens on a stray click either way. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it, from the same `Outcome` definition — a wait as a wait, a retry as a retry, never a parked execution as "done". Whether a dispatch ran the job in the request (a `sync` connection does) is judged from the record, not from configuration, for the reason the Phase C audit recorded.
+Every action is a `POST` with CSRF protection and passes the same authorization check as every page, then the action rule above. The CSRF check is the application's middleware (`web`) *and* the dashboard's own: the action routes refuse a request with no session (a `500` naming the misconfiguration), and compare the request's `_token` field — or its `X-CSRF-TOKEN` header — to the session's token with `hash_equals`, answering `419` on a mismatch. Behind `web` that is the same comparison twice; behind a custom stack that starts a session but omits `VerifyCsrfToken`, it is the only one. Like Laravel's own middleware it is skipped while running unit tests. The encrypted `X-XSRF-TOKEN` header is not accepted; the dashboard's own forms all carry `@csrf`. Confirmation is two-layered: with script, a dialog before the post; without, each action sits behind a disclosure and its own labelled button, so nothing happens on a stray click either way. The page after an action is the execution's detail page, showing the record as it now stands; the outcome is reported the way the console reports it, from the same `Outcome` definition — a wait as a wait, a retry as a retry, never a parked execution as "done". Whether a dispatch ran the job in the request (a `sync` connection does) is judged from the record, not from configuration, for the reason the Phase C audit recorded — every dispatch, the delivered signal's included, goes through the same handoff the console uses, so a step that runs and fails inline on a `sync` connection is reported as a step failure, not as a failed dispatch.
+
+A step's exception reaches the flashed outcome the way it reaches the execution row: through the configured `ErrorRedactor` (`laraflow.errors.redactor`) and truncated to `laraflow.execution.max_error_length`. The flash is rendered to a browser and held in the session, so it gets nothing the record would not.
 
 *Execute* runs in the request or, with its checkbox, on the queue; the checkbox defaults to the queue when there is one. *Signal* records and, with its checkbox, dispatches — recording is not delivery ([advanced-workflows.md](advanced-workflows.md)), and the page says which happened. *Start* refuses a name that is not a workflow and an input that is not an object before anything is written, and shows the form back filled in. *Cancel* is terminal, and the forms that would act on a cancelled execution are gone.
 
@@ -147,7 +168,7 @@ Every page refreshes itself on an interval — `laraflow.dashboard.refresh` seco
 - `tests/Feature/Dashboard/ExecutionPageTest.php` — the record, steps, attempts, wait, lineage; remembered keys and never their values; an unknown or malformed id is not found.
 - `tests/Feature/Dashboard/OverviewPageTest.php` — counts by status, and what needs attention is what `laraflow:summary` says needs attention, under the same scope.
 - `tests/Unit/Dashboard/CursorTrailTest.php` — *previous* replays a cursor the repository issued, never an offset, and a tampered trail is read as strings only.
-- `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the forms offered matching the execution's state; an action mounted without a session refused rather than performed.
+- `tests/Feature/Dashboard/ActionsTest.php` — each action through its service, with its outcome said the console's way; the sync connection's run reported as a run; refusals printed as the runtime words them; the same authorization and the application's CSRF token on every post; the dashboard's own token check behind a session without `VerifyCsrfToken`; the separate action rule, by callback and by gate, and that it cannot widen the view rule; a step failure flashed redacted and truncated; a delivered signal's inline step failure reported as one; the forms offered matching the execution's state; an action mounted without a session refused rather than performed.
 - `tests/Feature/Dashboard/ReadOnlyTest.php` — the action routes absent and the forms unrendered.
 - `tests/Feature/Dashboard/AssetTest.php` — one stylesheet and one script, served by the package behind the check, with validators; the page links nothing else and carries nothing inline; the filter form is a working `GET` form without script and live with it; the refresh interval is the page's to declare and configuration turns it off.
 - `tests/Feature/ProjectContractsTest.php` — the reach-past-the-contract test reads `src/Dashboard` and the views as it reads `src/Console`.

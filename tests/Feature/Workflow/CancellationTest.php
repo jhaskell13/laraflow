@@ -28,6 +28,7 @@ use Laraflow\Workflow\RecoveryService;
 use Laraflow\Workflow\Repositories\EloquentExecutionRepository;
 use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\StepStatus;
+use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
 
@@ -333,7 +334,7 @@ class CancellationTest extends TestCase
         $clock = new FixedClock('2026-10-23 15:00:00');
 
         $runner = $this->makeRunner(
-            repository: new EloquentExecutionRepository($clock),
+            repository: new EloquentExecutionRepository($clock, $this->app->make(TenantCeilings::class)),
             logger: new ArrayLogger,
             clock: $clock,
         );

@@ -10,7 +10,7 @@ namespace Laraflow\Events;
  * `compensating`; carries how many steps will be undone, never their
  * outputs.
  */
-readonly class WorkflowCompensationStarted
+final readonly class WorkflowCompensationStarted
 {
     public function __construct(
         public int $executionId,

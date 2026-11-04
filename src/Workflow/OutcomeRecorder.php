@@ -51,7 +51,7 @@ use Throwable;
  * propagates unchanged, and the step's own exception is dropped with
  * it — the new owner will run the step again and record its own outcome.
  */
-class OutcomeRecorder
+final class OutcomeRecorder
 {
     /** What a `text` column holds on MySQL and MariaDB. */
     public const ERROR_COLUMN_BYTES = 65535;

@@ -87,12 +87,15 @@ laraflow:prune
     --prune-attempts-after=   override laraflow.retention.prune_attempts_after_days
     --delete-after=           override laraflow.retention.delete_after_days
     --delete-failed-after=    override laraflow.retention.delete_failed_after_days
+    --prune-ticks-after=      override laraflow.retention.prune_ticks_after_days
     --limit=                  executions per tier per run        (default 1000)
     --chunk=                  executions per write               (default 100)
     --workflow=               only this workflow class
     --tenant=                 only this tenant
     --dry-run                 report; change nothing; never asks
     --force                   skip the production confirmation
+    --json                    one JSON document instead of the report; in production,
+                              requires --force or --dry-run (a machine cannot answer the prompt)
 ```
 
 Every option overrides the configured value for one invocation, which is how one workflow or one tenant is pruned on a different schedule from everything else:
@@ -166,6 +169,10 @@ Run that from a scheduled job that completes before the prune runs. One edge: th
 ## Remembered work
 
 The idempotency store ([idempotency.md](idempotency.md)) holds the results of side effects, and those results are payload. The **scrub** tier clears every record's value for `completed` and `cancelled` executions and leaves the record, its key, and its status — a scrubbed record still keeps the work from running again, it just no longer remembers the answer. Scrub never touches a `failed` execution's records, for the reason it never touches its input and context: a re-run against discarded values would repeat side effects the record says already happened. **Delete** removes the records with their execution through the same orphan-safe path as attempts and steps. Attempt pruning does not touch them.
+
+## Schedule tick history
+
+`retention.prune_ticks_after_days` (null — off, like every bound here) deletes rows from `laraflow_schedule_ticks` claimed at least that many days ago, applied by the same `laraflow:prune` run. Ticks are not executions: they hold no payloads and block no recovery, so the tier is a bounded delete, unscoped by workflow or tenant — a tick belongs to a schedule. It is not, however, age alone: two kinds of tick are kept however old, because `withoutOverlapping()` reads them — each schedule's **most recent fired tick** (the latest one that started an execution), and **any tick whose execution still exists unfinished**. Before 0.6.0 the tier pruned by age only, took the latest fired tick of a schedule whose execution was still running, and the next tick started beside it. `--dry-run` counts with the same exemptions. Pruning a tick never touches the execution it started, and pruning an execution never touches its tick; the two deliberately share no foreign key ([schedules.md](schedules.md#persistence)). A per-minute schedule writes about half a million rows a year, which is what this bound is for.
 
 ## Sub-workflows and fan-out members
 

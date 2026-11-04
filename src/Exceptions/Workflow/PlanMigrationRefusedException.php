@@ -15,7 +15,7 @@ namespace Laraflow\Exceptions\Workflow;
  * the same migration against the same record refuses identically.
  * See docs/workflow-versioning.md.
  */
-class PlanMigrationRefusedException extends WorkflowException
+final class PlanMigrationRefusedException extends WorkflowException
 {
     public static function frozenStep(string $workflow, string $step, string $operation, string $status): self
     {

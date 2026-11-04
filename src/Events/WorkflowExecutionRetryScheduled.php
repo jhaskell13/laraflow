@@ -15,7 +15,7 @@ use Laraflow\Workflow\RecoveryReason;
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, or context (see docs/execution-lifecycle.md).
  */
-readonly class WorkflowExecutionRetryScheduled
+final readonly class WorkflowExecutionRetryScheduled
 {
     /**
      * @param  string  $workflow  Workflow class name.

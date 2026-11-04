@@ -13,7 +13,7 @@ namespace Laraflow\Exceptions\Workflow;
  * this carries both — reporting the recorded class as its own, which
  * is what keeps `error_class` stable across a pass that spans claims.
  */
-class RecordedFailure extends WorkflowException
+final class RecordedFailure extends WorkflowException
 {
     public function __construct(string $message, private readonly string $recordedClass)
     {

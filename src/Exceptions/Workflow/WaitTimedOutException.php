@@ -13,7 +13,7 @@ use DateTimeImmutable;
  * retried approval step re-posts its request. A workflow that wants one
  * park and one deadline disables retries on that step.
  */
-class WaitTimedOutException extends WorkflowException
+final class WaitTimedOutException extends WorkflowException
 {
     public static function forSignal(string $step, int $position, string $signal, DateTimeImmutable $deadline, int $attempt): self
     {

@@ -21,7 +21,7 @@ use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
  * state outlives the code that wrote it: everything here is the
  * package refusing to guess what changed code meant by an old record.
  */
-class StepResolver
+final class StepResolver
 {
     public function __construct(
         protected Container $container,
@@ -112,8 +112,22 @@ class StepResolver
             );
         }
 
+        // Checked on the class name, before anything is built: the name
+        // comes from the persisted plan, and constructing a class first
+        // to ask what it is would run an arbitrary constructor — and
+        // resolve its dependencies — for a row that names something
+        // other than a step (Milestone 10 audit). validate() and
+        // WorkflowResolver ask the same way.
+        if (! is_subclass_of($stepClass, Step::class)) {
+            throw new WorkflowDefinitionMismatchException(
+                "Step class [{$stepClass}] does not implement ".Step::class.'.'
+            );
+        }
+
         $step = $this->container->make($stepClass);
 
+        // Still checked after: a container binding may hand back
+        // something else under the step's name.
         if (! $step instanceof Step) {
             throw new WorkflowDefinitionMismatchException(
                 "Step class [{$stepClass}] does not implement ".Step::class.'.'

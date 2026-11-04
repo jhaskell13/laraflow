@@ -20,7 +20,7 @@ use InvalidArgumentException;
  * stopped — not from creation, so a long-running execution is not
  * pruned for having started a long time ago.
  */
-readonly class RetentionPolicy
+final readonly class RetentionPolicy
 {
     /**
      * @param  int|null  $scrubAfterDays  Clear payloads of `completed` and
@@ -47,6 +47,7 @@ readonly class RetentionPolicy
         public ?int $pruneAttemptsAfterDays = null,
         public ?int $deleteAfterDays = null,
         public ?int $deleteFailedAfterDays = null,
+        public ?int $pruneTicksAfterDays = null,
         public int $limit = 1000,
         public int $chunk = 100,
     ) {
@@ -55,6 +56,7 @@ readonly class RetentionPolicy
             'prune_attempts_after_days' => $pruneAttemptsAfterDays,
             'delete_after_days' => $deleteAfterDays,
             'delete_failed_after_days' => $deleteFailedAfterDays,
+            'prune_ticks_after_days' => $pruneTicksAfterDays,
         ] as $name => $days) {
             if ($days !== null && $days < 1) {
                 throw new InvalidArgumentException(
@@ -91,6 +93,7 @@ readonly class RetentionPolicy
             pruneAttemptsAfterDays: self::days($config, 'prune_attempts_after_days'),
             deleteAfterDays: self::days($config, 'delete_after_days'),
             deleteFailedAfterDays: self::days($config, 'delete_failed_after_days'),
+            pruneTicksAfterDays: self::days($config, 'prune_ticks_after_days'),
             limit: self::positive($config, 'limit', 1000),
             chunk: self::positive($config, 'chunk', 100),
         );
@@ -106,7 +109,8 @@ readonly class RetentionPolicy
         return $this->scrubAfterDays !== null
             || $this->pruneAttemptsAfterDays !== null
             || $this->deleteAfterDays !== null
-            || $this->deleteFailedAfterDays !== null;
+            || $this->deleteFailedAfterDays !== null
+            || $this->pruneTicksAfterDays !== null;
     }
 
     /**

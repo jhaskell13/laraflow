@@ -15,7 +15,7 @@ use Laraflow\Workflow\Workflow;
  * default — which, out of the box, disables retries and sets no
  * deadline.
  */
-class PolicyResolver
+final class PolicyResolver
 {
     public function __construct(
         protected StepPolicy $default = new StepPolicy,

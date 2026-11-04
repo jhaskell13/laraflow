@@ -24,3 +24,9 @@
 # because the README links into docs/ and an offline copy should resolve.
 /.env.example    export-ignore
 /composer.lock   export-ignore
+# Project governance, not package documentation: nothing loads either
+# at runtime. README and docs/ link to ROADMAP.md, and those links point
+# at the repository copy when read offline from vendor/ — accepted, as
+# the roadmap describes the project's plans, not the installed version.
+/ROADMAP.md          export-ignore
+/CODE_OF_CONDUCT.md  export-ignore

@@ -1,0 +1,19 @@
+# Actions are pinned to commit SHAs (a tag can be moved; a SHA cannot),
+# so a bot has to propose the bumps or the pins only ever age. Composer
+# updates cover the development set in composer.lock and the declared
+# constraints; Dependabot keeps the `# vX.Y.Z` comments in step.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

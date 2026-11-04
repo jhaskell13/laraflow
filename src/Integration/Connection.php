@@ -20,7 +20,7 @@ use Laraflow\Exceptions\ConnectorConfigurationException;
  * the configuration is read by the CredentialProvider when a request is
  * built, so this object can be held, dumped, and listed freely.
  */
-readonly class Connection
+final readonly class Connection
 {
     /**
      * The connection resolved when an application names none and the

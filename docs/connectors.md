@@ -61,7 +61,7 @@ Instances are cached per connection until `forget()`. Because credentials are no
 | `timeout`, `connect_timeout` | the class, then `laraflow.http.*` | Seconds. |
 | `headers` | merged over the class's | Sent with every request; a request's own headers win over both. Names match case-insensitively at every layer: `accept` overrides `Accept`. |
 | `retries` | merged over `laraflow.http.retries` | In-attempt transport retries; see below. |
-| `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to; `false` lifts an inherited one. See below. |
+| `rate_limit` | merged over `laraflow.http.rate_limit` | A ceiling Laraflow holds itself to (`max`, `per`, `max_wait`, `scope`); `false` lifts an inherited one. See below. |
 | `max_pages` | `laraflow.http.pagination.max_pages` | The page budget. |
 | `throw_on_error` | the class's `throwsOnError()` | Have `request()` throw a mapped error rather than return it. |
 | `api_version` | the class's `apiVersion()` | Pin another provider API version for this account. |
@@ -197,6 +197,8 @@ Both are specified alongside the step retry policy in [retry-and-failure-policy.
 - **Client-side rate limiting** (`laraflow.http.rate_limit`, off) is a ceiling Laraflow holds itself to per connection through Laravel's cache-backed rate limiter, shared by every worker and keyed per connection so one tenant's account never throttles another's. Beyond `max_wait`, the request fails *before reaching the provider* with `ThrottledException`, which suggests the wait the same way.
 
   Set it on a connection for one account, or under `laraflow.http` for every connection; a connection sets `rate_limit: false` to lift an inherited ceiling it does not share.
+
+  **Per tenant, for an account many tenants share.** `scope: 'tenant'` counts one budget per connection *per tenant of the running execution* — the tenant is read from the execution's durable `tenant_id` through the runner's ambient scope, never from the request, so a recovering worker throttles against the tenant the work was created for. One tenant's burst then spends its own ceiling and not the one every other tenant is held to; the provider's account-wide quota is still yours to size the ceilings under. The default, `connection`, is one budget for the account. A call made outside any execution (a controller, a command) or from an execution created without a tenant has no tenant to scope by and draws on the connection's budget, which is what the policy would have done unscoped — the scope narrows a budget, it never invents one. `laraflow:connectors` prints `per tenant` beside a ceiling scoped this way.
 
   **The ceiling is best effort, not a guarantee.** The check and the count that follows it are two cache operations, not one atomic one, and workers that are waiting out the same window wake together. Under enough concurrency a window can therefore run slightly over. Treat it as keeping ordinary traffic under a provider's limit, not as a quota you can prove to that provider — the provider's own `429` and the durable retry behind it remain the real backstop.
 

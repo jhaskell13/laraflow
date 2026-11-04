@@ -9,7 +9,7 @@ namespace Laraflow\Exceptions\Workflow;
  * one already stored. Never retried; the same key is invalid every
  * time.
  */
-class InvalidIdempotencyKeyException extends WorkflowException
+final class InvalidIdempotencyKeyException extends WorkflowException
 {
     public static function empty(): self
     {

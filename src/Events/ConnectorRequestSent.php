@@ -20,7 +20,7 @@ namespace Laraflow\Events;
  * Laravel's log context already carries them: read
  * `Context::get('laraflow.correlation_id')` in a listener.
  */
-readonly class ConnectorRequestSent
+final readonly class ConnectorRequestSent
 {
     /**
      * @param  string  $connector  Registered connector name, e.g. `github`.

@@ -11,7 +11,7 @@ use DateTimeImmutable;
  * not yet due — and, for a signal wait with no timeout, never will be
  * until the signal arrives.
  */
-class ExecutionStillWaitingException extends WorkflowException
+final class ExecutionStillWaitingException extends WorkflowException
 {
     public static function forId(int $id, ?DateTimeImmutable $nextEventAt): self
     {

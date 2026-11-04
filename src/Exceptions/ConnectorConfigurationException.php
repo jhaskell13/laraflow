@@ -13,7 +13,7 @@ use Laraflow\Integration\Connection;
  * person reading it is in a `.env` or a published config file and
  * needs to know which line to change.
  */
-class ConnectorConfigurationException extends ConnectorException
+final class ConnectorConfigurationException extends ConnectorException
 {
     public static function invalidName(string $name, string $kind): self
     {

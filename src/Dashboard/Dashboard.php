@@ -38,6 +38,9 @@ final class Dashboard
     /** The gate an application may define instead of a callback. */
     public const GATE = 'viewLaraflow';
 
+    /** The container key the action authorization callback is bound under. */
+    public const ACT_AUTH = 'laraflow.dashboard.act_auth';
+
     /**
      * Mount the dashboard.
      *
@@ -85,8 +88,10 @@ final class Dashboard
             if (! self::readOnly()) {
                 // RequiresSession on these alone: a session is what the
                 // application's CSRF protection is built on, and these
-                // are the four routes that change something.
-                $router->middleware(RequiresSession::class)->group(function (Router $router): void {
+                // are the four routes that change something. AuthorizeAction
+                // after it: who may act is a second question, asked only
+                // of the routes that act.
+                $router->middleware([RequiresSession::class, AuthorizeAction::class])->group(function (Router $router): void {
                     $router->post('executions', [ActionController::class, 'start'])->name('actions.start');
                     $router->post('executions/{id}/execute', [ActionController::class, 'execute'])->whereNumber('id')->name('actions.execute');
                     $router->post('executions/{id}/cancel', [ActionController::class, 'cancel'])->whereNumber('id')->name('actions.cancel');
@@ -148,6 +153,63 @@ final class Dashboard
         $gate = $app->make(Gate::class);
 
         return $gate->has(self::GATE) && $gate->forUser($request->user())->check(self::GATE);
+    }
+
+    /**
+     * Decide who may use the actions — start, execute, cancel, signal —
+     * separately from who may look. Asked after check() has already
+     * passed, so it narrows the viewers; it cannot admit anyone the
+     * view rule refused.
+     *
+     * @param  Closure(Request): bool  $callback
+     */
+    public static function authActions(Closure $callback): void
+    {
+        self::app()->instance(self::ACT_AUTH, $callback);
+    }
+
+    /**
+     * Whether this request may use the actions, given that it may use
+     * the dashboard at all.
+     *
+     * The application's authActions() callback when it gave one.
+     * Otherwise the gate named by `laraflow.dashboard.action_gate`, when
+     * one is configured — and a configured gate the application never
+     * defined denies, since a name in config is a statement that acting
+     * is restricted, and a typo must not quietly undo it. With neither,
+     * the view rule is the action rule, as it was before the two were
+     * separable: an application that never asks for the split behaves
+     * exactly as it did.
+     */
+    public static function checkAction(Request $request): bool
+    {
+        $app = self::app();
+
+        if (! self::check($request)) {
+            return false;
+        }
+
+        if ($app->bound(self::ACT_AUTH)) {
+            /** @var Closure(Request): bool $callback */
+            $callback = $app->make(self::ACT_AUTH);
+
+            return (bool) $callback($request);
+        }
+
+        $ability = $app->make(Config::class)->get('laraflow.dashboard.action_gate');
+
+        if (! is_string($ability) || trim($ability) === '') {
+            return true;
+        }
+
+        if (! $app->bound(Gate::class)) {
+            return false;
+        }
+
+        /** @var Gate $gate */
+        $gate = $app->make(Gate::class);
+
+        return $gate->has($ability) && $gate->forUser($request->user())->check($ability);
     }
 
     /**

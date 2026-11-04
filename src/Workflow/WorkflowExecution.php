@@ -23,7 +23,7 @@ use Laraflow\Support\Duration;
  *
  * Application code should treat all properties as read-only.
  */
-class WorkflowExecution
+final class WorkflowExecution
 {
     /**
      * The status this execution was in when the current claim took it —
@@ -66,6 +66,8 @@ class WorkflowExecution
         public ?DateTimeImmutable $payloadsScrubbedAt = null,
         public readonly int $fruitlessClaims = 0,
         protected ?int $persistedDurationMs = null,
+        public readonly ?DateTimeImmutable $deferredUntil = null,
+        public readonly int $deferrals = 0,
     ) {}
 
     public function markRunning(DateTimeImmutable $at): void

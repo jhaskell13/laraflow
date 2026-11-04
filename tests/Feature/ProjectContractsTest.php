@@ -92,7 +92,7 @@ class ProjectContractsTest extends TestCase
 
         // Not preceded by a slash: `laraflow/laraflow:dev-main` is a
         // Composer constraint, not a command.
-        preg_match_all('/(?<![\/a-z])laraflow:([a-z]+)/', $docs, $matches);
+        preg_match_all('/(?<![\/a-z])laraflow:([a-z][a-z-]*[a-z]|[a-z])/', $docs, $matches);
 
         $missing = [];
 
@@ -111,9 +111,9 @@ class ProjectContractsTest extends TestCase
         $problems = [];
 
         // Each console row looks like: | `laraflow:x {--a=} {--b}` | ...
-        // The make:* generators are documented in the same table and
-        // are just as much the package's console surface.
-        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
+        // The generators (laraflow:make-*) are documented in the same
+        // table and are just as much the package's console surface.
+        preg_match_all('/`(laraflow:[a-z-]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
 
         $this->assertNotEmpty($rows, 'The console table was not found; this audit needs updating.');
 
@@ -162,14 +162,17 @@ class ProjectContractsTest extends TestCase
         $global = ['help', 'quiet', 'verbose', 'version', 'ansi', 'no-ansi', 'no-interaction', 'env'];
 
         $documented = [];
-        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
+        preg_match_all('/`(laraflow:[a-z-]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
 
         foreach ($rows as [, $name, $options]) {
             $documented[$name] = ($documented[$name] ?? '').$options;
         }
 
         foreach (Artisan::all() as $name => $command) {
-            if (! str_starts_with($name, 'laraflow:') && ! in_array($name, ['make:workflow', 'make:step', 'make:connector'], true)) {
+            // The deprecated make:* names are hidden commands that
+            // forward to laraflow:make-*, so only laraflow:* names need
+            // a row.
+            if (! str_starts_with($name, 'laraflow:')) {
                 continue;
             }
 
@@ -350,9 +353,15 @@ class ProjectContractsTest extends TestCase
         $this->assertNull(config('laraflow.errors.redactor'), 'No redactor by default.');
         $this->assertNull(config('laraflow.execution.max_payload_bytes'), 'No payload limit by default.');
 
-        foreach (['scrub_after_days', 'prune_attempts_after_days', 'delete_after_days', 'delete_failed_after_days'] as $bound) {
+        foreach (['scrub_after_days', 'prune_attempts_after_days', 'delete_after_days', 'delete_failed_after_days', 'prune_ticks_after_days'] as $bound) {
             $this->assertNull(config("laraflow.retention.{$bound}"), "Retention bound {$bound} must ship disabled.");
         }
+
+        // Milestone 10: no tenant is bounded until an application says so.
+        $this->assertNull(config('laraflow.tenants.max_concurrent'), 'The tenant concurrency ceiling must ship off.');
+        $this->assertNull(config('laraflow.tenants.max_claims_per_minute'), 'The tenant rate ceiling must ship off.');
+        $this->assertSame([], config('laraflow.tenants.overrides'), 'No tenant is singled out by default.');
+        $this->assertSame([], config('laraflow.schedules.workflows'), 'Nothing is scheduled until a class is listed.');
 
         // And the ordering the timeout contract depends on.
         $this->assertLessThan(
@@ -470,6 +479,118 @@ class ProjectContractsTest extends TestCase
                 );
             }
         }
+    }
+
+    /**
+     * v0.6.0 API hardening: ExecutionRepository is the union of a small
+     * Public reader and an @experimental store, so 1.0 freezes the
+     * queries and not the engine's write protocol. Checked structurally
+     * — the repository declares nothing of its own, the halves do not
+     * overlap, each carries the level the document gives it — and at
+     * the edges: the console, the dashboard, the shared support code,
+     * and the trigger endpoint only read, so they ask for the reader. A
+     * type-hint on the whole repository there would quietly make the
+     * store a dependency of the operator surface again.
+     */
+    public function test_the_execution_repository_is_a_public_reader_and_an_experimental_store(): void
+    {
+        $repository = new ReflectionClass(\Laraflow\Workflow\ExecutionRepository::class);
+        $reader = new ReflectionClass(\Laraflow\Workflow\ExecutionReader::class);
+        $store = new ReflectionClass(\Laraflow\Workflow\ExecutionStore::class);
+
+        $this->assertEqualsCanonicalizing(
+            [\Laraflow\Workflow\ExecutionReader::class, \Laraflow\Workflow\ExecutionStore::class],
+            $repository->getInterfaceNames(),
+        );
+
+        $declared = array_filter(
+            $repository->getMethods(),
+            fn ($method): bool => $method->getDeclaringClass()->getName() === $repository->getName(),
+        );
+        $this->assertSame([], array_values($declared), 'ExecutionRepository declares methods of its own; each belongs to the reader or the store.');
+
+        $names = fn (ReflectionClass $class): array => array_map(fn ($method): string => $method->getName(), $class->getMethods());
+        $this->assertSame([], array_values(array_intersect($names($reader), $names($store))), 'A method is on both halves.');
+
+        $this->assertStringNotContainsString('@experimental', (string) $reader->getDocComment());
+        $this->assertStringContainsString('@experimental', (string) $store->getDocComment());
+
+        $offenders = [];
+
+        foreach (['src/Console', 'src/Dashboard', 'src/Support', 'src/Triggers'] as $directory) {
+            foreach (File::allFiles($this->path($directory)) as $file) {
+                if (preg_match('/\\b(ExecutionRepository|ExecutionStore)\\b/', (string) file_get_contents($file->getRealPath()), $match) === 1) {
+                    $offenders[] = $file->getFilename().' ('.$match[1].')';
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, 'Read-only code asks for the whole repository; type-hint ExecutionReader.');
+
+        // One instance behind all three names, following a rebinding
+        // of the repository — which is how tests and custom drivers
+        // replace it.
+        $this->assertSame($this->app->make(\Laraflow\Workflow\ExecutionRepository::class), $this->app->make(\Laraflow\Workflow\ExecutionReader::class));
+        $this->assertSame($this->app->make(\Laraflow\Workflow\ExecutionRepository::class), $this->app->make(\Laraflow\Workflow\ExecutionStore::class));
+    }
+
+    /**
+     * v0.6.0 API hardening: a Public concrete class is final unless it
+     * was designed to be extended. Subclassing is a compatibility
+     * promise about every protected member and every internal call
+     * order, and the package means to make it only where it says so —
+     * the documented extension points are interfaces and the abstract
+     * bases. The allowlist is the deliberate exceptions, each with its
+     * reason; it is kept honest in the other direction too, so a class
+     * that becomes final or stops being Public leaves it.
+     */
+    public function test_every_public_concrete_class_is_final_or_designed_for_extension(): void
+    {
+        $designedForExtension = [
+            // The exception hierarchy's bases: catch-by-family is the
+            // contract, and the package's own exceptions extend them.
+            \Laraflow\Exceptions\LaraflowException::class,
+            \Laraflow\Exceptions\ConnectorException::class,
+            \Laraflow\Exceptions\Workflow\WorkflowException::class,
+            \Laraflow\Exceptions\Connector\RequestFailedException::class,
+            // The classified provider errors an ErrorMapper returns. A
+            // connector may narrow one — a provider's secondary rate
+            // limit as a RateLimitedException — and every catch block
+            // written against the shared type still sees it.
+            \Laraflow\Exceptions\Connector\AuthenticationFailedException::class,
+            \Laraflow\Exceptions\Connector\NotFoundException::class,
+            \Laraflow\Exceptions\Connector\RateLimitedException::class,
+            \Laraflow\Exceptions\Connector\ClientErrorException::class,
+            \Laraflow\Exceptions\Connector\ServerErrorException::class,
+            // docs/public-api.md: "Extend it and fall back to parent::map()".
+            \Laraflow\Integration\Http\StatusErrorMapper::class,
+        ];
+
+        $open = [];
+
+        foreach ($this->packageClasses() as $class) {
+            $reflection = new ReflectionClass($class);
+            $docblock = (string) $reflection->getDocComment();
+
+            if ($reflection->isInterface() || $reflection->isTrait() || $reflection->isEnum() || $reflection->isAbstract() || $reflection->isFinal()) {
+                continue;
+            }
+
+            if (str_contains($docblock, '@internal') || str_contains($docblock, '@experimental')) {
+                continue;
+            }
+
+            $open[] = $class;
+        }
+
+        sort($open);
+        sort($designedForExtension);
+
+        $this->assertSame(
+            $designedForExtension,
+            $open,
+            'A Public concrete class must be final, or listed here with the reason it is designed for extension.',
+        );
     }
 
     /**
@@ -613,7 +734,7 @@ class ProjectContractsTest extends TestCase
         }
 
         $this->assertSame(
-            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL'],
+            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL', '4:?DateTimeImmutable=NULL'],
             $shapes['stale'],
         );
         $this->assertCount(1, array_unique(array_map('serialize', $shapes)), 'The recovery scans differ in shape: '.json_encode($shapes));

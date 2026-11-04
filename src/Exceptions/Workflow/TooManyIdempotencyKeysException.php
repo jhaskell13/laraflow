@@ -9,7 +9,7 @@ namespace Laraflow\Exceptions\Workflow;
  * configured cap allows. A loop calling remember() with a generated
  * key would otherwise grow a table without bound. Never retried.
  */
-class TooManyIdempotencyKeysException extends WorkflowException
+final class TooManyIdempotencyKeysException extends WorkflowException
 {
     public static function forExecution(int $executionId, int $max): self
     {

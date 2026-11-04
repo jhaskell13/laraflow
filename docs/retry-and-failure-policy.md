@@ -269,7 +269,7 @@ Under `Continue`, when a step fails **terminally** its failure is persisted and 
 
 Retry policy takes precedence: a *healable* failure schedules its retry and the run pauses there. Racing ahead past a step that will succeed in thirty seconds would manufacture the very dependent-step problem `Continue` exists to avoid.
 
-Know what you are opting into: later steps see earlier checkpoints but **no output or context contribution from the failed step**. `Continue` is wrong for pipelines where step N+1 reads what step N wrote. A missing step class still stops the run under either policy — that is a deployment problem, not step independence. Compensation and saga patterns remain out of scope (roadmap Milestone 7).
+Know what you are opting into: later steps see earlier checkpoints but **no output or context contribution from the failed step**. `Continue` is wrong for pipelines where step N+1 reads what step N wrote. A missing step class still stops the run under either policy — that is a deployment problem, not step independence. Undoing what *did* complete when a run fails terminally is compensation, specified in [advanced-workflows.md](advanced-workflows.md#compensation): each undo is an ordinary step row under the compensated step's own policy, so everything in this document applies to it unchanged.
 
 ## Configuration summary
 

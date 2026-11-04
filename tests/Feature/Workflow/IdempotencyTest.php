@@ -416,6 +416,34 @@ class IdempotencyTest extends TestCase
         $this->assertSame(IdempotencyStatus::Pending, $this->record($execution)->status, 'The live marker is untouched.');
     }
 
+    public function test_a_settle_whose_marker_vanished_records_the_outcome_rather_than_losing_it(): void
+    {
+        // The Milestone 10 audit: settle() ignored its affected rows, so
+        // a value whose marker had gone was dropped, and the next attempt
+        // found nothing and ran the side effect again.
+        $execution = $this->runner()->start(new RememberingWorkflow);
+        $store = $this->store();
+        $now = new DateTimeImmutable('2026-11-03 12:00:00');
+
+        $this->assertNull($store->begin($execution->id, 0, 'charge', $now));
+        IdempotencyKeyModel::query()->delete();
+
+        $store->settle($execution->id, 0, 'charge', ['charge' => 'CH-1'], $now);
+
+        $record = $this->record($execution);
+        $this->assertSame(IdempotencyStatus::Settled, $record->status);
+        $this->assertSame(['charge' => 'CH-1'], $record->value);
+
+        // A record that is merely no longer pending keeps its first
+        // outcome, as ever; and a failure with no record needs nothing.
+        $store->settle($execution->id, 0, 'charge', ['charge' => 'CH-2'], $now);
+        $this->assertSame(['charge' => 'CH-1'], $this->record($execution)->value);
+
+        IdempotencyKeyModel::query()->delete();
+        $store->fail($execution->id, 0, 'charge', RuntimeException::class, $now);
+        $this->assertSame(0, IdempotencyKeyModel::query()->count());
+    }
+
     public function test_the_shipped_store_holds_the_published_contract(): void
     {
         $execution = $this->runner()->start(new RememberingWorkflow);

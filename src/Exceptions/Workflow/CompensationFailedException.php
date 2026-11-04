@@ -11,7 +11,7 @@ namespace Laraflow\Exceptions\Workflow;
  * begin, which stops it: reaching past an undo that never happened
  * would undo earlier work the failed one may have depended on.
  */
-class CompensationFailedException extends WorkflowException
+final class CompensationFailedException extends WorkflowException
 {
     public static function noLongerCompensatable(string $step, int $position): self
     {

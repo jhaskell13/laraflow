@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\StartsExecutions;
 use Laraflow\Demo\DemoWorkflow;
 use Laraflow\Queue\WorkflowDispatcher;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 
 /**
@@ -17,19 +17,20 @@ use Laraflow\Workflow\WorkflowRunner;
  * `laraflow:start` for the one workflow that ships with the package:
  * the same start-and-report path, with the demo's input filled in.
  */
-class DemoCommand extends Command
+final class DemoCommand extends Command
 {
     use StartsExecutions;
 
     protected $signature = 'laraflow:demo
         {--fail : Make the payment step fail on its first attempt so recovery can be demonstrated}
-        {--queue : Dispatch the demo workflow to the queue instead of running it in this process}';
+        {--queue : Dispatch the demo workflow to the queue instead of running it in this process}
+        {--json : Print one JSON document instead of the report}';
 
     protected $description = 'Run the bundled demo workflow against the durable runtime';
 
     public function handle(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowDispatcher $dispatcher,
     ): int {
         $input = [
@@ -38,7 +39,9 @@ class DemoCommand extends Command
             'fail' => (bool) $this->option('fail'),
         ];
 
-        $this->components->info('Starting '.DemoWorkflow::class);
+        if (! $this->wantsJson()) {
+            $this->components->info('Starting '.DemoWorkflow::class);
+        }
 
         if ((bool) $this->option('queue')) {
             return $this->startQueued($runner, $repository, $dispatcher, new DemoWorkflow, $input);

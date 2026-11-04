@@ -15,12 +15,12 @@ use Symfony\Component\Console\Input\InputOption;
  * one, or a sub-workflow step. One of each kind of step the runtime
  * knows, so the shape is right before a line is written.
  */
-#[AsCommand(name: 'make:step')]
-class MakeStepCommand extends GeneratorCommand
+#[AsCommand(name: 'laraflow:make-step')]
+final class MakeStepCommand extends GeneratorCommand
 {
     use PublishesStubs;
 
-    protected $name = 'make:step';
+    protected $name = 'laraflow:make-step';
 
     protected $description = 'Create a new Laraflow workflow step class';
 

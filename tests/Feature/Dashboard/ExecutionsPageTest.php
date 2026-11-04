@@ -169,6 +169,18 @@ class ExecutionsPageTest extends TestCase
         $this->get('/laraflow/executions?since=2026-11-02+12:00:00&until=2026-11-02+09:00:00')
             ->assertOk()
             ->assertSee('the window is empty')
+            // Named as the form names the fields, not as ExecutionFilter does.
+            ->assertSee('since must be earlier than until')
+            ->assertDontSee('createdAfter')
+            ->assertSee('Showing 1 of 1');
+    }
+
+    public function test_a_leading_backslash_on_a_workflow_names_the_same_class(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new TwoStepWorkflow);
+
+        $this->get('/laraflow/executions?workflow='.urlencode('\\'.TwoStepWorkflow::class))
+            ->assertOk()
             ->assertSee('Showing 1 of 1');
     }
 

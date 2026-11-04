@@ -18,7 +18,7 @@ use DateTimeImmutable;
  * some platforms, and a step that takes 12 ms would otherwise be
  * reported as taking none.
  */
-class Duration
+final class Duration
 {
     public static function between(?DateTimeImmutable $from, ?DateTimeImmutable $to): ?int
     {

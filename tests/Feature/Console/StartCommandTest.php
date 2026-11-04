@@ -30,7 +30,7 @@ class StartCommandTest extends TestCase
     use RunsArtisanCommands;
 
     /**
-     * The class a bare name resolves to lives where make:workflow
+     * The class a bare name resolves to lives where laraflow:make-workflow
      * writes. An alias stands in for a generated file: class_exists(),
      * is_subclass_of(), and the container all honour it.
      */
@@ -94,7 +94,7 @@ class StartCommandTest extends TestCase
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('No workflow class named [NoSuchWorkflow]', $output);
         $this->assertStringContainsString('App\Workflows\NoSuchWorkflow', $output, 'Says where else it looked.');
-        $this->assertStringContainsString('make:workflow', $output);
+        $this->assertStringContainsString('laraflow:make-workflow', $output);
         $this->assertSame(0, WorkflowExecutionModel::query()->count());
     }
 
@@ -356,7 +356,7 @@ class StartCommandTest extends TestCase
 
     public function test_a_workflow_with_no_steps_is_refused_by_the_plan_validation(): void
     {
-        // What make:workflow writes before its first step is named.
+        // What laraflow:make-workflow writes before its first step is named.
         $this->assertSame(CommandStatus::FAILURE, $this->callCommand('laraflow:start', ['workflow' => EmptyWorkflowForStart::class])['status']);
         $this->assertStringContainsString('no steps', strtolower($this->callCommand('laraflow:start', ['workflow' => EmptyWorkflowForStart::class])['output']));
         $this->assertSame(0, WorkflowExecutionModel::query()->count());

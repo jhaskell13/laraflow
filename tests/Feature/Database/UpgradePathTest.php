@@ -112,20 +112,26 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7, 8, and 9 migrations, exercised the way an
-        // installed application meets them: rows written under the
+        // The Milestone 7, 8, 9, and 10 migrations, exercised the way
+        // an installed application meets them: rows written under the
         // frozen schema, then the new migrations applied — simulated by
         // rolling them back first, since the harness installs every
         // migration up front. One rollback step per post-freeze
-        // migration — nine.
+        // migration — fourteen.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 9, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 14, '--force' => true])->assertSuccessful();
 
+        $this->assertFalse(Schema::hasTable('laraflow_signal_inbox'));
+        $this->assertTimestampColumns('timestamp', 'The UTC migration rolls MySQL and MariaDB back to timestamp columns.');
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
+        $this->assertNotContains(['tenant_id', 'status', 'claimed_at'], $this->indexColumns('laraflow_workflow_executions'), 'The tenant slot index rolls back with its migration.');
+        $this->assertFalse(Schema::hasTable('laraflow_schedule_ticks'));
+        $this->assertFalse(Schema::hasTable('laraflow_schedules'));
         $this->assertFalse(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
         $this->assertNotContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index rolls back with its migration.');
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'fruitless_claims'));
@@ -150,6 +156,17 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasTable('laraflow_idempotency_keys'));
         $this->assertContains(['parent_step_execution_id'], $this->indexColumns('laraflow_workflow_executions'), 'The join index is back.');
         $this->assertTrue(Schema::hasColumn('laraflow_step_executions', 'compensates_step_execution_id'));
+        $this->assertTrue(Schema::hasTable('laraflow_schedules'));
+        $this->assertTrue(Schema::hasTable('laraflow_schedule_ticks'));
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
+        $this->assertContains(['tenant_id', 'status', 'claimed_at'], $this->indexColumns('laraflow_workflow_executions'), 'The tenant slot index is back.');
+        $this->assertTrue(Schema::hasTable('laraflow_signal_inbox'));
+        $this->assertTimestampColumns('datetime', 'MySQL and MariaDB timestamps become datetime: no session-zone conversion, no 2038 overflow.');
+
+        // A row that predates the columns was never deferred, and the
+        // package reads it that way without a coalesce.
+        $this->assertSame(0, $this->app->make(ExecutionRepository::class)->find($execution->id)->deferrals);
+        $this->assertNull($this->app->make(ExecutionRepository::class)->find($execution->id)->deferredUntil);
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so
@@ -176,6 +193,23 @@ class UpgradePathTest extends TestCase
 
         $this->assertTrue(Schema::hasTable('laraflow_workflow_executions'));
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'priority'));
+    }
+
+    /**
+     * On MySQL and MariaDB, the type of the Laraflow timestamp columns
+     * the UTC migration converts; every other engine already stores a
+     * plain wall-clock and is not altered.
+     */
+    private function assertTimestampColumns(string $type, string $message): void
+    {
+        if (! in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
+        // The frozen tables, which exist on both sides of the rollback.
+        foreach (['laraflow_workflow_executions' => 'next_retry_at', 'laraflow_step_executions' => 'timeout_at', 'laraflow_step_attempts' => 'created_at'] as $table => $column) {
+            $this->assertSame($type, Schema::getColumnType($table, $column), "[{$table}.{$column}] {$message}");
+        }
     }
 
     /**

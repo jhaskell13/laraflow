@@ -6,11 +6,11 @@ namespace Laraflow\Console\Concerns;
 
 use DateTimeInterface;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
+use Laraflow\Support\JsonReport;
 use Laraflow\Support\Outcome;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
@@ -24,6 +24,8 @@ use Throwable;
  */
 trait DisplaysExecutions
 {
+    use OutputsJson;
+
     /**
      * @param  StepExecution[]  $steps
      */
@@ -60,6 +62,19 @@ trait DisplaysExecutions
         }
 
         $this->displayQueueTiming($execution);
+
+        if ($execution->deferredUntil !== null) {
+            // Cleared by the first claim that lands, so a finished
+            // execution never carries a stale note.
+            $this->components->twoColumnDetail(
+                '<fg=gray>Deferred</>',
+                sprintf(
+                    '<fg=yellow>×%d</>, next attempt %s (its tenant is at a ceiling)',
+                    $execution->deferrals,
+                    $this->formatDate($execution->deferredUntil),
+                ),
+            );
+        }
 
         if ($execution->isRetrying() && $execution->nextRetryAt !== null) {
             $this->components->twoColumnDetail(
@@ -129,19 +144,30 @@ trait DisplaysExecutions
      * stands, the error, and the command that picks it up again.
      */
     protected function reportFailedRun(
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         int $executionId,
         Throwable $exception,
-        string $prefix = 'A step failed: ',
-    ): void {
+    ): int {
         $failed = $repository->find($executionId);
+        $steps = $repository->steps($failed);
+        // Redacted exactly as the execution row's copy was: the row and
+        // the report of it must not disagree about what is shown.
+        $error = $this->redactedMessage($exception);
 
-        $this->displayExecution($failed, $repository->steps($failed));
+        return $this->respond([
+            'execution' => JsonReport::execution($failed) + ['steps' => array_map(JsonReport::step(...), $steps)],
+            'outcome' => $failed->status->value,
+            'error' => $error,
+            'error_class' => $exception::class,
+            'message' => "The failure is persisted. Recover it with: laraflow:execute {$executionId}",
+        ], function () use ($failed, $steps, $error, $executionId): void {
+            $this->displayExecution($failed, $steps);
 
-        $this->components->error($prefix.$exception->getMessage());
-        $this->components->info(
-            "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
-        );
+            $this->components->error('A step failed: '.$error);
+            $this->components->info(
+                "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
+            );
+        }, Command::FAILURE);
     }
 
     /**
@@ -233,11 +259,6 @@ trait DisplaysExecutions
             StepStatus::Skipped->value => "<fg=blue>{$status}</>",
             default => "<fg=gray>{$status}</>",
         };
-    }
-
-    protected function queueDriverIsSync(): bool
-    {
-        return Outcome::queueIsSync(app(Config::class));
     }
 
     // The three formatters below are the console's names for the shared

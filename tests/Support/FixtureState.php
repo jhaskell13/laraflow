@@ -58,5 +58,7 @@ class FixtureState
         ConnectorStep::$connection = null;
         ConnectorStep::$runs = 0;
         ThrowingStep::$exception = null;
+        NightlyWorkflow::reset();
+        AcceptingVerifier::$verified = 0;
     }
 }

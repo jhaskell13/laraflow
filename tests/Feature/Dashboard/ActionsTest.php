@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Dashboard;
 
+use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Laraflow\Dashboard\Dashboard;
 use Laraflow\Queue\ExecuteWorkflowJob;
+use Laraflow\Support\ErrorRedactor;
 use Laraflow\Tests\Support\ApprovalWorkflow;
 use Laraflow\Tests\Support\PolicyWorkflow;
 use Laraflow\Tests\Support\StepOne;
@@ -16,8 +19,10 @@ use Laraflow\Tests\TestCase;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Policy\StepPolicy;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\WorkflowRunner;
 use RuntimeException;
+use Throwable;
 
 /**
  * docs/dashboard.md, "Actions": four, each the browser form of a
@@ -113,6 +118,100 @@ class ActionsTest extends TestCase
         $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
     }
 
+    /**
+     * M10 audit: the flash is rendered to a browser, so a step's
+     * exception reaches it through the configured redactor and the
+     * configured length, as it reaches the execution row.
+     */
+    public function test_a_step_failure_is_flashed_redacted_and_truncated(): void
+    {
+        $this->app->instance(ErrorRedactor::class, new class implements ErrorRedactor
+        {
+            public function redact(Throwable $exception, string $message): string
+            {
+                return str_replace('blew up', '[redacted] and then some more words', $message);
+            }
+        });
+        $this->app->instance(RunnerOptions::class, new RunnerOptions(maxErrorLength: 30));
+
+        StepTwo::$failTimes = 2;
+        $this->failedExecution();
+
+        $response = $this->followingRedirects()->post('/laraflow/executions/1/execute');
+
+        $response->assertOk();
+        $response->assertDontSee('blew up');
+        $response->assertSee('A step failed: step two [redacted] and then', false);
+        $response->assertDontSee('then some more words');
+    }
+
+    /**
+     * M10 audit: a delivered signal goes through Handoff, so a step that
+     * runs and fails inline on the sync connection is said as a step
+     * failure — not as "could not be dispatched" — and redacted.
+     */
+    public function test_a_delivered_signal_whose_step_fails_inline_is_reported_as_a_step_failure(): void
+    {
+        $this->app->instance(ErrorRedactor::class, new class implements ErrorRedactor
+        {
+            public function redact(Throwable $exception, string $message): string
+            {
+                return str_replace('blew up', '[redacted]', $message);
+            }
+        });
+
+        $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
+        StepTwo::$failTimes = 1;
+
+        $response = $this->followingRedirects()->post('/laraflow/executions/1/signal', [
+            'signal' => 'manager-approval',
+            'deliver' => '1',
+        ]);
+
+        $response->assertOk();
+        $response->assertSee('a step failed: step two [redacted]', false);
+        $response->assertDontSee('could not be dispatched');
+        $response->assertDontSee('blew up');
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    /**
+     * M10 audit: a session without VerifyCsrfToken is not CSRF
+     * protection. RequiresSession checks the token itself.
+     */
+    public function test_a_session_without_the_applications_csrf_middleware_still_requires_the_token(): void
+    {
+        $this->failedExecution();
+
+        Dashboard::routes(path: 'custom', middleware: [StartSession::class]);
+        $this->app['env'] = 'production';
+
+        $page = $this->get('/custom/executions/1');
+        $page->assertOk();
+        $this->assertSame(1, preg_match('/name="_token" value="([^"]+)"/', (string) $page->getContent(), $match), 'The form carries the token.');
+        $token = $match[1] ?? '';
+
+        $this->post('/custom/executions/1/cancel')->assertStatus(419);
+        $this->post('/custom/executions/1/cancel', ['_token' => 'forged'])->assertStatus(419);
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status, 'Nothing happened.');
+
+        $this->post('/custom/executions/1/cancel', ['_token' => $token])->assertRedirect();
+        $this->assertSame(ExecutionStatus::Cancelled->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    public function test_the_header_token_is_accepted_too(): void
+    {
+        $this->failedExecution();
+
+        Dashboard::routes(path: 'custom', middleware: [StartSession::class]);
+        $this->app['env'] = 'production';
+
+        $token = (string) preg_replace('/.*name="_token" value="([^"]+)".*/s', '$1', (string) $this->get('/custom/executions/1')->getContent());
+
+        $this->post('/custom/executions/1/cancel', [], ['X-CSRF-TOKEN' => $token])->assertRedirect();
+        $this->assertSame(ExecutionStatus::Cancelled->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
     public function test_cancel_records_the_reason_and_cancelled_is_terminal(): void
     {
         $this->failedExecution();
@@ -177,17 +276,33 @@ class ActionsTest extends TestCase
         $this->assertNotNull($execution->next_retry_at, 'Due immediately, for recover or a worker.');
     }
 
-    public function test_a_signal_the_execution_is_not_waiting_on_is_refused_by_name(): void
+    public function test_a_buffered_signal_is_not_called_due_and_is_not_dispatched(): void
     {
         $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
 
-        $this->followingRedirects()->post('/laraflow/executions/1/signal', ['signal' => 'wrong-signal'])
-            ->assertOk()->assertSee('wrong-signal')->assertSee('not waiting');
+        $response = $this->followingRedirects()->post('/laraflow/executions/1/signal', ['signal' => 'later-approval', 'deliver' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('buffered. The execution is not waiting on it yet');
+        $response->assertDontSee('is due now');
+        $this->assertSame(ExecutionStatus::Waiting->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    public function test_a_signal_the_execution_is_not_waiting_on_is_refused_by_name(): void
+    {
+        $this->app->make(WorkflowRunner::class)->run(new ApprovalWorkflow);
 
         $this->followingRedirects()->post('/laraflow/executions/1/signal', ['signal' => 'manager-approval', 'payload' => '[1, 2]'])
             ->assertOk()->assertSee('signal payload must be a JSON object');
 
         $this->assertSame(ExecutionStatus::Waiting->value, WorkflowExecutionModel::query()->sole()->status);
+
+        // Refused by name once nothing can park again. (While it is
+        // unfinished, a signal for another name is kept in its inbox.)
+        $this->app->make(WorkflowRunner::class)->cancel(1);
+
+        $this->followingRedirects()->post('/laraflow/executions/1/signal', ['signal' => 'wrong-signal'])
+            ->assertOk()->assertSee('wrong-signal')->assertSee('not waiting');
     }
 
     public function test_start_creates_and_runs_a_workflow_by_name_with_input_and_identifiers(): void
@@ -252,6 +367,56 @@ class ActionsTest extends TestCase
         $this->post('/laraflow/executions', ['workflow' => TwoStepWorkflow::class])->assertForbidden();
 
         $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status, 'Nothing happened.');
+    }
+
+    /**
+     * M10 audit: acting is separable from looking. With no action rule
+     * the view rule decides (above); with one, a viewer who fails it can
+     * look, is offered no form, and is refused at the route.
+     */
+    public function test_an_action_callback_narrows_who_may_act(): void
+    {
+        $this->failedExecution();
+
+        Dashboard::authActions(fn (): bool => false);
+
+        $this->get('/laraflow/executions/1')->assertOk()->assertDontSee('lf-actions', false);
+        $this->get('/laraflow/executions')->assertOk()->assertDontSee('lf-start__form', false);
+        $this->post('/laraflow/executions/1/execute')->assertForbidden();
+        $this->post('/laraflow/executions/1/cancel')->assertForbidden();
+        $this->post('/laraflow/executions/1/signal', ['signal' => 'x'])->assertForbidden();
+        $this->post('/laraflow/executions', ['workflow' => TwoStepWorkflow::class])->assertForbidden();
+        $this->assertSame(ExecutionStatus::Failed->value, WorkflowExecutionModel::query()->sole()->status);
+
+        Dashboard::authActions(fn (): bool => true);
+        $this->post('/laraflow/executions/1/cancel')->assertRedirect();
+        $this->assertSame(ExecutionStatus::Cancelled->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    public function test_a_configured_action_gate_is_consulted_and_an_undefined_one_denies(): void
+    {
+        $this->failedExecution();
+        config()->set('laraflow.dashboard.action_gate', 'actOnLaraflow');
+
+        // Named but never defined: denied, not silently open.
+        $this->post('/laraflow/executions/1/cancel')->assertForbidden();
+
+        Gate::define('actOnLaraflow', fn ($user = null): bool => false);
+        $this->post('/laraflow/executions/1/cancel')->assertForbidden();
+
+        Gate::define('actOnLaraflow', fn ($user = null): bool => true);
+        $this->post('/laraflow/executions/1/cancel')->assertRedirect();
+        $this->assertSame(ExecutionStatus::Cancelled->value, WorkflowExecutionModel::query()->sole()->status);
+    }
+
+    public function test_the_action_rule_cannot_admit_a_request_the_view_rule_refuses(): void
+    {
+        Dashboard::auth(fn (): bool => false);
+        Dashboard::authActions(fn (): bool => true);
+
+        $this->failedExecution();
+
+        $this->post('/laraflow/executions/1/cancel')->assertForbidden();
     }
 
     public function test_actions_require_the_applications_csrf_token(): void

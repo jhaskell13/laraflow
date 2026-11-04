@@ -11,7 +11,7 @@ use Laraflow\Integration\Http\Headers;
  * `Authorization: Bearer <token>`, the token read from the named
  * credential on every request.
  */
-class BearerTokenAuthenticator implements Authenticator
+final class BearerTokenAuthenticator implements Authenticator
 {
     /**
      * @param  string  $credential  The credential name to read, e.g. `token`.

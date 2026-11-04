@@ -7,6 +7,7 @@ namespace Laraflow\Workflow\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
@@ -33,6 +34,8 @@ use Illuminate\Support\Carbon;
  */
 class StepAttemptModel extends Model
 {
+    use StoresTimestampsInUtc;
+
     protected $table = 'laraflow_step_attempts';
 
     /**

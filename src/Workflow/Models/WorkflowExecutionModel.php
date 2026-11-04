@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
@@ -40,12 +41,16 @@ use Illuminate\Support\Carbon;
  * @property int $version
  * @property int $fruitless_claims
  * @property int $plan_version
+ * @property Carbon|null $deferred_until
+ * @property int $deferrals
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
  */
 class WorkflowExecutionModel extends Model
 {
+    use StoresTimestampsInUtc;
+
     protected $table = 'laraflow_workflow_executions';
 
     /**
@@ -78,6 +83,7 @@ class WorkflowExecutionModel extends Model
         'duration_ms',
         'payloads_scrubbed_at',
         'fruitless_claims',
+        'deferrals',
     ];
 
     /**
@@ -114,6 +120,8 @@ class WorkflowExecutionModel extends Model
             'parent_step_execution_id' => 'integer',
             'fruitless_claims' => 'integer',
             'plan_version' => 'integer',
+            'deferred_until' => 'datetime',
+            'deferrals' => 'integer',
         ];
     }
 }

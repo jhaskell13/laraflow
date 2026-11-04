@@ -35,20 +35,26 @@
         'action' => route('laraflow.dashboard'),
     ])
 
-    @if ($total === 0)
+    @if ($total === 0 && ($report === null || ! $report->needsAttention()))
         @include('laraflow::dashboard.partials.empty', ['filters' => $filters])
-    @else
+    @endif
+
+    @if ($total > 0)
         <div class="lf-counts">
+            {{-- array_merge, not `+`: the card's status must replace the
+                 filter's, or a `?status=failed` scope links every card
+                 to the failed list. --}}
             @foreach (ExecutionStatus::cases() as $status)
-                <a class="lf-count-card lf-count-card--{{ $status->value }}" href="{{ route('laraflow.executions', $filters->query() + ['status' => [$status->value]]) }}">
+                <a class="lf-count-card lf-count-card--{{ $status->value }}" href="{{ route('laraflow.executions', array_merge($filters->query(), ['status' => [$status->value]])) }}">
                     <span class="lf-count-card__value">{{ number_format($counts[$status->value]) }}</span>
                     <span class="lf-count-card__label">{{ $status->value }}</span>
                     <span class="lf-count-card__share">{{ sprintf('%.1f%%', $counts[$status->value] / $total * 100) }}</span>
                 </a>
             @endforeach
         </div>
+    @endif
 
-        @if ($report !== null)
+    @if ($report !== null && ($total > 0 || $report->needsAttention()))
             <section class="lf-card">
                 <h2 class="lf-card__title">
                     Needs attention
@@ -60,7 +66,7 @@
                 </h2>
 
                 @if (! $report->needsAttention())
-                    <p class="lf-muted">No retries or waits due and no step past its deadline.</p>
+                    <p class="lf-muted">No retries or waits due, no step past its deadline, no schedule stalled, nothing deferred.</p>
                 @endif
 
                 @if ($report->dueRetries !== [])
@@ -90,6 +96,25 @@
                     </div>
                 @endif
 
+                @if ($report->stalledSchedules !== [])
+                    <div class="lf-notice lf-notice--warn">
+                        <strong>{{ count($report->stalledSchedules) }} schedule{{ count($report->stalledSchedules) === 1 ? ' is' : 's are' }} stalled</strong> — due ticks stand unclaimed:
+                        @foreach (array_slice($report->stalledSchedules, 0, 5) as $row)
+                            <span class="lf-mono">{{ class_basename($row->workflow) }}</span>@if (! $loop->last), @endif
+                        @endforeach
+                        @if (count($report->stalledSchedules) > 5) and more. @endif
+                        Is the scheduler running <code>laraflow:schedule</code> every minute?
+                    </div>
+                @endif
+
+                @if ($report->deferred !== [])
+                    <div class="lf-notice lf-notice--warn">
+                        <strong>{{ count($report->deferred) }} execution{{ count($report->deferred) === 1 ? ' is' : 's are' }} deferred by a tenant ceiling.</strong>
+                        The soonest is <a href="{{ route('laraflow.executions.show', $report->deferred[0]->id) }}">execution {{ $report->deferred[0]->id }}</a> for tenant <span class="lf-mono">{{ $report->deferred[0]->tenantId }}</span>, next tried {{ Formats::date($report->deferred[0]->deferredUntil) }}.
+                        A tenant pinned at its ceiling is worth knowing about.
+                    </div>
+                @endif
+
                 @if ($report->oldestUnfinished !== null)
                     <p>
                         Oldest unfinished execution:
@@ -99,6 +124,5 @@
                     </p>
                 @endif
             </section>
-        @endif
     @endif
 @endsection

@@ -14,7 +14,7 @@ use Illuminate\Console\Command;
  * do next. Each part can be declined, and nothing here does anything
  * `vendor:publish` and `migrate` would not.
  */
-class InstallCommand extends Command
+final class InstallCommand extends Command
 {
     protected $signature = 'laraflow:install
         {--skip-migrations : Publish the configuration only, and run php artisan migrate yourself}
@@ -67,10 +67,10 @@ class InstallCommand extends Command
         $this->newLine();
         $this->components->info('Laraflow is installed. Next:');
         $this->components->bulletList([
-            'php artisan make:workflow FulfilOrder            a workflow in app/Workflows',
-            'php artisan make:step ReserveInventory           a step in app/Workflows/Steps (--conditional, --sub-workflow)',
-            'then name the step in the workflow\'s steps() list — make:step writes the class, not the plan',
-            'php artisan make:connector StripeConnector       an HTTP connector in app/Connectors',
+            'php artisan laraflow:make-workflow FulfilOrder            a workflow in app/Workflows',
+            'php artisan laraflow:make-step ReserveInventory           a step in app/Workflows/Steps (--conditional, --sub-workflow)',
+            'then name the step in the workflow\'s steps() list — laraflow:make-step writes the class, not the plan',
+            'php artisan laraflow:make-connector StripeConnector       an HTTP connector in app/Connectors',
             'php artisan laraflow:start FulfilOrder           run a workflow you wrote, and inspect it with laraflow:show 1',
             'php artisan laraflow:demo                        or run the bundled demo first',
             'vendor/laraflow/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',

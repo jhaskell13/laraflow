@@ -15,7 +15,7 @@ namespace Laraflow\Workflow;
  * existing at all is the point, and seeing the count is how an
  * operator knows it did its job.
  */
-readonly class RetentionReport
+final readonly class RetentionReport
 {
     public function __construct(
         public int $scanned = 0,
@@ -26,6 +26,7 @@ readonly class RetentionReport
         public int $deletedFailed = 0,
         public int $skipped = 0,
         public bool $dryRun = false,
+        public int $tickRows = 0,
     ) {}
 
     public function with(
@@ -36,6 +37,7 @@ readonly class RetentionReport
         int $deleted = 0,
         int $deletedFailed = 0,
         int $skipped = 0,
+        int $tickRows = 0,
     ): self {
         return new self(
             scanned: $this->scanned + $scanned,
@@ -46,6 +48,7 @@ readonly class RetentionReport
             deletedFailed: $this->deletedFailed + $deletedFailed,
             skipped: $this->skipped + $skipped,
             dryRun: $this->dryRun,
+            tickRows: $this->tickRows + $tickRows,
         );
     }
 
@@ -64,6 +67,6 @@ readonly class RetentionReport
 
     public function isEmpty(): bool
     {
-        return $this->touched() === 0;
+        return $this->touched() === 0 && $this->tickRows === 0;
     }
 }

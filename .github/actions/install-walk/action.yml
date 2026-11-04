@@ -1,9 +1,9 @@
 # The install walk: the Milestone 0 exit criterion, held for good and
 # restated by Milestone 8. A new application goes from `composer require`
 # to a persisted, recoverable execution using only the commands the
-# documentation gives a user — laraflow:install, the make:* generators,
-# laraflow:start — against whatever database the DB_* environment of the
-# calling step names. A real `laravel/laravel` skeleton, the package
+# documentation gives a user — laraflow:install, the laraflow:make-*
+# generators, laraflow:start — against whatever database the DB_*
+# environment of the calling step names. A real `laravel/laravel` skeleton, the package
 # required from a path repository, and every assertion a command an
 # actual user would run.
 #
@@ -37,17 +37,19 @@ runs:
         composer config repositories.laraflow path "${{ inputs.package }}"
         composer require "laraflow/laraflow:@dev" --no-interaction --no-progress
 
-    # Counted from the package rather than written down: the generators
-    # are the three make:* commands, and the laraflow:* commands are the
-    # classes directly under src/Console.
+    # Counted from the package rather than written down: the laraflow:*
+    # commands are the classes directly under src/Console plus the three
+    # laraflow:make-* generators under src/Console/Generators. The old
+    # make:* names survive only as hidden deprecated commands, which `list
+    # --raw` does not print, so they are not counted here.
     - name: Auto-discovery registered the provider and every command
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
         php artisan package:discover | grep -q "laraflow/laraflow"
         php artisan list --raw > commands.txt
-        test "$(grep -c '^laraflow:' commands.txt)" -eq "$(ls "${{ inputs.package }}"/src/Console/*.php | wc -l)"
-        test "$(grep -c '^make:\(workflow\|step\|connector\) ' commands.txt)" -eq 3
+        test "$(grep -c '^laraflow:' commands.txt)" -eq "$(ls "${{ inputs.package }}"/src/Console/*.php "${{ inputs.package }}"/src/Console/Generators/Make*Command.php | wc -l)"
+        test "$(grep -c '^laraflow:make-\(workflow\|step\|connector\) ' commands.txt)" -eq 3
 
     # The schema freeze means the migration count only ever grows, one
     # migration at a time, so it too is counted from the package. The
@@ -62,17 +64,17 @@ runs:
         test -f config/laraflow.php
         test "$(ls database/migrations | grep -c laraflow)" -eq "$MIGRATIONS"
         test "$(grep -c '_laraflow_.*DONE' install.log)" -eq "$MIGRATIONS"
-        grep -q 'make:workflow' install.log
+        grep -q 'laraflow:make-workflow' install.log
         grep -q 'laraflow:start' install.log
 
     - name: The generators write a workflow, two steps, and a connector
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
-        php artisan make:workflow FulfilOrder
-        php artisan make:step ReserveInventory
-        php artisan make:step ChargePayment
-        php artisan make:connector StripeConnector
+        php artisan laraflow:make-workflow FulfilOrder
+        php artisan laraflow:make-step ReserveInventory
+        php artisan laraflow:make-step ChargePayment
+        php artisan laraflow:make-connector StripeConnector
         test -f app/Workflows/FulfilOrder.php
         test -f app/Workflows/Steps/ReserveInventory.php
         test -f app/Workflows/Steps/ChargePayment.php
@@ -195,7 +197,7 @@ runs:
             }
         }
         WF
-        php artisan make:workflow Broadcast
+        php artisan laraflow:make-workflow Broadcast
         sed -i 's#^            //$#            \\App\\Workflows\\Steps\\NotifyEach::class,#' app/Workflows/Broadcast.php
         php -l app/Workflows/Broadcast.php
         php -l app/Workflows/Steps/NotifyEach.php
@@ -256,7 +258,7 @@ runs:
             }
         }
         STEP
-        php artisan make:workflow BookTrip
+        php artisan laraflow:make-workflow BookTrip
         sed -i 's#^            //$#            \\App\\Workflows\\Steps\\Book::class,\n            \\App\\Workflows\\Steps\\AlwaysFails::class,#' app/Workflows/BookTrip.php
         php -l app/Workflows/BookTrip.php
         php -l app/Workflows/Steps/Book.php
@@ -276,16 +278,262 @@ runs:
         grep -q 'undo' show.log
         php artisan laraflow:list --workflow='App\Workflows\BookTrip' --status=failed | grep -q '1 of 1'
 
+    # Schedules: the Milestone 10 exit criterion — a scheduled workflow
+    # runs once per tick with schedulers racing. A real declaration in a
+    # real class, activated in the published config, and three
+    # laraflow:schedule processes started together must produce exactly
+    # one tick and one execution: the unique index, not a lock, is the
+    # arbiter, and the racing runs all exit zero because losing the
+    # insert is the designed outcome.
+    - name: A scheduled workflow ticks exactly once across racing schedulers
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat > app/Workflows/NightlyDigest.php <<'WF'
+        <?php
+
+        namespace App\Workflows;
+
+        use App\Workflows\Steps\ReserveInventory;
+        use DateTimeImmutable;
+        use Laraflow\Workflow\Schedule;
+        use Laraflow\Workflow\Workflow;
+
+        class NightlyDigest extends Workflow
+        {
+            public function steps(): array
+            {
+                return [ReserveInventory::class];
+            }
+
+            public function schedule(): ?Schedule
+            {
+                return Schedule::cron('* * * * *')
+                    ->input(fn (DateTimeImmutable $tick): array => ['order_id' => 77]);
+            }
+        }
+        WF
+        php -l app/Workflows/NightlyDigest.php
+        sed -i "s#'workflows' => \[\],#'workflows' => [\\\\App\\\\Workflows\\\\NightlyDigest::class],#" config/laraflow.php
+        grep -q 'NightlyDigest' config/laraflow.php
+
+        # SQLite serialises writers; racing processes need WAL and a
+        # busy timeout so a loser waits for the winner's commit instead
+        # of erroring. The engine jobs need neither.
+        if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
+          sed -i "s#'busy_timeout' => null,#'busy_timeout' => 5000,#" config/database.php
+          sed -i "s#'journal_mode' => null,#'journal_mode' => 'wal',#" config/database.php
+        fi
+
+        # The first run registers the schedule, and a new schedule never
+        # backfills: nothing is due yet.
+        php artisan laraflow:schedule | tee schedule.log
+        grep -q 'not due' schedule.log
+
+        # Wait out the current minute so exactly one fresh tick is due,
+        # then race three schedulers at it. Every process must exit 0:
+        # losing the claim is not a failure.
+        sleep $((61 - 10#$(date +%S)))
+        php artisan laraflow:schedule > tick-a.log 2>&1 & A=$!
+        php artisan laraflow:schedule > tick-b.log 2>&1 & B=$!
+        php artisan laraflow:schedule > tick-c.log 2>&1 & C=$!
+        wait $A
+        wait $B
+        wait $C
+        cat tick-a.log tick-b.log tick-c.log
+
+        # Exactly one of the three started the tick; one execution exists.
+        test "$(grep -l 'started' tick-a.log tick-b.log tick-c.log | wc -l)" = "1"
+        php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' | grep -q '1 of 1'
+
+        # A worker runs it, the record completes, and the execution says
+        # what started it.
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' --status=completed | grep -q '1 of 1'
+        ID=$(php artisan laraflow:list --workflow='App\Workflows\NightlyDigest' | grep -oE '\| *[0-9]+ ' | head -1 | tr -dc '0-9')
+        php artisan laraflow:show "$ID" | tee origin.log
+        grep -q 'Started by' origin.log
+        php artisan laraflow:schedules | tee schedules.log
+        grep -q 'NightlyDigest' schedules.log
+
+        # The claimed tick is not due twice.
+        php artisan laraflow:schedule | grep -q 'not due'
+
+    # Triggers: the Milestone 10 exit criterion — a signal from an
+    # unauthenticated HTTP client is refused; from a signed one, it
+    # resumes the execution. A real approval workflow parked on a signal,
+    # the endpoint mounted from a provider with a key from the
+    # environment, and curl + openssl doing the signing the way any
+    # non-PHP caller would.
+    - name: An unsigned trigger is refused and a signed one resumes the waiting execution
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        cat > app/Workflows/Steps/AwaitApproval.php <<'STEP'
+        <?php
+
+        namespace App\Workflows\Steps;
+
+        use Laraflow\Workflow\Step;
+        use Laraflow\Workflow\Wait;
+        use Laraflow\Workflow\WorkflowContext;
+
+        class AwaitApproval implements Step
+        {
+            public function handle(WorkflowContext $context): mixed
+            {
+                return Wait::forSignal('manager-approval');
+            }
+        }
+        STEP
+        cat > app/Workflows/ApproveOrder.php <<'WF'
+        <?php
+
+        namespace App\Workflows;
+
+        use App\Workflows\Steps\AwaitApproval;
+        use App\Workflows\Steps\ReserveInventory;
+        use Laraflow\Workflow\Workflow;
+
+        class ApproveOrder extends Workflow
+        {
+            public function steps(): array
+            {
+                return [AwaitApproval::class, ReserveInventory::class];
+            }
+        }
+        WF
+        php -l app/Workflows/Steps/AwaitApproval.php
+        php -l app/Workflows/ApproveOrder.php
+
+        # Mounted from a provider (routes/web.php would wrap it in the
+        # web group's CSRF check, which a machine caller cannot pass —
+        # the signature is what stands in for it). The key comes from
+        # the environment, as it must.
+        KEY=$(openssl rand -hex 32)
+        echo "LARAFLOW_TRIGGERS_KEY=$KEY" >> .env
+        php artisan make:provider TriggerServiceProvider
+        cat > app/Providers/TriggerServiceProvider.php <<'PROV'
+        <?php
+
+        namespace App\Providers;
+
+        use Illuminate\Support\ServiceProvider;
+        use Laraflow\Triggers\Triggers;
+
+        class TriggerServiceProvider extends ServiceProvider
+        {
+            public function boot(): void
+            {
+                Triggers::routes();
+            }
+        }
+        PROV
+        php -l app/Providers/TriggerServiceProvider.php
+        php artisan route:list --json | grep -q 'laraflow\.triggers\.signal'
+
+        php artisan laraflow:start ApproveOrder --input='{"order_id": 88}' | tee approve.log
+        grep -q 'parked the execution on a wait' approve.log
+        ID=$(php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=waiting | grep -oE '\| *[0-9]+ ' | head -1 | tr -dc '0-9')
+        test -n "$ID"
+
+        php artisan serve --port=8323 --no-reload > serve-triggers.log 2>&1 &
+        SERVER=$!
+        trap 'kill $SERVER 2>/dev/null || true' EXIT
+        for i in $(seq 1 40); do
+          curl -fsS -o /dev/null http://127.0.0.1:8323/up 2>/dev/null && break
+          sleep 0.5
+        done
+
+        URL="http://127.0.0.1:8323/laraflow/triggers/executions/$ID/signals/manager-approval"
+        BODY='{"approved_by":"ops@example.com"}'
+
+        # Unauthenticated: refused, with nothing said and nothing changed.
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' --data "$BODY")" = "401"
+        grep -q '"status":"refused"' /tmp/trigger.json
+        php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=waiting | grep -q '1 of 1'
+
+        # A GET is not a route that changes anything.
+        test "$(curl -s -o /dev/null -w '%{http_code}' "$URL")" = "405"
+
+        # Signed the way docs/triggers.md shows, with nothing but openssl.
+        TS=$(date +%s)
+        HASH=$(printf '%s' "$BODY" | sha256sum | cut -d' ' -f1)
+        SIG=$(printf 'v1\n%s\n%s\n%s\n%s' "$TS" "$ID" "manager-approval" "$HASH" | openssl dgst -sha256 -hmac "$KEY" | awk '{print $NF}')
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' -H "X-Laraflow-Timestamp: $TS" -H "X-Laraflow-Signature: v1=$SIG" --data "$BODY")" = "202"
+        cat /tmp/trigger.json
+        grep -q '"status":"recorded"' /tmp/trigger.json
+        grep -q '"delivery":"queued"' /tmp/trigger.json
+
+        # The worker resumes it with the payload, and the execution completes.
+        php artisan queue:work --stop-when-empty
+        php artisan laraflow:list --workflow='App\Workflows\ApproveOrder' --status=completed | grep -q '1 of 1'
+        php artisan laraflow:show "$ID" | grep -q 'ops@example.com'
+
+        # Replayed after the resume: nothing is waiting on it.
+        test "$(curl -s -o /tmp/trigger.json -w '%{http_code}' -X POST "$URL" -H 'Content-Type: application/json' -H "X-Laraflow-Timestamp: $TS" -H "X-Laraflow-Signature: v1=$SIG" --data "$BODY")" = "409"
+        grep -q '"status":"not_waiting"' /tmp/trigger.json
+
+        kill $SERVER 2>/dev/null || true
+        wait $SERVER 2>/dev/null || true
+
+    # The operator's edge: every operating command answers as one JSON
+    # document a script can trust, the children of a fan-out are a
+    # listing, and a bulk operation names what it would do without
+    # doing it. jq is what an automation would reach for, so it is what
+    # this reaches for.
+    - name: Automation reads the console as JSON, and bulk operations name their targets first
+      shell: bash
+      working-directory: ${{ inputs.app }}
+      run: |
+        php artisan laraflow:list --json | tee list.json | jq -e '.ok and .command == "laraflow:list" and (.executions | length) > 0 and .total >= .shown' > /dev/null
+        test "$(wc -l < list.json)" = "1"
+
+        BROADCAST=$(php artisan laraflow:list --workflow='App\Workflows\Broadcast' --json | jq -r '.executions[0].id')
+        test -n "$BROADCAST"
+        php artisan laraflow:children "$BROADCAST" --json | jq -e --argjson p "$BROADCAST" '.ok and .parent == $p and (.executions | length) == 3 and all(.executions[]; .parent_execution_id == $p)' > /dev/null
+        php artisan laraflow:children "$BROADCAST" | grep -q 'Showing 3 of 3'
+
+        php artisan laraflow:show "$BROADCAST" --attempts --json | jq -e '.ok and .execution.status == "completed" and (.execution.steps | length) > 0 and has("attempts")' > /dev/null
+
+        # The summary may rightly exit non-zero here — the per-minute
+        # schedule above has stopped being ticked — so the document, not
+        # the code, is what this asserts on.
+        php artisan laraflow:summary --json > summary.json || true
+        jq -e '.command == "laraflow:summary" and has("counts") and has("attention") and (.needs_attention | type) == "boolean"' summary.json > /dev/null
+
+        # A bulk operation needs a filter, refuses a filter naming only
+        # terminal statuses (nothing there could be acted on, and a
+        # "run it again" would loop over the same rows), names its
+        # targets under --dry-run, and under --json in production —
+        # exactly where the human form would prompt — refuses to act
+        # without --force. The one actionable row by now is the saga
+        # the compensation stage left failed; every check below must
+        # leave it exactly so. The real environment variable outranks
+        # the skeleton's .env.
+        php artisan laraflow:cancel --force && exit 1 || true
+        php artisan laraflow:cancel --status=completed --dry-run --json > terminal.json && exit 1 || true
+        jq -e '.ok == false and (.error | contains("terminal"))' terminal.json > /dev/null
+        php artisan laraflow:cancel --status=failed --dry-run --json | jq -e '.ok and .dry_run and .matched > 0 and all(.actions[]; .outcome == "would_cancel")' > /dev/null
+        php artisan laraflow:execute --status=failed --since='-1 day' --dry-run --json | jq -e '.ok and .dry_run and .matched > 0 and all(.actions[]; .outcome == "would_run" or .outcome == "would_queue")' > /dev/null
+        APP_ENV=production php artisan laraflow:cancel --status=failed --json > refused.json && exit 1 || true
+        jq -e '.ok == false and (.error | contains("--force"))' refused.json > /dev/null
+        php artisan laraflow:list --workflow='App\Workflows\BookTrip' --status=failed --json | jq -e '.total == 1' > /dev/null
+        php artisan laraflow:list --status=completed --json | jq -e '.total > 0' > /dev/null
+
     - name: The dashboard is absent until mounted, and denied by default
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
-        # Unmounted: not a disabled dashboard, an absent one. Nothing
-        # named laraflow.* is registered at all. (--json is one line,
-        # so this asks whether it matches, never how many times.)
+        # Unmounted: not a disabled dashboard, an absent one. None of
+        # its routes is registered at all. (--json is one line, so this
+        # asks whether it matches, never how many times.)
         php artisan route:list --json > routes.json
         grep -q 'laraflow/executions' routes.json && exit 1 || true
-        grep -q '"name":"laraflow\.' routes.json && exit 1 || true
+        # The dashboard's own names, not every laraflow.* name: the
+        # trigger stage before this one mounted laraflow.triggers.*,
+        # and triggers and the dashboard are mounted independently.
+        grep -q '"name":"laraflow\.\(dashboard\|executions\|actions\|assets\)' routes.json && exit 1 || true
         php artisan serve --port=8321 --no-reload > serve.log 2>&1 &
         SERVER=$!
         trap 'kill $SERVER 2>/dev/null || true' EXIT
