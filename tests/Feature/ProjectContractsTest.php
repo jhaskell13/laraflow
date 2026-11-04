@@ -1059,6 +1059,12 @@ class ProjectContractsTest extends TestCase
                 fn ($file): string => $file->getRealPath(),
                 File::files($this->path('docs')),
             ),
+            // The decision records cite the contracts by link; a record
+            // pointing at a renamed document is as stale as any other.
+            ...array_map(
+                fn ($file): string => $file->getRealPath(),
+                File::files($this->path('docs/decisions')),
+            ),
         ]);
     }
 

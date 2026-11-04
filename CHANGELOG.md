@@ -8,6 +8,10 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
+### Added
+
+- **Milestone 11's contracts, written before its code.** `docs/metrics.md` fixes the metrics every bridge publishes — series names in base units, labels bounded by code with the tenant label opt-in, events for counters and a database snapshot for gauges, and what a bridge may and may not do — and declares those names part of the compatibility promise. `docs/community-connectors.md` fixes what the connector template provides and what a community connector must show to be listed, with the contract test as the reviewer. `docs/decisions/` starts a decision record: six records backfilled from the changelog and contracts (at-least-once execution, compare-and-set claims, observational events, UTC timestamps, buffered signals, the final public surface) and three for this milestone (bridges in this repository, the documentation site on VitePress, one release per milestone). Nothing they describe is implemented yet.
+
 ## [0.6.0] - 2026-11-03
 
 Milestone 10: schedules, triggers, and the operator's edge. A workflow declares a cron cadence and Laraflow starts exactly one execution per tick across any number of schedulers, with missed ticks a stated policy; approvals and webhooks reach `signal()` over HTTP through signed, opt-in endpoints the package ships; tenants get concurrency and rate ceilings enforced at the claim, with the fairness rule written down; and the console gains `laraflow:signal`, `laraflow:children`, bulk cancel and re-run by filter, and `--json` on every operating command. The milestone also closed the per-tenant rate-limit bucket deferred from Milestone 8, and ended with a hostile audit over the dashboard and Milestones 9–10 whose findings are under *Fixed*. **Breaking** changes are listed under their own heading. Five post-freeze migrations ride the upgrade harness — four additive, and one, the UTC timestamp conversion, that must run with workers stopped in an application whose `app.timezone` is not UTC; `docs/upgrading.md`, "Upgrading to 0.6", has the sequence.

@@ -377,17 +377,29 @@ Twenty-three steps on 3 November 2026, in the order planned at the milestone's s
 
 ### Milestone 11 — Ecosystem, observability, and documentation
 
+Released as **0.7.0**, the last minor before 1.0 ([decision 0009](docs/decisions/0009-one-release-per-milestone.md)). Planned November 2026; the contracts below were written first (step 0).
+
 #### Work
 
-- Optional packages, not dependencies: metrics bridges for Prometheus, StatsD, and Laravel Pulse built on the lifecycle events. (The inspection UI moved into the package itself at Milestone 8.5, where mounting it is the application's decision and reading only the public contract is enforced by test.)
-- A versioned documentation site generated from `docs/`, with the contracts as its spine, a guided tutorial, and an upgrade guide per minor.
-- Connector ecosystem: a `laraflow/connector-skeleton` template, the published contract test as its gate, and a curated list of community connectors — the bundled two stay examples, not a catalog.
-- Open-source practice complete: code of conduct, issue and pull-request templates, discussions, a maintainers file and decision record, a published release cadence and support window, and signed releases.
+0. **Contracts first.** [docs/metrics.md](docs/metrics.md) (series names, labels, cardinality rules, the snapshot, what every bridge must do); [docs/community-connectors.md](docs/community-connectors.md) (the template, the listing criteria); [docs/decisions/](docs/decisions/README.md), a decision record backfilled with the choices the contracts rest on and extended with this milestone's.
+1. **Core additions the contracts call for.** `MetricsSnapshot` and `Snapshots`, exact counts in a fixed number of queries; the store's count queries; a tenant id on the two connector events.
+2. **Bridge scaffolding.** `packages/` with one Composer package per bridge, a shared conformance kit that replays every event and a snapshot through a bridge and compares the result with docs/metrics.md, and a CI job per bridge against the core beside it ([decision 0007](docs/decisions/0007-bridges-live-in-this-repository.md)).
+3. **`laraflow/prometheus`** — counters and histograms in shared storage, a mountable scrape endpoint denied by default outside `local`, gauges read from the snapshot per scrape.
+4. **`laraflow/statsd`** — StatsD and DogStatsD over UDP, with a scheduled command pushing the snapshot.
+5. **`laraflow/pulse`** — recorders and cards; Pulse's support for both Laravel majors confirmed before building on it.
+6. **Tracing** — *awaiting decision.* An optional OpenTelemetry bridge (spans for executions, steps, and connector calls, linked across queue hops and waits); the reasoning was put to the maintainer before any contract is written.
+7. **The documentation site.** VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)): a CI build with link checking, and a per-version deploy on tag that stays inactive until Pages is enabled.
+8. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial whose code CI executes; one upgrade guide per minor; a reference page per Public class and console command, generated and cross-checked by the contract tests.
+9. **The connector ecosystem.** `laraflow/connector-skeleton`, tested here by generating a connector and running its suite; a reusable contract workflow for connector repositories; the community list.
+10. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page, build-provenance attestations on releases. Discussions, Pages, the split repositories, Packagist entries, and tag signing are maintainer actions.
+11. **Horizon and Octane** — *awaiting decision.* Compatibility documentation and tests; the reasoning was put to the maintainer first.
+12. **Hostile audit and release.** Every CI leg — each engine, the install walk, the lowest dependencies, the newest PHP — run locally before anything is declared done, then the audit, the closing record, and 0.7.0.
 
 #### Exit criteria
 
 - A new contributor opens a connector pull request following only the published docs, and the contract test is what reviews it.
 - Every public class and command has a documentation page that the contract tests cross-check.
+- Every bridge passes the conformance kit, and installing none of them changes nothing about the core package.
 
 ### Milestone 12 — Production validation and 1.0
 
@@ -421,8 +433,8 @@ Twenty-three steps on 3 November 2026, in the order planned at the milestone's s
 13. ~~The inspection dashboard, over the contract the console already proves (Milestone 8.5).~~ Done.
 14. ~~Fan-out/fan-in, then compensation — semantics first (Milestone 9).~~ Done, and released as 0.5.0.
 15. ~~Schedules, signed triggers, tenant throttling (Milestone 10).~~ Done, and released as 0.6.0.
-16. Metrics bridges, the documentation site, the connector ecosystem (Milestone 11).
-17. Soak, external review, the API freeze, 1.0 (Milestone 12).
+16. Contracts, then the metrics bridges, the documentation site, the connector ecosystem, open-source practice (Milestone 11, 0.7.0).
+17. Soak, external review, the API freeze, 1.0 (Milestone 12, 1.0.0). The soak harness is built at the end of Milestone 11, because its exit criterion is a full support window of calendar time.
 
 ## Out of scope through 1.0
 

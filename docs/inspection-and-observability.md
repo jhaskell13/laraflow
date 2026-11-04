@@ -175,7 +175,7 @@ Every dispatch records `dispatched_at` (handed to the queue) and `available_at` 
 
 ### Vendor-neutral by construction
 
-Laraflow ships no metrics integration and assumes no vendor. Events are plain readonly objects; a listener turns them into whatever your stack wants:
+The core package ships no metrics integration and assumes no vendor. Events are plain readonly objects; a listener turns them into whatever your stack wants. From 0.7.0 the optional bridges — Prometheus, StatsD, Laravel Pulse — do this for you under one set of series names, defined in [metrics.md](metrics.md); the recipes below remain the way to wire anything else:
 
 ```php
 // Prometheus (promphp/prometheus_client_php)
