@@ -153,9 +153,8 @@ class WorkflowDispatcher
         // the work became available or it cannot measure its own wait.
         $dispatchedAt = $this->clock->now();
 
-        // Normalised to the clock's timezone: the column holds a naive
-        // wall-clock value, so an instant supplied in another zone would
-        // otherwise be read back shifted by the offset.
+        // Normalised to the clock's timezone, so every instant on the
+        // record reads in one zone; the column holds UTC either way.
         $this->repository->recordDispatch(
             $execution->id,
             $dispatchedAt,

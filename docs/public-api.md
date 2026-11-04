@@ -150,7 +150,8 @@ Public properties on `WorkflowExecution` and `StepExecution` remain technically 
 | `Laraflow\Workflow\Models\StepExecutionModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\StepAttemptModel` | Internal | Table layout will change. |
 | `Laraflow\Workflow\Models\IdempotencyKeyModel` | Internal | Table layout will change. |
-| Database tables `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts`, `laraflow_idempotency_keys`, `laraflow_signal_inbox` | Internal | Do not write to them. Reading for debugging is fine. The schema is frozen, but it is frozen as an *implementation* — columns may still be added, and the `ExecutionRepository` contract is what carries the compatibility promise. |
+| `Laraflow\Workflow\Models\UtcQueryBuilder` | Internal | With the models' `StoresTimestampsInUtc` trait, stores and compares every Laraflow timestamp as UTC, independent of `app.timezone` ([compatibility.md](compatibility.md#stored-timestamps)). |
+| Database tables `laraflow_workflow_executions`, `laraflow_step_executions`, `laraflow_step_attempts`, `laraflow_idempotency_keys`, `laraflow_signal_inbox` | Internal | Do not write to them. Reading for debugging is fine; every timestamp column holds UTC ([compatibility.md](compatibility.md#stored-timestamps)), so a custom repository or a direct reader must treat it as UTC. The schema is frozen, but it is frozen as an *implementation* — columns may still be added, and the `ExecutionRepository` contract is what carries the compatibility promise. |
 
 ## Integrations
 

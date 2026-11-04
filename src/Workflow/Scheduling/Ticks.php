@@ -13,9 +13,10 @@ use RuntimeException;
 /**
  * @internal The tick arithmetic, in one place: a cron expression, a
  * timezone, and the clock in; instants out, carried in the caller's
- * own timezone — the instant is what matters, and keeping the caller's
- * representation keeps Eloquent writing the same wall-clock convention
- * as every other Laraflow timestamp. Every scheduler that reads the
+ * own timezone. The instant is what matters: the repository stores it
+ * as UTC whatever zone it arrives in (StoresTimestampsInUtc), and the
+ * caller's representation is kept only so a handle reads in the zone
+ * its clock does. Every scheduler that reads the
  * same minute computes the same instants here, which is what makes the
  * unique tick index a guarantee rather than a hope.
  *
@@ -37,7 +38,7 @@ final class Ticks
 
     /**
      * The expression's most recent instant at or before $now, read in
-     * $timezone, returned in UTC. A pure function of its arguments: two
+     * $timezone, returned in $now's zone. A pure function of its arguments: two
      * schedulers that read the same minute name the same instant.
      */
     public static function mostRecent(string $expression, string $timezone, DateTimeImmutable $now): DateTimeImmutable
@@ -72,7 +73,7 @@ final class Ticks
      * $until, oldest first, at most $cap of them — the gap a scheduler
      * came back to.
      *
-     * @return list<DateTimeImmutable> UTC
+     * @return list<DateTimeImmutable> in $after's zone
      */
     public static function between(
         string $expression,

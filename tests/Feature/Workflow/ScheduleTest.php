@@ -556,12 +556,13 @@ class ScheduleTest extends TestCase
     }
 
     /**
-     * The Milestone 10 audit's worst finding, held closed: Eloquent
-     * stores a value's own wall-clock and reads columns back in the
-     * application timezone, so a scheduler that normalised instants to
-     * UTC fired hourly schedules once per hour *plus the offset* and
-     * re-dispatched duplicates on every run in any non-UTC application.
-     * The suite otherwise runs in UTC, which is exactly how it hid.
+     * The Milestone 10 audit's worst finding, held closed: when columns
+     * held the application's wall-clock, a scheduler that normalised
+     * instants to UTC fired hourly schedules once per hour *plus the
+     * offset* and re-dispatched duplicates on every run in any non-UTC
+     * application. Columns now hold UTC whatever zone an instant comes
+     * in (UtcTimestampsTest); this holds the end-to-end behaviour. The
+     * suite otherwise runs in UTC, which is exactly how it hid.
      */
     public function test_schedules_keep_time_in_an_application_that_is_not_utc(): void
     {

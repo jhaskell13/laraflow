@@ -69,14 +69,14 @@ final class Scheduler
             return new SchedulerRun(enabled: false, dryRun: $dryRun, actions: [], orphans: [], redispatched: []);
         }
 
-        // The clock's own timezone, like every other Laraflow write:
-        // Eloquent stores the wall-clock of the value it is given and
-        // reads columns back in the application timezone, so a value
-        // normalised to UTC here would shift by the app's offset on the
-        // way back (the Milestone 10 audit's worst finding). The
-        // declaration's timezone decides what "02:00" means; the
-        // instant is recorded the way the rest of the package records
-        // instants, and rendered as UTC only at display time.
+        // Any zone will do: the repository stores every instant as UTC
+        // and reads it back as the same instant (StoresTimestampsInUtc).
+        // That was not always so — instants were once stored as the
+        // application's wall-clock, which shifted hourly ticks by the
+        // offset (the Milestone 10 audit's worst finding) and, in the
+        // repeated autumn hour, let two distinct ticks collide on the
+        // unique key (the v0.6.0 audit). The declaration's timezone
+        // decides what "02:00" means; the tick is the instant.
         $now = $this->clock->now();
 
         $budget = $this->options->limit;

@@ -6,6 +6,7 @@ namespace Laraflow\Workflow\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
@@ -25,6 +26,8 @@ use Illuminate\Support\Carbon;
  */
 class SignalInboxModel extends Model
 {
+    use StoresTimestampsInUtc;
+
     public $timestamps = false;
 
     protected $table = 'laraflow_signal_inbox';

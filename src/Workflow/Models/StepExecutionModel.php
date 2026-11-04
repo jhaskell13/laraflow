@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
@@ -37,6 +38,8 @@ use Illuminate\Support\Carbon;
  */
 class StepExecutionModel extends Model
 {
+    use StoresTimestampsInUtc;
+
     protected $table = 'laraflow_step_executions';
 
     /**

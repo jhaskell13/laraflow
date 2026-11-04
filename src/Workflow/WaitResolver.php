@@ -69,9 +69,10 @@ final class WaitResolver
         DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
 
         $now = $this->clock->now();
-        // Normalised to the clock's timezone: the columns hold naive
-        // wall-clock values, so an instant a step supplied in another
-        // zone would otherwise be read back shifted by the offset.
+        // Normalised to the clock's timezone so the handle reads in one
+        // zone throughout. Storage no longer depends on it — the columns
+        // hold UTC and any zone converts correctly on the way in — but a
+        // step's own zone leaking into events and displays would not.
         $resumeAt = $wait->resumeInstant($now)?->setTimezone($now->getTimezone());
         $timeoutAt = $wait->timeoutInstant($now)?->setTimezone($now->getTimezone());
 

@@ -153,6 +153,7 @@ class SchemaFreezeTest extends TestCase
 
         '2026_11_04_000000_add_tenant_ceilings_to_laraflow_workflow_executions.php' => 'd5b2401470a8fff070c9ae48e58e1447b7014f7a023ebdd784cf1d43949ad0b3',
         '2026_11_04_000001_create_laraflow_signal_inbox_table.php' => 'da26d73350cb0ac0c4b073b9500740d0851e84671b2fee67e214c6201d7047bf',
+        '2026_11_04_000002_store_laraflow_timestamps_in_utc.php' => 'ed4e991dccb9a4674068e053a2ca0b9f6239741f5dc7cb083b61e24d122909dd',
     ];
 
     public function test_the_frozen_tables_have_exactly_these_columns(): void

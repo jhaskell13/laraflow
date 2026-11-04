@@ -6,6 +6,7 @@ namespace Laraflow\Workflow\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
@@ -28,6 +29,8 @@ use Illuminate\Support\Carbon;
  */
 class IdempotencyKeyModel extends Model
 {
+    use StoresTimestampsInUtc;
+
     protected $table = 'laraflow_idempotency_keys';
 
     /**
