@@ -19,12 +19,17 @@
     "require": {
         "php": "^8.2",
         "illuminate/support": "^12.0|^13.0",
-        "laraflow/laraflow": "^0.7"
+        "laraflow/laraflow": "^0.7",
+        "promphp/prometheus_client_php": "^2.14"
     },
     "require-dev": {
         "larastan/larastan": "^3.13",
         "orchestra/testbench": "^10.12|^11.0",
         "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "ext-redis": "Required for the default `redis` storage, shared by every process.",
+        "ext-apcu": "Required for `apcu` storage, on a single host."
     },
     "autoload": {
         "psr-4": {
@@ -33,7 +38,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Laraflow\\Prometheus\\Tests\\": "tests/"
+            "Laraflow\\Prometheus\\Tests\\": "tests/",
+            "Laraflow\\Tests\\": "../../tests/"
         }
     },
     "extra": {
