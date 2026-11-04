@@ -13,6 +13,7 @@ use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\Workflow;
+use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
 
@@ -130,7 +131,7 @@ trait StartsExecutions
     /**
      * @param  StepExecution[]  $steps
      */
-    protected function reportRun(\Laraflow\Workflow\WorkflowExecution $execution, array $steps): int
+    protected function reportRun(WorkflowExecution $execution, array $steps): int
     {
         ['message' => $message, 'ok' => $ok] = Outcome::describe($execution);
 

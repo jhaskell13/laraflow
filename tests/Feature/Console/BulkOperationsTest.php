@@ -185,9 +185,13 @@ class BulkOperationsTest extends TestCase
         $this->assertSame(2, $this->app->make('db')->table('jobs')->count());
     }
 
-    public function test_json_bulk_runs_require_force_or_dry_run_because_nobody_can_answer_a_prompt(): void
+    public function test_json_bulk_runs_require_force_exactly_where_the_human_form_would_prompt(): void
     {
         $this->pending('acme');
+
+        // Production is where the human form prompts; a machine cannot
+        // answer, so --json without --force is refused there.
+        $this->app['env'] = 'production';
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--json' => true]);
 
@@ -197,7 +201,11 @@ class BulkOperationsTest extends TestCase
         $this->assertStringContainsString('--force', $document['error']);
         $this->assertSame(1, WorkflowExecutionModel::query()->where('status', 'pending')->count());
 
-        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--json' => true, '--force' => true]);
+        // Outside production neither form asks, and the exit codes stay
+        // identical: no --force needed.
+        $this->app['env'] = 'testing';
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--json' => true]);
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
         $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);

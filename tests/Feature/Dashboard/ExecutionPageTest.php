@@ -37,6 +37,50 @@ class ExecutionPageTest extends TestCase
         Dashboard::routes();
     }
 
+    public function test_a_scheduled_execution_names_the_tick_that_started_it(): void
+    {
+        config()->set('laraflow.schedules.workflows', [\Laraflow\Tests\Support\NightlyWorkflow::class]);
+
+        $clock = new \Laraflow\Tests\Support\FixedClock('2026-11-03 14:30:00');
+        $this->app->instance(\Psr\Clock\ClockInterface::class, $clock);
+
+        \Illuminate\Support\Facades\Artisan::call('laraflow:schedule');
+        $clock->set('2026-11-04 02:00:30');
+        \Illuminate\Support\Facades\Artisan::call('laraflow:schedule');
+
+        $id = \Laraflow\Workflow\Models\WorkflowExecutionModel::query()->firstOrFail()->id;
+
+        $response = $this->get('/laraflow/executions/'.$id);
+
+        $response->assertOk();
+        $response->assertSee('Started by');
+        $response->assertSee('schedule tick 2026-11-04 02:00');
+    }
+
+    public function test_a_deferred_execution_says_a_ceiling_is_holding_it(): void
+    {
+        config()->set('laraflow.tenants.max_concurrent', 1);
+
+        $runner = $this->app->make(WorkflowRunner::class);
+        $repository = $this->app->make(ExecutionRepository::class);
+
+        $holding = $runner->start(new \Laraflow\Tests\Support\OneStepWorkflow, [], new ExecutionOptions(tenantId: 'acme'));
+        $repository->claim($holding->id, 'worker', 300);
+
+        $deferred = $runner->start(new \Laraflow\Tests\Support\OneStepWorkflow, [], new ExecutionOptions(tenantId: 'acme'));
+
+        try {
+            $repository->claim($deferred->id, 'worker-2', 300);
+        } catch (\Laraflow\Exceptions\Workflow\TenantThrottledException) {
+        }
+
+        $response = $this->get('/laraflow/executions/'.$deferred->id);
+
+        $response->assertOk();
+        $response->assertSee('Deferred');
+        $response->assertSee('its tenant is at a ceiling');
+    }
+
     public function test_it_shows_the_record_its_steps_and_their_attempts(): void
     {
         $runner = $this->app->make(WorkflowRunner::class);

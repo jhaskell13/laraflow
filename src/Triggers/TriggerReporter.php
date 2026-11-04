@@ -25,6 +25,11 @@ final class TriggerReporter
 
     public function refused(string $trigger, TriggerRefusalReason $reason, ?int $executionId, ?string $signal): void
     {
+        // The signal came off an unverified URL: bounded and stripped of
+        // control bytes before it reaches a log line or a listener,
+        // because nothing upstream has validated it yet.
+        $signal = $signal === null ? null : self::presentable($signal);
+
         $this->logger->warning('Laraflow refused a trigger request.', [
             'trigger' => $trigger,
             'reason' => $reason->value,
@@ -73,5 +78,15 @@ final class TriggerReporter
             'execution_id' => $executionId,
             'signal' => $signal,
         ]);
+    }
+
+    /**
+     * A refused request's signal, made safe to say: at most 255 bytes,
+     * control bytes dropped. Byte-level on purpose — invalid UTF-8 must
+     * not make the sanitiser the thing that fails.
+     */
+    private static function presentable(string $signal): string
+    {
+        return (string) preg_replace('/[\x00-\x1F\x7F]/', '', substr($signal, 0, 255));
     }
 }

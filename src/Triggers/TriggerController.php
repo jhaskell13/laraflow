@@ -131,12 +131,17 @@ final class TriggerController
 
         $handoff = Handoff::attempt($this->dispatcher, $this->repository, $execution);
 
+        // Fixed sentences only: Handoff's own message may quote a step's
+        // or a broker's exception, and a provider keeps response bodies —
+        // nothing the redactor never saw goes to a third party. What
+        // became of the run is on the record, and `execution_status`
+        // says it.
         [$delivery, $message] = match ($handoff->outcome) {
             Handoff::QUEUED => ['queued', null],
-            Handoff::RAN, Handoff::STEP_FAILED => ['ran', $handoff->ok ? null : $handoff->message],
+            Handoff::RAN, Handoff::STEP_FAILED => ['ran', null],
             // Refused or the push failed: recorded, and laraflow:recover
             // is the contractual delivery.
-            default => ['pending', $handoff->message],
+            default => ['pending', 'The signal is recorded; laraflow:recover delivers the execution.'],
         };
 
         $body = [

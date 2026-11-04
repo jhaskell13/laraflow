@@ -114,6 +114,17 @@ interface ScheduleRepository
     public function redispatchCandidates(DateTimeImmutable $before, int $limit): array;
 
     /**
+     * Delete tick history claimed before $before, at most $limit rows,
+     * returning how many went. Retention's tick tier: ages by when the
+     * tick was claimed, touches no execution, and holds no lock worth
+     * naming — ticks are insert-only history.
+     */
+    public function pruneTicks(DateTimeImmutable $before, int $limit): int;
+
+    /** How many tick rows pruneTicks() would take — the dry run's answer. */
+    public function countTicksBefore(DateTimeImmutable $before): int;
+
+    /**
      * Pause: the schedule stays synchronised and names no tick until
      * resumed. Idempotent — pausing a paused schedule keeps the
      * original pausedAt.

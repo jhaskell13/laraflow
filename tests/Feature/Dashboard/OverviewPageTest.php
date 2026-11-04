@@ -36,6 +36,29 @@ class OverviewPageTest extends TestCase
         Dashboard::routes();
     }
 
+    /**
+     * The laraflow:summary rule, held in the browser too: a stalled
+     * schedule with no executions yet is exactly the state a dead
+     * scheduler leaves, and an empty table must not sleep through it.
+     */
+    public function test_an_empty_table_does_not_hide_a_stalled_schedule(): void
+    {
+        config()->set('laraflow.schedules.workflows', [\Laraflow\Tests\Support\NightlyWorkflow::class]);
+
+        $clock = new \Laraflow\Tests\Support\FixedClock('2026-11-03 14:30:00');
+        $this->app->instance(\Psr\Clock\ClockInterface::class, $clock);
+
+        $this->callCommand('laraflow:schedule');
+        $clock->set('2026-11-07 02:01:00');
+
+        $response = $this->get('/laraflow');
+
+        $response->assertOk();
+        $response->assertSee('stalled');
+        $response->assertSee('NightlyWorkflow');
+        $response->assertDontSee('Nothing needs attention');
+    }
+
     public function test_it_counts_by_status_and_links_each_count_to_the_filtered_list(): void
     {
         $runner = $this->app->make(WorkflowRunner::class);

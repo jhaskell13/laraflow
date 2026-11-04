@@ -37,6 +37,14 @@ final readonly class SchedulerRun
             if ($action->failed()) {
                 return true;
             }
+
+            // A tick that started and whose --sync delivery failed in
+            // this process: the failure is persisted on the execution,
+            // and the operator who asked for an inline run is owed a
+            // non-zero exit, exactly as laraflow:recover --sync owes one.
+            if ($action->delivery === 'failed') {
+                return true;
+            }
         }
 
         return false;

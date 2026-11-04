@@ -49,18 +49,9 @@ trait ScansForRecovery
         ?string $workflow = null,
         ?string $tenantId = null
     ): array {
-        $now = $this->clock->now();
-
         return $this->scan($limit, $workflow, $tenantId)
             ->where('status', ExecutionStatus::Pending->value)
             ->where('created_at', '<=', $createdBefore)
-            // A deferral is delivery, not state: a pending execution a
-            // tenant ceiling turned away has its own timer, and finding
-            // it here before that timer fires would double the delivery
-            // for nothing (docs/tenancy.md).
-            ->where(function (Builder $query) use ($now): void {
-                $query->whereNull('deferred_until')->orWhere('deferred_until', '<=', $now);
-            })
             ->orderBy('id')
             ->get()
             ->map(fn (WorkflowExecutionModel $model) => $this->toDomain($model))
@@ -108,9 +99,19 @@ trait ScansForRecovery
      */
     protected function scan(int $limit, ?string $workflow, ?string $tenantId): Builder
     {
+        $now = $this->clock->now();
+
         return WorkflowExecutionModel::query()
             ->when($workflow !== null, fn (Builder $query) => $query->where('workflow', $workflow))
             ->when($tenantId !== null, fn (Builder $query) => $query->where('tenant_id', $tenantId))
+            // A deferral is delivery, not state: an execution a tenant
+            // ceiling turned away has its own timer, and every scan that
+            // found it before that timer fired would start one more job
+            // that can only be turned away again — copies that accumulate
+            // for exactly as long as the ceiling holds (docs/tenancy.md).
+            ->where(function (Builder $query) use ($now): void {
+                $query->whereNull('deferred_until')->orWhere('deferred_until', '<=', $now);
+            })
             ->limit(max(1, $limit));
     }
 }

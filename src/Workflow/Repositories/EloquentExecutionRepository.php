@@ -127,13 +127,20 @@ class EloquentExecutionRepository implements ExecutionRepository
         // predicate; the read only informs the runner's choice between
         // "re-executing a failure" and "resuming after a retry or wait"
         // — and names the tenant the ceilings are consulted for.
-        $before = WorkflowExecutionModel::query()->whereKey($id)->first(['id', 'status', 'tenant_id', 'workflow', 'correlation_id']);
+        $before = WorkflowExecutionModel::query()->whereKey($id)->first(['id', 'status', 'tenant_id', 'workflow', 'correlation_id', 'next_retry_at', 'claimed_at']);
         $resumedFrom = $before?->status;
 
         // The ceilings, before the compare-and-set and nowhere else:
-        // every path to a run passes here (docs/tenancy.md). An
-        // execution with no tenant has nothing to be bounded by.
-        $limits = $before?->tenant_id === null ? TenantLimits::none() : $this->assertWithinTenantCeilings($before, $now, $staleBefore);
+        // every path to a run passes here (docs/tenancy.md). Only for a
+        // row this claim could actually take: a duplicate delivery for
+        // a running, finished, or not-yet-due execution must be refused
+        // as exactly that, not deferred — deferring it would stamp the
+        // record and have the queue job re-push a claim that can never
+        // land (the Milestone 10 audit's second finding). An execution
+        // with no tenant has nothing to be bounded by.
+        $limits = $before === null || $before->tenant_id === null || ! $this->claimableNow($before, $now, $staleBefore, $ignoreRetrySchedule)
+            ? TenantLimits::none()
+            : $this->assertWithinTenantCeilings($before, $now, $staleBefore);
 
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
@@ -583,6 +590,11 @@ class EloquentExecutionRepository implements ExecutionRepository
     {
         return array_values($this->filtered($filter)
             ->where('deferred_until', '>', $now)
+            // Terminal rows cannot be deferred, but a deferred pending
+            // execution an operator then cancelled still carries its
+            // stamp; what this answers is "what is a ceiling holding",
+            // and nothing holds finished work.
+            ->whereNotIn('status', [ExecutionStatus::Completed->value, ExecutionStatus::Cancelled->value])
             ->orderBy('deferred_until')
             ->limit(min(max(1, $limit), self::MAX_PAGE_SIZE))
             ->get()
@@ -703,17 +715,31 @@ class EloquentExecutionRepository implements ExecutionRepository
         return $limits;
     }
 
-    protected function defer(WorkflowExecutionModel $before, TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $now): never
+    /**
+     * Record the deferral and refuse — unless the row moved since it was
+     * read, in which case nothing is written and nothing is thrown: the
+     * world changed under the count, and the compare-and-set below is
+     * the thing that knows what the row is now.
+     */
+    protected function defer(WorkflowExecutionModel $before, TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $now): void
     {
         $delay = $this->ceilings->deferralSecondsFor($before->id);
         $until = $now->modify("+{$delay} seconds");
 
-        WorkflowExecutionModel::query()
+        $recorded = WorkflowExecutionModel::query()
             ->whereKey($before->id)
+            // Guarded on the status the ceiling counted under: a claim
+            // that landed in between cleared the columns and must not
+            // have a stale deferral stamped over its run.
+            ->where('status', $before->status)
             ->update($this->counted([
                 'deferred_until' => $until,
                 'deferrals' => new Expression('deferrals + 1'),
             ]));
+
+        if ($recorded === 0) {
+            return;
+        }
 
         throw TenantThrottledException::atCeiling(
             executionId: $before->id,
@@ -726,6 +752,26 @@ class EloquentExecutionRepository implements ExecutionRepository
             deferredUntil: $until,
             delaySeconds: $delay,
         );
+    }
+
+    /**
+     * Whether the CAS below could take this row as read — the mirror of
+     * its predicate, for deciding who the ceilings apply to. A race that
+     * changes the answer after this read is settled by the CAS itself.
+     */
+    protected function claimableNow(WorkflowExecutionModel $before, DateTimeImmutable $now, DateTimeImmutable $staleBefore, bool $ignoreRetrySchedule): bool
+    {
+        return match (ExecutionStatus::from($before->status)) {
+            ExecutionStatus::Pending, ExecutionStatus::Failed => true,
+            ExecutionStatus::Retrying => $ignoreRetrySchedule
+                || $before->next_retry_at === null
+                || $before->next_retry_at->toImmutable() <= $now,
+            ExecutionStatus::Waiting => $ignoreRetrySchedule
+                || ($before->next_retry_at !== null && $before->next_retry_at->toImmutable() <= $now),
+            ExecutionStatus::Running, ExecutionStatus::Compensating => $before->claimed_at === null
+                || $before->claimed_at->toImmutable() <= $staleBefore,
+            ExecutionStatus::Completed, ExecutionStatus::Cancelled => false,
+        };
     }
 
     protected function explainFailedClaim(int $id): never

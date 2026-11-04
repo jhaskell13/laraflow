@@ -10,6 +10,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Exception;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * A workflow's declared cadence — what `Workflow::schedule()` returns.
@@ -56,7 +57,17 @@ final readonly class Schedule
         }
 
         try {
-            new CronExpression($expression);
+            // Parse, then prove it matches a real instant: the library
+            // accepts "0 0 30 2 *" (February 30th) at parse time and
+            // throws from every date computation after it — which would
+            // otherwise be at tick time, in the scheduler, the listing,
+            // and the summary at once.
+            (new CronExpression($expression))->getNextRunDate('now', 0, false, 'UTC');
+        } catch (RuntimeException $exception) {
+            throw new InvalidArgumentException(
+                "[{$expression}] parses as a cron expression but never matches a real date (".$exception->getMessage().').',
+                previous: $exception,
+            );
         } catch (InvalidArgumentException $exception) {
             throw new InvalidArgumentException(
                 "[{$expression}] is not a cron expression a schedule can run (".$exception->getMessage().'). '

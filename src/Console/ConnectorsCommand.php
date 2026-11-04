@@ -56,7 +56,7 @@ class ConnectorsCommand extends Command
 
         if ($names === []) {
             return $this->respond(
-                ['connectors' => [], 'problems' => []],
+                ['check' => (bool) $this->option('check'), 'connectors' => [], 'problems' => []],
                 fn () => $this->components->info('No connectors are registered. Declare one under laraflow.integrations.'),
             );
         }

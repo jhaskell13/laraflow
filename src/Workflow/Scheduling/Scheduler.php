@@ -11,6 +11,7 @@ use Laraflow\Events\WorkflowScheduleSkipped;
 use Laraflow\Events\WorkflowScheduleTicked;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
 use Laraflow\Exceptions\Workflow\InvalidScheduleException;
+use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Exceptions\Workflow\TickAlreadyClaimedException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Handoff;
@@ -19,6 +20,7 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\MissedTickPolicy;
 use Laraflow\Workflow\Schedule;
 use Laraflow\Workflow\WorkflowExecution;
+use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -41,11 +43,15 @@ use Throwable;
  */
 final class Scheduler
 {
+    /** Whether this run delivers in-process — read by the re-dispatch heal. */
+    private bool $sync = false;
+
     public function __construct(
         private ScheduleRegistry $registry,
         private ScheduleRepository $schedules,
         private ExecutionRepository $executions,
         private WorkflowRunner $runner,
+        private WorkflowResolver $resolver,
         private WorkflowDispatcher $dispatcher,
         private EventEmitter $events,
         private ClockInterface $clock,
@@ -55,16 +61,23 @@ final class Scheduler
 
     public function run(bool $dryRun = false, bool $sync = false): SchedulerRun
     {
+        $this->sync = $sync;
+
         if (! $this->options->enabled) {
             // The kill switch: every schedule stops at once without
             // being unlisted, for the incident where nothing may start.
             return new SchedulerRun(enabled: false, dryRun: $dryRun, actions: [], orphans: [], redispatched: []);
         }
 
-        // Everything the scheduler writes or compares is UTC; the
-        // declaration's timezone decides what "02:00" means, not how an
-        // instant is recorded.
-        $now = $this->clock->now()->setTimezone(new DateTimeZone('UTC'));
+        // The clock's own timezone, like every other Laraflow write:
+        // Eloquent stores the wall-clock of the value it is given and
+        // reads columns back in the application timezone, so a value
+        // normalised to UTC here would shift by the app's offset on the
+        // way back (the Milestone 10 audit's worst finding). The
+        // declaration's timezone decides what "02:00" means; the
+        // instant is recorded the way the rest of the package records
+        // instants, and rendered as UTC only at display time.
+        $now = $this->clock->now();
 
         $budget = $this->options->limit;
         $actions = [];
@@ -103,8 +116,14 @@ final class Scheduler
                 continue;
             }
 
-            foreach ($this->tickSchedule($definition, $row, $now, $dryRun, $sync, $budget) as $action) {
-                $actions[] = $action;
+            try {
+                foreach ($this->tickSchedule($definition, $row, $now, $dryRun, $sync, $budget) as $action) {
+                    $actions[] = $action;
+                }
+            } catch (Throwable $exception) {
+                // The tick arithmetic or the row itself is unusable; one
+                // broken schedule must not stop the others from ticking.
+                $actions[] = new ScheduleAction($class, ScheduleAction::FAILED, detail: $exception->getMessage());
             }
         }
 
@@ -144,9 +163,18 @@ final class Scheduler
             return [new ScheduleAction($definition->workflow, ScheduleAction::NOT_DUE, tickAt: $due)];
         }
 
+        $claims = $this->plan($definition->schedule, $definition->timezone, $row->lastTickAt, $due, $now);
+
+        if ($claims === []) {
+            // A gap the dedupe emptied: the only instant past the mark
+            // is the second occurrence of a repeated DST hour, which
+            // already fired under its first.
+            return [new ScheduleAction($definition->workflow, ScheduleAction::NOT_DUE, tickAt: $due)];
+        }
+
         $actions = [];
 
-        foreach ($this->plan($definition->schedule, $definition->timezone, $row->lastTickAt, $due, $now) as $claim) {
+        foreach ($claims as $claim) {
             if ($budget < 1) {
                 // The shared bound. What was not claimed is still due,
                 // and the next run resumes exactly here.
@@ -300,7 +328,7 @@ final class Scheduler
         }
 
         $options = new ExecutionOptions(
-            correlationId: 'schedule:'.class_basename($workflow).'@'.$claim->tickAt->format('Y-m-d\\TH:i\\Z'),
+            correlationId: 'schedule:'.class_basename($workflow).'@'.$claim->tickAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\\TH:i\\Z'),
             tenantId: $row->tenantId,
         );
 
@@ -374,9 +402,15 @@ final class Scheduler
                 $execution = $this->runner->execute($executionId, $definition->instance);
 
                 return [$execution->status->value, null];
+            } catch (TenantThrottledException $deferred) {
+                // Not a failure: the deferral is recorded, and the next
+                // run's re-dispatch scan waits out its timer.
+                return ['deferred', $deferred->getMessage()];
             } catch (Throwable $exception) {
-                // The failure is persisted on the execution; the action
-                // reports it without failing the tick, which succeeded.
+                // The failure is persisted on the execution. The tick
+                // succeeded, but a run the operator asked for in this
+                // process did not — the report says so and the run exits
+                // non-zero, exactly as laraflow:recover --sync does.
                 return ['failed', $exception->getMessage()];
             }
         }
@@ -426,13 +460,25 @@ final class Scheduler
 
         foreach ($this->schedules->redispatchCandidates($before, $budget) as $executionId) {
             try {
-                $this->dispatcher->dispatchExecution($executionId);
+                if ($this->sync) {
+                    // --sync means this process runs executions: an
+                    // application with no queue must not have its heal
+                    // path push jobs nothing will take.
+                    $execution = $this->executions->find($executionId);
+                    $this->runner->execute($executionId, $this->resolver->resolve($executionId, $execution->workflow));
+                } else {
+                    $this->dispatcher->dispatchExecution($executionId);
+                }
+
                 $redispatched[] = $executionId;
+            } catch (TenantThrottledException) {
+                // The deferral is recorded on the execution; its own
+                // timer owns the next attempt.
             } catch (Throwable $exception) {
-                // Refused (an operator ran it between the scan and now)
-                // or the push failed again; either way the next run
-                // rescans, and a sync-driver step failure is persisted
-                // on the execution it belongs to.
+                // Refused (an operator ran it between the scan and now),
+                // the push failed again, or an inline run's step failed —
+                // the last is persisted on the execution; all three are
+                // the next run's or the operator's to pick up.
                 $this->logger->warning('Laraflow could not re-dispatch a scheduled execution.', [
                     'execution_id' => $executionId,
                     'error_class' => $exception::class,

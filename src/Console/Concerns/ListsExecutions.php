@@ -22,7 +22,6 @@ use Laraflow\Workflow\WorkflowExecution;
 trait ListsExecutions
 {
     use DisplaysExecutions;
-    use OutputsJson;
     use ParsesExecutionFilters;
     use ParsesLimit;
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Console;
 
+use DateTimeZone;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
@@ -76,7 +77,7 @@ class ShowCommand extends Command
                     '<fg=gray>Started by</>',
                     sprintf(
                         'schedule tick %s UTC%s%s',
-                        $tick->tickAt->format('Y-m-d H:i'),
+                        $tick->tickAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i'),
                         $tick->outcome === TickOutcome::CaughtUp ? ' (caught up)' : '',
                         $tick->missed > 0 ? " ({$tick->missed} missed before it)" : '',
                     ),

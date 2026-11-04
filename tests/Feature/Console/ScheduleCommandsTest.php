@@ -79,8 +79,35 @@ class ScheduleCommandsTest extends TestCase
 
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('Vanished', $output);
-        $this->assertStringContainsString('failed', $output);
+        $this->assertStringContainsString('1 failed', $output);
         $this->assertStringContainsString('no such class exists', $output);
+    }
+
+    public function test_a_sync_run_whose_step_fails_exits_non_zero_like_recover_does(): void
+    {
+        NightlyWorkflow::$steps = [\Laraflow\Tests\Support\StepTwo::class];
+        \Laraflow\Tests\Support\StepTwo::$failTimes = 10;
+
+        $this->callCommand('laraflow:schedule');
+        $this->clock->set('2026-11-04 02:00:30');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:schedule', ['--sync' => true]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status, 'An inline delivery failure needs a person.');
+        $this->assertStringContainsString('failed', $output);
+        $this->assertSame(1, ScheduleTickModel::query()->count(), 'The tick itself succeeded; the failure is on the execution.');
+    }
+
+    public function test_a_malformed_workflows_list_is_one_json_refusal_not_a_stack_trace(): void
+    {
+        config()->set('laraflow.schedules.workflows', 'not-a-list');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:schedule', ['--json' => true]);
+
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $document = json_decode(trim($output), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertFalse($document['ok']);
+        $this->assertStringContainsString('must be a list', $document['error']);
     }
 
     public function test_the_kill_switch_and_an_empty_registry_are_quiet_successes(): void
@@ -116,7 +143,9 @@ class ScheduleCommandsTest extends TestCase
 
         ['output' => $output] = $this->callCommand('laraflow:schedules', ['--pause' => NightlyWorkflow::class]);
         $this->assertStringContainsString('names no ticks until resumed', $output);
-        $this->assertStringContainsString('paused', $output);
+
+        ['output' => $json] = $this->callCommand('laraflow:schedules', ['--json' => true]);
+        $this->assertSame('paused', json_decode($json, true, 512, JSON_THROW_ON_ERROR)['schedules'][0]['state'], 'The state cell, not the action chatter.');
 
         $this->clock->set('2026-11-04 02:00:30');
         ['output' => $output] = $this->callCommand('laraflow:schedule');
@@ -148,7 +177,8 @@ class ScheduleCommandsTest extends TestCase
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:schedules');
         $this->assertSame(CommandStatus::FAILURE, $status);
-        $this->assertStringContainsString('orphaned', $output);
+        ['output' => $json] = $this->callCommand('laraflow:schedules', ['--json' => true]);
+        $this->assertSame('orphaned', json_decode($json, true, 512, JSON_THROW_ON_ERROR)['schedules'][0]['state']);
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:schedules', ['--forget' => NightlyWorkflow::class]);
         $this->assertSame(CommandStatus::SUCCESS, $status);
@@ -169,7 +199,8 @@ class ScheduleCommandsTest extends TestCase
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:schedules');
         $this->assertSame(CommandStatus::FAILURE, $status);
-        $this->assertStringContainsString('stalled', $output);
+        ['output' => $json] = $this->callCommand('laraflow:schedules', ['--json' => true]);
+        $this->assertSame('stalled', json_decode($json, true, 512, JSON_THROW_ON_ERROR)['schedules'][0]['state']);
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary');
         $this->assertSame(CommandStatus::FAILURE, $status);
@@ -240,6 +271,31 @@ class ScheduleCommandsTest extends TestCase
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
         $this->assertStringContainsString('No schedules exist yet', $output);
+    }
+
+    public function test_tick_history_is_pruned_on_its_own_bound_and_executions_are_untouched(): void
+    {
+        $this->callCommand('laraflow:schedule');
+        $this->clock->set('2026-11-04 02:00:30');
+        $this->callCommand('laraflow:schedule');
+        $this->clock->set('2026-11-10 02:00:30');
+        $this->callCommand('laraflow:schedule');
+
+        $this->assertSame(2, ScheduleTickModel::query()->count());
+
+        // Nothing configured: the ticks bound alone enables the command.
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:prune', ['--prune-ticks-after' => '2', '--dry-run' => true]);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('ticks pruned', $output);
+        $this->assertSame(2, ScheduleTickModel::query()->count(), 'A dry run removes nothing.');
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:prune', ['--prune-ticks-after' => '2', '--force' => true, '--json' => true]);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $document['report']['tick_rows'], 'The old tick went; the fresh one stays.');
+
+        $this->assertSame(1, ScheduleTickModel::query()->count());
+        $this->assertSame(2, WorkflowExecutionModel::query()->count(), 'Pruning a tick never touches an execution.');
     }
 
     protected function schedules(): ScheduleRepository

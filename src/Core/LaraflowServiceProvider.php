@@ -310,6 +310,7 @@ class LaraflowServiceProvider extends ServiceProvider
 
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),
+            schedules: $app->make(ScheduleRepository::class),
             clock: $app->make(ClockInterface::class),
         ));
 
@@ -330,6 +331,7 @@ class LaraflowServiceProvider extends ServiceProvider
             schedules: $app->make(ScheduleRepository::class),
             executions: $app->make(ExecutionRepository::class),
             runner: $app->make(WorkflowRunner::class),
+            resolver: $app->make(WorkflowResolver::class),
             dispatcher: $app->make(WorkflowDispatcher::class),
             events: $app->make(EventEmitter::class),
             clock: $app->make(ClockInterface::class),

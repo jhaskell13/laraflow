@@ -47,7 +47,11 @@ final class OverviewController
         return $this->views->make('laraflow::dashboard.overview', [
             'total' => $total,
             'counts' => $counts,
-            'report' => $total === 0 ? null : $this->attention->scan($filter, $now),
+            // Scanned even over an empty table: a stalled schedule with
+            // no executions yet is exactly the state a dead scheduler
+            // leaves, and the one this page must not sleep through —
+            // the laraflow:summary rule, held here too.
+            'report' => $this->attention->scan($filter, $now),
             'filters' => $filters,
             'now' => $now,
         ]);

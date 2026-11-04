@@ -87,6 +87,7 @@ class TriggerSignatureTest extends TestCase
         $this->assertLogic(new Repository(['laraflow' => ['triggers' => ['key' => 'too-short']]]), 'at least 32 bytes');
         $this->assertLogic(new Repository(['laraflow' => ['triggers' => ['key' => self::KEY, 'previous_keys' => 'not-a-list']]]), 'previous_keys must be a list');
         $this->assertLogic(new Repository(['laraflow' => ['triggers' => ['key' => self::KEY, 'previous_keys' => [42]]]]), 'previous_keys must hold keys');
+        $this->assertLogic(new Repository(['laraflow' => ['triggers' => ['key' => self::KEY, 'previous_keys' => ['short']]]]), 'previous_keys must be at least 32 bytes');
     }
 
     private function assertLogic(Repository $config, string $fragment): void

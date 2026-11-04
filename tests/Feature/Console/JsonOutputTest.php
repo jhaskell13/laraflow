@@ -139,6 +139,18 @@ class JsonOutputTest extends TestCase
         $this->assertSame('failed', $document['execution']['steps'][1]['status']);
     }
 
+    public function test_recover_keeps_its_shape_when_there_is_nothing_to_recover(): void
+    {
+        ['output' => $output] = $this->callCommand('laraflow:recover', ['--json' => true]);
+
+        $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame([], $document['candidates']);
+        $this->assertFalse($document['sync']);
+        $this->assertSame(0, $document['counts']['failed'], "jq '.counts.failed' must not error on an empty day.");
+        $this->assertFalse($document['needs_attention']);
+    }
+
     public function test_summary_reports_counts_and_attention_as_data(): void
     {
         $this->callCommand('laraflow:demo');

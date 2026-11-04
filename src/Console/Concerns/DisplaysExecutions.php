@@ -6,7 +6,6 @@ namespace Laraflow\Console\Concerns;
 
 use DateTimeInterface;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
 use Laraflow\Support\JsonReport;
@@ -148,7 +147,6 @@ trait DisplaysExecutions
         ExecutionRepository $repository,
         int $executionId,
         Throwable $exception,
-        string $prefix = 'A step failed: ',
     ): int {
         $failed = $repository->find($executionId);
         $steps = $repository->steps($failed);
@@ -159,10 +157,10 @@ trait DisplaysExecutions
             'error' => $exception->getMessage(),
             'error_class' => $exception::class,
             'message' => "The failure is persisted. Recover it with: laraflow:execute {$executionId}",
-        ], function () use ($failed, $steps, $prefix, $exception, $executionId): void {
+        ], function () use ($failed, $steps, $exception, $executionId): void {
             $this->displayExecution($failed, $steps);
 
-            $this->components->error($prefix.$exception->getMessage());
+            $this->components->error('A step failed: '.$exception->getMessage());
             $this->components->info(
                 "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
             );
@@ -258,11 +256,6 @@ trait DisplaysExecutions
             StepStatus::Skipped->value => "<fg=blue>{$status}</>",
             default => "<fg=gray>{$status}</>",
         };
-    }
-
-    protected function queueDriverIsSync(): bool
-    {
-        return Outcome::queueIsSync(app(Config::class));
     }
 
     // The three formatters below are the console's names for the shared

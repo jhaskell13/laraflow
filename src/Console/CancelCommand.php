@@ -114,7 +114,7 @@ class CancelCommand extends Command
 
         foreach ($targets as $target) {
             $actions[] = $action = $dryRun
-                ? ['execution' => $target->id, 'workflow' => $target->workflow, 'outcome' => 'would cancel', 'message' => null]
+                ? ['execution' => $target->id, 'workflow' => $target->workflow, 'outcome' => 'would_cancel', 'message' => null]
                 : $this->cancelOne($runner, $target, $reason);
 
             if (! $dryRun) {
@@ -181,7 +181,7 @@ class CancelCommand extends Command
 
         if ($target->isCancelled()) {
             // Idempotent, and said so: nothing happened here.
-            return ['outcome' => 'already cancelled'] + $row;
+            return ['outcome' => 'already_cancelled'] + $row;
         }
 
         try {
@@ -224,7 +224,8 @@ class CancelCommand extends Command
         return match ($outcome) {
             'cancelled' => '<fg=green>cancelled</>',
             'requested' => '<fg=yellow>requested from its worker</>',
-            'would cancel' => '<fg=cyan>would cancel</>',
+            'would_cancel' => '<fg=cyan>would cancel</>',
+            'already_cancelled' => '<fg=gray>already cancelled</>',
             'refused' => '<fg=gray>refused (not cancellable)</>',
             'failed' => '<fg=red>failed</>',
             default => "<fg=gray>{$outcome}</>",
@@ -239,8 +240,13 @@ class CancelCommand extends Command
      */
     protected function confirmBulk(): bool
     {
-        if ($this->wantsJson() && ! (bool) $this->option('force')) {
-            $this->refuse('A bulk cancel under --json must pass --force (or --dry-run): a machine cannot answer the production confirmation.');
+        if ($this->wantsJson() && ! (bool) $this->option('force') && $this->laravel->environment('production')) {
+            // Exactly where the human form would prompt: a machine
+            // cannot answer the production confirmation, and skipping
+            // the question because nobody could hear it is not an
+            // answer. Outside production neither form asks, and the two
+            // exit codes stay identical.
+            $this->refuse('A bulk cancel under --json must pass --force (or --dry-run) in production: a machine cannot answer the confirmation.');
 
             return false;
         }

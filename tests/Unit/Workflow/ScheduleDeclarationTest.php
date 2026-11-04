@@ -9,6 +9,8 @@ use DateTimeZone;
 use InvalidArgumentException;
 use Laraflow\Workflow\MissedTickPolicy;
 use Laraflow\Workflow\Schedule;
+use Laraflow\Workflow\Scheduling\ScheduledWorkflow;
+use Laraflow\Workflow\Scheduling\ScheduleStatus;
 use Laraflow\Workflow\Scheduling\Ticks;
 use PHPUnit\Framework\TestCase;
 
@@ -123,6 +125,82 @@ class ScheduleDeclarationTest extends TestCase
         // At the instant itself, the instant is due, not the one before.
         $atTwo = Ticks::mostRecent('0 2 * * *', 'UTC', new DateTimeImmutable('2026-11-03 02:00:00', new DateTimeZone('UTC')));
         $this->assertSame('2026-11-03 02:00:00', $atTwo->format('Y-m-d H:i:s'));
+    }
+
+    public function test_an_expression_that_never_matches_a_real_date_is_refused_at_declaration(): void
+    {
+        // February 30th parses; every date computation after it throws.
+        // Refused here, where the class is named — not at tick time, in
+        // the scheduler, the listing, and the summary at once.
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('never matches a real date');
+
+        Schedule::cron('0 0 30 2 *');
+    }
+
+    public function test_a_row_whose_expression_no_longer_computes_cannot_crash_the_health_math(): void
+    {
+        $row = new ScheduledWorkflow(
+            id: 1,
+            workflow: 'App\\Workflows\\Legacy',
+            cron: '0 0 30 2 *',
+            timezone: 'UTC',
+            missedTickPolicy: MissedTickPolicy::Skip,
+            withoutOverlapping: false,
+            tenantId: null,
+            lastTickAt: new DateTimeImmutable('2026-01-01 00:00:00'),
+            pausedAt: null,
+            declaredAt: null,
+        );
+
+        $now = new DateTimeImmutable('2026-11-03 14:30:00');
+
+        $this->assertFalse(ScheduleStatus::stalled($row, $now));
+        $this->assertNull(ScheduleStatus::nextDue($row, $now));
+    }
+
+    public function test_a_repeated_dst_hour_fires_once(): void
+    {
+        // America/New_York, 2026-11-01: 01:30 EDT and 01:30 EST are two
+        // UTC instants with one local wall-clock. A daily 01:30 schedule
+        // fires on its first occurrence and the second is the same tick.
+        $after = new DateTimeImmutable('2026-10-31 05:30:00', new DateTimeZone('UTC'));
+        $until = new DateTimeImmutable('2026-11-02 12:00:00', new DateTimeZone('UTC'));
+
+        $gap = Ticks::between('30 1 * * *', 'America/New_York', $after, $until);
+
+        $this->assertSame(
+            ['2026-11-01 05:30:00', '2026-11-02 06:30:00'],
+            array_map(fn (DateTimeImmutable $t): string => $t->format('Y-m-d H:i:s'), $gap),
+            'One instant for the repeated hour (01:30 EDT), then the next day under EST.',
+        );
+    }
+
+    public function test_the_skipped_dst_hour_fires_once_at_the_next_valid_time(): void
+    {
+        // 2026-03-08: 02:30 does not exist in New York; the library
+        // shifts to 03:30 EDT, once.
+        $after = new DateTimeImmutable('2026-03-07 07:30:00', new DateTimeZone('UTC'));
+        $until = new DateTimeImmutable('2026-03-09 12:00:00', new DateTimeZone('UTC'));
+
+        $gap = Ticks::between('30 2 * * *', 'America/New_York', $after, $until);
+
+        $this->assertCount(2, $gap, 'The spring-forward day fires once, at the shifted hour, and the next day normally.');
+        $this->assertSame('2026-03-08 07:30:00', $gap[0]->format('Y-m-d H:i:s'), '03:30 EDT, the next valid local time.');
+    }
+
+    public function test_instants_come_back_in_the_callers_timezone(): void
+    {
+        // The instant is the contract; the representation rides the
+        // caller's convention, because Eloquent stores the wall-clock of
+        // the value it is given (the Milestone 10 audit's worst finding).
+        $now = new DateTimeImmutable('2026-11-03 09:30:00', new DateTimeZone('America/New_York'));
+
+        $tick = Ticks::mostRecent('0 * * * *', 'America/New_York', $now);
+
+        $this->assertSame('America/New_York', $tick->getTimezone()->getName());
+        $this->assertSame('2026-11-03 09:00:00', $tick->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-03 14:00:00', $tick->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s'));
     }
 
     public function test_between_walks_the_gap_oldest_first_exclusive_inclusive_and_bounded(): void

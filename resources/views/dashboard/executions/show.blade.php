@@ -85,7 +85,7 @@
                 @if ($tick !== null)
                     <dt>Started by</dt>
                     <dd>
-                        schedule tick {{ $tick->tickAt->format('Y-m-d H:i') }} UTC
+                        schedule tick {{ $tick->tickAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i') }} UTC
                         @if ($tick->outcome === \Laraflow\Workflow\Scheduling\TickOutcome::CaughtUp)
                             <span class="lf-muted">(caught up)</span>
                         @endif

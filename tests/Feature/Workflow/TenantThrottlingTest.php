@@ -11,6 +11,7 @@ use Laraflow\Exceptions\Workflow\TenantThrottledException;
 use Laraflow\Queue\ExecuteWorkflowJob;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\OneStepWorkflow;
+use Laraflow\Tests\Support\ParentWorkflow;
 use Laraflow\Tests\Support\PausedWorkflow;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\TestCase;
@@ -85,6 +86,140 @@ class TenantThrottlingTest extends TestCase
         $this->app->make(WorkflowRunner::class)->execute($parked->id, new PausedWorkflow);
         $this->assertTrue($this->repository()->find($parked->id)->isWaiting());
         $this->assertTrue($this->claim($this->pending('globex'))->isRunning(), 'Waiting is not holding a worker.');
+    }
+
+    /**
+     * The audit's second finding, held closed: the ceilings apply only
+     * to a claim that could land. A duplicate delivery for a running,
+     * finished, or not-yet-due execution is refused as exactly that —
+     * deferring it would stamp the record and have the queue job re-push
+     * a claim that can never land, every fifteen seconds, forever.
+     */
+    public function test_a_claim_the_predicate_would_refuse_is_never_deferred(): void
+    {
+        $this->ceilings(maxConcurrent: 1);
+        $holding = $this->claim($this->pending('acme'));
+
+        // Completed: not runnable, and the ceiling has no say.
+        $done = $this->pending('acme');
+        WorkflowExecutionModel::query()->whereKey($done)->update(['status' => 'completed', 'finished_at' => $this->clock->now()]);
+
+        try {
+            $this->claim($done);
+            $this->fail('A completed execution is not claimable.');
+        } catch (\Laraflow\Exceptions\Workflow\ExecutionNotRunnableException) {
+        }
+
+        $this->assertSame(0, $this->repository()->find($done)->deferrals, 'Refused as finished, not deferred.');
+
+        // A fresh claim elsewhere: a duplicate is dropped, not deferred.
+        try {
+            $this->claim($holding->id);
+            $this->fail('A freshly claimed execution is not claimable.');
+        } catch (\Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException) {
+        }
+
+        $this->assertSame(0, $this->repository()->find($holding->id)->deferrals);
+
+        // A wait that is not due: still waiting, not deferred.
+        $parked = $this->app->make(WorkflowRunner::class)->start(new PausedWorkflow, [], new ExecutionOptions(tenantId: 'acme'));
+        config()->set('laraflow.tenants.max_concurrent', null);
+        $this->app->make(WorkflowRunner::class)->execute($parked->id, new PausedWorkflow);
+        config()->set('laraflow.tenants.max_concurrent', 1);
+
+        try {
+            $this->claim($parked->id);
+            $this->fail('A parked execution whose wait is not due is not claimable.');
+        } catch (\Laraflow\Exceptions\Workflow\ExecutionStillWaitingException) {
+        }
+
+        $this->assertSame(0, $this->repository()->find($parked->id)->deferrals);
+    }
+
+    /**
+     * The audit's third finding: a deferred execution has its own timer,
+     * and a recovery scan that kept finding it would start one more job
+     * per run for as long as the ceiling held.
+     */
+    public function test_every_recovery_scan_waits_out_a_deferral(): void
+    {
+        $this->ceilings(maxConcurrent: 1);
+        $this->claim($this->pending('acme'));
+
+        $retrying = $this->pending('acme');
+        WorkflowExecutionModel::query()->whereKey($retrying)->update([
+            'status' => 'retrying',
+            'next_retry_at' => $this->clock->now()->modify('-1 minute'),
+        ]);
+
+        $due = fn (): array => array_map(
+            fn (WorkflowExecution $e): int => $e->id,
+            $this->repository()->dueForRetry($this->clock->now()),
+        );
+
+        $this->assertContains($retrying, $due(), 'Due, not yet deferred: the scan offers it.');
+
+        $this->assertDeferred($retrying, TenantCeiling::Concurrency);
+        $this->assertNotContains($retrying, $due(), 'Deferred: its own timer owns the next attempt.');
+
+        $this->clock->advance(60);
+        $this->assertContains($retrying, $due(), 'The timer fired; the scan may offer it again.');
+    }
+
+    public function test_recover_reports_a_deferral_as_deferred_and_exits_clean(): void
+    {
+        $this->ceilings(maxConcurrent: 1);
+        $this->claim($this->pending('acme'));
+
+        $retrying = $this->pending('acme');
+        WorkflowExecutionModel::query()->whereKey($retrying)->update([
+            'status' => 'retrying',
+            'next_retry_at' => $this->clock->now()->modify('-1 minute'),
+        ]);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:recover', ['--sync' => true]);
+
+        $this->assertSame(CommandStatus::SUCCESS, $status, 'A recover run never counts a deferral as a failure.');
+        $this->assertStringContainsString('deferred (tenant at ceiling)', $output);
+        $this->assertStringContainsString('1 skipped', $output);
+    }
+
+    /**
+     * docs/tenancy.md, "Interactions": a child defers until a slot
+     * frees. On the sync driver the child runs inside the parent's own
+     * claim, so the refusal must park the parent on the child — a step
+     * failure here would charge the tenant's ceiling to its retry
+     * policy.
+     */
+    public function test_a_childs_deferral_parks_the_parent_instead_of_failing_the_step(): void
+    {
+        $this->ceilings(maxConcurrent: 1);
+
+        $runner = $this->app->make(WorkflowRunner::class);
+        $parent = $runner->start(new ParentWorkflow, [], new ExecutionOptions(tenantId: 'acme'));
+
+        $result = $runner->execute($parent->id, new ParentWorkflow);
+
+        $this->assertTrue($result->isWaiting(), 'The parent parked on its child; nothing failed.');
+
+        $child = $this->repository()->list(new ExecutionFilter(parentId: $parent->id), 1)->executions[0];
+        $this->assertTrue($child->isPending());
+        $this->assertSame(1, $child->deferrals, 'The child carries the deferral, bounded by its own tenant.');
+
+        // A slot frees (the ceiling is raised). One heartbeat re-delivers
+        // the child — which, on the sync driver, runs it to rest inside
+        // the heartbeat's own claim, so the parent re-parks and the NEXT
+        // claim reads the rested child: Milestone 7's two-beat healing,
+        // unchanged by the ceiling.
+        config()->set('laraflow.tenants.max_concurrent', 5);
+
+        $heartbeat = $runner->execute($parent->id, new ParentWorkflow, ignoreRetrySchedule: true);
+        $this->assertTrue($heartbeat->isWaiting(), 'The heartbeat delivered and re-parked.');
+        $this->assertTrue($this->repository()->find($child->id)->isCompleted(), 'The freed slot let the child run to rest.');
+
+        $resumed = $runner->execute($parent->id, new ParentWorkflow, ignoreRetrySchedule: true);
+
+        $this->assertTrue($resumed->isCompleted());
     }
 
     public function test_a_refusal_records_the_deferral_and_nothing_else(): void
@@ -234,7 +369,13 @@ class TenantThrottlingTest extends TestCase
             (int) $queued->available_at,
             'Available exactly when the record says delivery is next tried.',
         );
-        $this->assertSame(1, $job->tries, 'A deferral is not a queue retry.');
+
+        // The queue payload itself, not the handled instance: the
+        // re-push is a fresh delivery with its tries untouched, not a
+        // retry of the job that was turned away.
+        $payload = json_decode((string) $queued->payload, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $payload['maxTries'], 'A deferral is not a queue retry.');
+        $this->assertSame(0, (int) ($payload['attempts'] ?? 0));
         $this->assertSame(0, $this->app->make('db')->table('failed_jobs')->count());
     }
 

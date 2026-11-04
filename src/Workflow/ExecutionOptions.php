@@ -99,6 +99,14 @@ readonly class ExecutionOptions
         // newline lets a crafted identifier forge a second log line.
         // Rejecting at the boundary keeps every downstream sink honest
         // without each one having to re-sanitise.
+        // On malformed UTF-8, preg_match returns false rather than 0 —
+        // which must read as a refusal, not a pass: a byte sequence the
+        // guard cannot inspect is a byte sequence the sinks downstream
+        // cannot be trusted with.
+        if (! mb_check_encoding($value, 'UTF-8')) {
+            throw InvalidExecutionOptionsException::invalidEncoding($name);
+        }
+
         if (preg_match('/[\x00-\x1F\x7F]/u', $value) === 1) {
             throw InvalidExecutionOptionsException::controlCharacters($name);
         }
