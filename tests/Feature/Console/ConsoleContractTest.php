@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Console;
 
+use Illuminate\Support\Facades\Artisan;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\FilterInput;
 use Laraflow\Support\Handoff;
@@ -195,8 +196,29 @@ class ConsoleContractTest extends TestCase
         ['output' => $output] = $this->callCommand('laraflow:make-workflow', ['name' => "New{$suffix}"]);
         $this->assertStringNotContainsString('deprecated', $output);
 
+        // The old name reads the replacement's options, not just its
+        // argument: --conditional reaches laraflow:make-step and picks
+        // the conditional stub.
+        ['status' => $status, 'output' => $output] = $this->callCommand('make:step', ['name' => "Old{$suffix}Step", '--conditional' => true]);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('[make:step] is deprecated', $output);
+        $this->assertStringContainsString('ConditionalStep', (string) file_get_contents($this->app->path("Workflows/Steps/Old{$suffix}Step.php")));
+
+        // Listed nowhere: not as commands of their own, and not beside
+        // the commands that replaced them, which is how a Symfony alias
+        // would print.
+        Artisan::call('list', ['--raw' => true]);
+        $this->assertStringNotContainsString('make:workflow', Artisan::output());
+        Artisan::call('list');
+        $this->assertStringNotContainsString('[make:', Artisan::output());
+
+        foreach (['make:workflow', 'make:step', 'make:connector'] as $deprecated) {
+            $this->assertTrue(Artisan::all()[$deprecated]->isHidden(), "{$deprecated} should be hidden");
+        }
+
         @unlink($this->app->path("Workflows/Old{$suffix}.php"));
         @unlink($this->app->path("Workflows/New{$suffix}.php"));
+        @unlink($this->app->path("Workflows/Steps/Old{$suffix}Step.php"));
     }
 
     protected function useTokenRedactor(): void

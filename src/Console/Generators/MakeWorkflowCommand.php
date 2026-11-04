@@ -14,16 +14,12 @@ use Symfony\Component\Console\Input\InputOption;
  * Scaffolds a Workflow in app/Workflows with an empty plan, so the
  * first workflow is generated rather than typed.
  */
-#[AsCommand(name: 'laraflow:make-workflow', aliases: ['make:workflow'])]
+#[AsCommand(name: 'laraflow:make-workflow')]
 final class MakeWorkflowCommand extends GeneratorCommand
 {
     use PublishesStubs;
-    use WarnsOnDeprecatedName;
 
     protected $name = 'laraflow:make-workflow';
-
-    /** @var list<string> Deprecated since 0.6.0; see WarnsOnDeprecatedName. */
-    protected $aliases = ['make:workflow'];
 
     protected $description = 'Create a new Laraflow workflow class';
 

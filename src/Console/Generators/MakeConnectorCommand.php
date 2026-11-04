@@ -16,16 +16,12 @@ use Symfony\Component\Console\Input\InputOption;
  * block that registers it written into the class docblock so the next
  * step is a paste rather than a search.
  */
-#[AsCommand(name: 'laraflow:make-connector', aliases: ['make:connector'])]
+#[AsCommand(name: 'laraflow:make-connector')]
 final class MakeConnectorCommand extends GeneratorCommand
 {
     use PublishesStubs;
-    use WarnsOnDeprecatedName;
 
     protected $name = 'laraflow:make-connector';
-
-    /** @var list<string> Deprecated since 0.6.0; see WarnsOnDeprecatedName. */
-    protected $aliases = ['make:connector'];
 
     protected $description = 'Create a new Laraflow HTTP connector class';
 

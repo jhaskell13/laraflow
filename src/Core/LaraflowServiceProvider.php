@@ -17,6 +17,7 @@ use Laraflow\Console\ChildrenCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
+use Laraflow\Console\Generators\DeprecatedGeneratorName;
 use Laraflow\Console\Generators\MakeConnectorCommand;
 use Laraflow\Console\Generators\MakeStepCommand;
 use Laraflow\Console\Generators\MakeWorkflowCommand;
@@ -452,6 +453,11 @@ final class LaraflowServiceProvider extends ServiceProvider
             SignalCommand::class,
             StartCommand::class,
             SummaryCommand::class,
+            // The pre-0.6.0 generator names, hidden and deprecated; see
+            // DeprecatedGeneratorName.
+            new DeprecatedGeneratorName('make:workflow', 'laraflow:make-workflow'),
+            new DeprecatedGeneratorName('make:step', 'laraflow:make-step'),
+            new DeprecatedGeneratorName('make:connector', 'laraflow:make-connector'),
         ]);
     }
 

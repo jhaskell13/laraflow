@@ -60,7 +60,7 @@ Milestone 10: schedules, triggers, and the operator's edge. A workflow declares 
 
 ### Deprecated
 
-- **`make:workflow`, `make:step`, and `make:connector` are now `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`.** The old names sat in Laravel's own namespace, where other workflow packages ship the same commands and whichever provider boots last wins. They remain as aliases that print a deprecation warning, and will be removed in a future minor release.
+- **`make:workflow`, `make:step`, and `make:connector` are now `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`.** The old names sat in Laravel's own namespace, where other workflow packages ship the same commands and whichever provider boots last wins. They remain as hidden commands that forward to the new names — arguments and options alike — print a deprecation warning, and appear in no `artisan list`; they will be removed in a future minor release.
 
 ### Breaking
 

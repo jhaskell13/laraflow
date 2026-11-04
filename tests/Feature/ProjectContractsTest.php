@@ -169,8 +169,9 @@ class ProjectContractsTest extends TestCase
         }
 
         foreach (Artisan::all() as $name => $command) {
-            // The deprecated make:* aliases are listed under the names
-            // they alias, so only laraflow:* names need a row.
+            // The deprecated make:* names are hidden commands that
+            // forward to laraflow:make-*, so only laraflow:* names need
+            // a row.
             if (! str_starts_with($name, 'laraflow:')) {
                 continue;
             }
