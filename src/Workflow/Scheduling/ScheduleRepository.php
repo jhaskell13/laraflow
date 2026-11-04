@@ -118,10 +118,17 @@ interface ScheduleRepository
      * returning how many went. Retention's tick tier: ages by when the
      * tick was claimed, touches no execution, and holds no lock worth
      * naming — ticks are insert-only history.
+     *
+     * Two kinds of tick are never pruned, however old: a schedule's
+     * most recent fired tick (the one that started an execution), and
+     * any tick whose execution still exists unfinished. The overlap
+     * check reads the first and watches the second's execution, so
+     * pruning either let withoutOverlapping start a run beside one
+     * still going (docs/schedules.md).
      */
     public function pruneTicks(DateTimeImmutable $before, int $limit): int;
 
-    /** How many tick rows pruneTicks() would take — the dry run's answer. */
+    /** How many tick rows pruneTicks() would take — the dry run's answer, under the same exemptions. */
     public function countTicksBefore(DateTimeImmutable $before): int;
 
     /**

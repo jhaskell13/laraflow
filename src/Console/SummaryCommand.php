@@ -74,7 +74,11 @@ class SummaryCommand extends Command
                     'deferred' => array_map(fn ($e): int => $e->id, $report->deferred),
                     'oldest_unfinished' => $report->oldestUnfinished?->id,
                 ],
-            ], ! $report->needsAttention());
+                // `ok` is the exit code, and a health check that found
+                // work needing attention exits 1 without anything having
+                // gone wrong with the command — so no `error`; `reason`
+                // says why ok is false (Milestone 10 audit).
+            ] + ($report->needsAttention() ? ['reason' => 'needs_attention'] : []), ! $report->needsAttention());
 
             return $report->needsAttention() ? self::FAILURE : self::SUCCESS;
         }

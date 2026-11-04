@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Feature\Console;
 
+use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\OneStepWorkflow;
 use Laraflow\Tests\Support\RunsArtisanCommands;
 use Laraflow\Tests\Support\StepTwo;
@@ -14,6 +15,8 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\WorkflowRunner;
+use Psr\Clock\ClockInterface;
+use ReflectionMethod;
 use RuntimeException;
 use Symfony\Component\Console\Command\Command as CommandStatus;
 
@@ -62,7 +65,8 @@ class BulkOperationsTest extends TestCase
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
         $this->assertStringContainsString('would cancel', $output);
-        $this->assertStringContainsString('2 of 2 matching execution(s) would be cancelled', $output);
+        $this->assertStringContainsString('Dry run over 2 of 2 matching execution(s)', $output);
+        $this->assertStringContainsString('2 would be cancelled', $output);
         $this->assertStringContainsString('Nothing was changed', $output);
         $this->assertSame(3, WorkflowExecutionModel::query()->where('status', 'pending')->count());
     }
@@ -72,9 +76,11 @@ class BulkOperationsTest extends TestCase
         $first = $this->pending('acme');
         $second = $this->pending('acme');
         $third = $this->pending('acme');
+        $fourth = $this->pending('acme');
         $other = $this->pending('globex');
 
-        // One of the targets is already done: refused per row, not fatal.
+        // One is already done: never selected, so it neither counts
+        // toward the limit nor stands in front of the next run.
         $this->app->make(WorkflowRunner::class)->execute($second, new OneStepWorkflow);
 
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', [
@@ -84,19 +90,25 @@ class BulkOperationsTest extends TestCase
             '--force' => true,
         ]);
 
-        $this->assertSame(CommandStatus::SUCCESS, $status, 'A refusal is not a failure of the run.');
-        $this->assertStringContainsString('Handled 2 of 3 matching execution(s): 1 cancelled', $output);
-        $this->assertStringContainsString('1 refused', $output);
-        $this->assertStringContainsString('More matching executions exist', $output);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $this->assertStringContainsString('Handled 2 of 3 matching execution(s): 2 cancelled', $output);
+        $this->assertStringContainsString('run the same command again to continue', $output);
 
         $this->assertTrue($this->repository()->find($first)->isCancelled(), 'Oldest first.');
         $this->assertSame('outage cleanup', $this->repository()->find($first)->cancelReason);
-        $this->assertTrue($this->repository()->find($second)->isCompleted(), 'Completed is not cancellable; it was refused, not failed.');
-        $this->assertTrue($this->repository()->find($third)->isPending(), 'Past the limit: untouched, for the next run.');
+        $this->assertTrue($this->repository()->find($second)->isCompleted(), 'Completed is not selected at all.');
+        $this->assertTrue($this->repository()->find($third)->isCancelled(), 'The completed row did not use up a slot.');
+        $this->assertTrue($this->repository()->find($fourth)->isPending(), 'Past the limit: untouched, for the next run.');
         $this->assertTrue($this->repository()->find($other)->isPending(), 'Another tenant: not in the filter.');
+
+        // ...and the next run makes progress instead of meeting the
+        // same rows again.
+        ['output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--force' => true]);
+        $this->assertStringContainsString('Handled 1 of 1 matching execution(s): 1 cancelled', $output);
+        $this->assertTrue($this->repository()->find($fourth)->isCancelled());
     }
 
-    public function test_bulk_cancel_is_idempotent_about_what_is_already_cancelled(): void
+    public function test_bulk_cancel_does_not_select_what_is_already_cancelled(): void
     {
         $id = $this->pending('acme');
         $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--force' => true]);
@@ -104,9 +116,112 @@ class BulkOperationsTest extends TestCase
         ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--force' => true]);
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
-        $this->assertStringContainsString('already cancelled', $output);
-        $this->assertStringContainsString('1 skipped', $output);
+        $this->assertStringContainsString('No cancellable executions match that filter', $output);
         $this->assertTrue($this->repository()->find($id)->isCancelled());
+    }
+
+    public function test_a_status_filter_naming_only_terminal_statuses_is_refused_by_name(): void
+    {
+        $this->pending('acme');
+
+        foreach ([['laraflow:cancel', 'cancel'], ['laraflow:execute', 're-run']] as [$command, $verb]) {
+            ['status' => $status, 'output' => $output] = $this->callCommand($command, ['--status' => ['completed', 'cancelled'], '--force' => true]);
+
+            $this->assertSame(CommandStatus::FAILURE, $status, $command);
+            $this->assertStringContainsString("A bulk {$verb} cannot act on completed or cancelled executions", $output);
+        }
+
+        // A mixed list keeps the actionable half and says what it ignored.
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--status' => ['pending,completed'], '--dry-run' => true, '--json' => true]);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(['completed'], $document['ignored_statuses']);
+        $this->assertSame(1, $document['matched']);
+    }
+
+    public function test_dry_runs_predict_each_outcome_by_status_in_snake_case(): void
+    {
+        $clock = new FixedClock('2026-11-03 12:00:00');
+        $this->app->instance(ClockInterface::class, $clock);
+
+        $pending = $this->pending('acme');
+        $live = $this->pending('acme');
+        $notDue = $this->pending('acme');
+
+        // A live claim, and a retry scheduled an hour out.
+        WorkflowExecutionModel::query()->whereKey($live)->update(['status' => 'running', 'claimed_at' => '2026-11-03 11:59:00', 'claim_token' => 'x']);
+        WorkflowExecutionModel::query()->whereKey($notDue)->update(['status' => 'retrying', 'next_retry_at' => '2026-11-03 13:00:00']);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:cancel', ['--tenant' => 'acme', '--dry-run' => true, '--json' => true]);
+        $this->assertSame(CommandStatus::SUCCESS, $status);
+        $cancel = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $outcomes = array_column($cancel['actions'], 'outcome', 'execution');
+        $this->assertSame('would_cancel', $outcomes[$pending]);
+        $this->assertSame('would_request', $outcomes[$live]);
+        $this->assertSame('would_cancel', $outcomes[$notDue]);
+        $this->assertSame(['would_cancel' => 2, 'would_request' => 1, 'already_cancelled' => 0, 'would_refuse' => 0], $cancel['counts']);
+
+        ['output' => $output] = $this->callCommand('laraflow:execute', ['--tenant' => 'acme', '--dry-run' => true, '--json' => true]);
+        $execute = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        $outcomes = array_column($execute['actions'], 'outcome', 'execution');
+        $this->assertSame('would_run', $outcomes[$pending]);
+        $this->assertSame('would_refuse', $outcomes[$live]);
+        $this->assertSame('would_refuse', $outcomes[$notDue]);
+        $this->assertStringContainsString('--now', (string) array_column($execute['actions'], 'message', 'execution')[$notDue]);
+
+        // --now overrides the schedule, not a live claim.
+        ['output' => $output] = $this->callCommand('laraflow:execute', ['--tenant' => 'acme', '--now' => true, '--dry-run' => true, '--json' => true]);
+        $outcomes = array_column(json_decode($output, true, 512, JSON_THROW_ON_ERROR)['actions'], 'outcome', 'execution');
+        $this->assertSame('would_run', $outcomes[$notDue]);
+        $this->assertSame('would_refuse', $outcomes[$live]);
+
+        ['output' => $output] = $this->callCommand('laraflow:execute', ['--tenant' => 'acme', '--queue' => true, '--dry-run' => true, '--json' => true]);
+        $outcomes = array_column(json_decode($output, true, 512, JSON_THROW_ON_ERROR)['actions'], 'outcome', 'execution');
+        $this->assertSame('would_queue', $outcomes[$pending]);
+
+        // already_cancelled is predicted for a row cancelled after
+        // selection; the selection itself never offers one.
+        $command = $this->app->make(\Laraflow\Console\CancelCommand::class);
+        $predict = new ReflectionMethod($command, 'predict');
+        $cancelled = $this->app->make(WorkflowRunner::class)->cancel($pending);
+        $this->assertSame('already_cancelled', $predict->invoke($command, $cancelled)['outcome']);
+    }
+
+    public function test_a_refused_row_is_named_instead_of_promising_progress_on_the_next_run(): void
+    {
+        $live = $this->pending('acme');
+        $this->pending('acme');
+        WorkflowExecutionModel::query()->whereKey($live)->update(['status' => 'running', 'claimed_at' => now(), 'claim_token' => 'x']);
+
+        ['output' => $output] = $this->callCommand('laraflow:execute', ['--tenant' => 'acme', '--limit' => '1', '--force' => true]);
+
+        $this->assertStringContainsString('1 refused', $output);
+        $this->assertStringContainsString('would be selected first again', $output);
+        $this->assertStringNotContainsString('run the same command again', $output);
+    }
+
+    public function test_a_cancellation_honoured_mid_run_is_its_own_bucket_not_ran(): void
+    {
+        $execute = new ReflectionMethod(\Laraflow\Console\ExecuteCommand::class, 'bucket');
+        $command = $this->app->make(\Laraflow\Console\ExecuteCommand::class);
+
+        $this->assertSame('ran', $execute->invoke($command, 'completed'));
+        $this->assertSame('ran', $execute->invoke($command, 'retrying'));
+        $this->assertSame('cancelled', $execute->invoke($command, 'cancelled'));
+        $this->assertSame('failed', $execute->invoke($command, 'failed'));
+        $this->assertSame('failed', $execute->invoke($command, 'running'));
+    }
+
+    public function test_matched_is_never_smaller_than_selected(): void
+    {
+        $this->pending('acme');
+        $this->pending('acme');
+
+        ['output' => $output] = $this->callCommand('laraflow:execute', ['--tenant' => 'acme', '--dry-run' => true, '--json' => true]);
+        $document = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame(2, $document['matched']);
+        $this->assertSame(2, $document['selected']);
     }
 
     public function test_bulk_re_run_recovers_every_failed_execution_a_filter_matches_each_on_its_own(): void
@@ -135,6 +250,7 @@ class BulkOperationsTest extends TestCase
 
         $this->assertSame(CommandStatus::SUCCESS, $status);
         $this->assertStringContainsString('Handled 3 of 3 matching execution(s): 3 ran', $output);
+        $this->assertStringContainsString('Execution completed', $output, 'Each row says what it came to.');
 
         foreach ($failed as $id) {
             $this->assertTrue($this->repository()->find($id)->isCompleted());

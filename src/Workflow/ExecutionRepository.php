@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Workflow;
 
+use Closure;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
@@ -93,16 +94,25 @@ interface ExecutionRepository
     /**
      * Atomically claim an execution for this worker (compare-and-set).
      *
-     * Succeeds when the execution is `pending`, `failed`, `retrying`
-     * with `next_retry_at` due, `waiting` with a non-null, due
-     * `next_retry_at` (or, for both, $ignoreRetrySchedule set — the
-     * deliberate operator override), or `running` with a claim older
-     * than $staleAfterSeconds. Exactly one concurrent claimant can
-     * succeed. The returned handle's `resumedFrom` records the status
-     * the claim took the execution from.
+     * Succeeds when the execution is `pending`, `failed` with
+     * $reexecuteFailed set, `retrying` with `next_retry_at` due,
+     * `waiting` with a non-null, due `next_retry_at` (or, for both,
+     * $ignoreRetrySchedule set — the deliberate operator override), or
+     * `running` with a claim older than $staleAfterSeconds. Exactly one
+     * concurrent claimant can succeed. The returned handle's
+     * `resumedFrom` records the status the claim took the execution
+     * from.
+     *
+     * `failed` is terminal unless the caller opts in: $reexecuteFailed
+     * is the operator's "run this failure again" (laraflow:execute, the
+     * dashboard's execute action, WorkflowRunner::execute(), a queued
+     * re-run an operator asked for), and a claim without it — every
+     * plain queue delivery, every recovery pass — is refused exactly as
+     * a completed execution is, so a duplicate delivery can never re-run
+     * a terminal failure (docs/queue-and-recovery.md).
      *
      * @throws ExecutionNotFoundException
-     * @throws ExecutionNotRunnableException when the execution is completed or cancelled.
+     * @throws ExecutionNotRunnableException when the execution is completed or cancelled, or failed without $reexecuteFailed.
      * @throws ExecutionAlreadyClaimedException when another worker holds a fresh claim.
      * @throws RetryNotDueException when the execution is retrying before its due time.
      * @throws ExecutionStillWaitingException when the execution is parked on a wait that is not due.
@@ -113,7 +123,8 @@ interface ExecutionRepository
         int $id,
         string $claimToken,
         int $staleAfterSeconds,
-        bool $ignoreRetrySchedule = false
+        bool $ignoreRetrySchedule = false,
+        bool $reexecuteFailed = false
     ): WorkflowExecution;
 
     /**
@@ -215,6 +226,41 @@ interface ExecutionRepository
     ): ChildProgress;
 
     /**
+     * The newest child of one parent step, or null when it has none —
+     * served by the index on parent_step_execution_id. A sub-workflow
+     * step has at most one child (retries resume it); this is how the
+     * step finds it without reading its siblings.
+     */
+    public function childOfStep(
+        int $parentStepExecutionId
+    ): ?WorkflowExecution;
+
+    /**
+     * Create member $index of a fan-out exactly once: run $create — the
+     * member's creation — in one transaction that holds the parent
+     * step row's lock, and only while the step has no more than $index
+     * children. Returns what $create returned, or null when member
+     * $index already exists because another worker made it first.
+     *
+     * Members carry no index column; their count *is* the index, which
+     * is why the count and the insert must not be separable. Two workers
+     * resuming the same partial creation (a stale reclaim racing the
+     * original) are serialised on the step row and the second creates
+     * nothing. Deliver the member after this returns, never inside
+     * $create: the sync queue driver would run it under the lock.
+     *
+     * @template TMember
+     *
+     * @param  Closure(): TMember  $create
+     * @return TMember|null
+     */
+    public function createMember(
+        int $parentStepExecutionId,
+        int $index,
+        Closure $create
+    ): mixed;
+
+    /**
      * Attempt history for every step of one execution in a single
      * query, ordered by step position then attempt number. The same rows
      * attempts() returns per step, without one query per step.
@@ -236,6 +282,13 @@ interface ExecutionRepository
      * Every recovery scan — this one, pendingBefore(), dueForRetry(),
      * and waitingDue() — has the same shape: a cutoff, a limit, and the
      * two optional scopes, so a caller that narrows one narrows all.
+     * All four take $availableBefore: when given, a row whose last
+     * queue push became deliverable (`available_at`) after it is in
+     * flight and excluded, so a recovery pass does not re-push work a
+     * worker has simply not reached yet. Null — the default, what the
+     * attention scan passes, and what recovery passes to stale(), where
+     * a dead worker's claim already proves the push was consumed —
+     * reports every row regardless.
      *
      * @param  string|null  $workflow  Only executions created from this workflow class.
      * @param  string|null  $tenantId  Only executions for this tenant.
@@ -245,7 +298,8 @@ interface ExecutionRepository
         DateTimeImmutable $claimedBefore,
         int $limit = 100,
         ?string $workflow = null,
-        ?string $tenantId = null
+        ?string $tenantId = null,
+        ?DateTimeImmutable $availableBefore = null
     ): array;
 
     /**
@@ -264,7 +318,8 @@ interface ExecutionRepository
         DateTimeImmutable $createdBefore,
         int $limit = 100,
         ?string $workflow = null,
-        ?string $tenantId = null
+        ?string $tenantId = null,
+        ?DateTimeImmutable $availableBefore = null
     ): array;
 
     /**
@@ -280,25 +335,33 @@ interface ExecutionRepository
         DateTimeImmutable $dueBefore,
         int $limit = 100,
         ?string $workflow = null,
-        ?string $tenantId = null
+        ?string $tenantId = null,
+        ?DateTimeImmutable $availableBefore = null
     ): array;
 
     /**
-     * Durably record a signal for an execution waiting on exactly that
-     * name: the payload becomes the waiting step's output and the
-     * execution becomes due immediately, in one transaction. Refused
-     * with SignalRefusedException when the execution is not waiting on
-     * that signal — resumed, timed out, finished, or a different name.
-     * A second signal before the execution resumes overwrites the
-     * payload: last delivery wins, as at-least-once sources require.
-     * The caller bounds and serializes the payload (see
+     * Durably record a signal. For an execution waiting on exactly that
+     * name, the payload becomes the waiting step's output and the
+     * execution becomes due immediately, in one transaction. A second
+     * signal before the execution resumes overwrites the payload: last
+     * delivery wins, as at-least-once sources require.
+     *
+     * For an unfinished execution not (yet) parked on the name —
+     * pending, running, retrying, or waiting on something else — the
+     * signal is kept in the durable signal inbox instead: one entry per
+     * execution and name, a later delivery overwriting an earlier one
+     * (latest wins), consumed by the park() that waits on that name.
+     * Nothing becomes due. Refused with SignalRefusedException when the
+     * execution is completed, cancelled, failed, or compensating — no
+     * park can follow — when the name is reserved (`laraflow.`: the
+     * machinery's own signals are never buffered), or when the execution
+     * does not exist. The caller bounds and serializes the payload (see
      * docs/advanced-workflows.md); recording does not deliver — the
      * queue fast path and laraflow:recover do.
      *
      * @param  array<array-key, mixed>  $payload
      *
      * @throws SignalRefusedException
-     * @throws ExecutionNotFoundException
      */
     public function recordSignal(
         int $id,
@@ -306,6 +369,35 @@ interface ExecutionRepository
         array $payload,
         DateTimeImmutable $at
     ): WorkflowExecution;
+
+    /**
+     * Park an execution on the wait its claimed step returned, in one
+     * claim-guarded transaction: $step (already marked waiting) and the
+     * execution's context are written, and then either
+     *
+     * - $step waits on an application signal the inbox already holds
+     *   (see recordSignal()): the buffered payload is removed from the
+     *   inbox and written as the step's output — on the row and on
+     *   $step — the execution stays `running` under this claim, nothing
+     *   is released, and the payload is returned for the caller to
+     *   resume the step now; or
+     * - otherwise: $execution is marked waiting with $nextEventAt as its
+     *   next instant (`next_retry_at`) and released, exactly as
+     *   release() does, and null is returned.
+     *
+     * Nothing outside the transaction ever sees the step waiting on an
+     * execution that is still running — the window that used to refuse
+     * a signal arriving mid-park.
+     *
+     * @return array<array-key, mixed>|null The consumed payload, or null when the execution parked.
+     *
+     * @throws ClaimLostException when this worker no longer holds the claim.
+     */
+    public function park(
+        WorkflowExecution $execution,
+        StepExecution $step,
+        ?DateTimeImmutable $nextEventAt
+    ): ?array;
 
     /**
      * Executions a tenant ceiling has deferred past $now — their
@@ -336,7 +428,8 @@ interface ExecutionRepository
         DateTimeImmutable $dueBefore,
         int $limit = 100,
         ?string $workflow = null,
-        ?string $tenantId = null
+        ?string $tenantId = null,
+        ?DateTimeImmutable $availableBefore = null
     ): array;
 
     /**

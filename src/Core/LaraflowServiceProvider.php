@@ -252,21 +252,16 @@ class LaraflowServiceProvider extends ServiceProvider
         $this->app->singleton(ChildDelivery::class, fn (Container $app): ChildDelivery => new QueueChildDelivery($app));
 
         $this->app->singleton(ChildWorkflows::class, function (Container $app): ChildWorkflows {
-            $maxDepth = $app->make(Config::class)->get('laraflow.workflows.max_depth');
-
             return new ChildWorkflows(
                 repository: $app->make(ExecutionRepository::class),
                 container: $app,
                 delivery: $app->make(ChildDelivery::class),
-                // Blank means unset, as for every other setting.
-                maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
+                maxDepth: (int) ($this->setting($app->make(Config::class), 'laraflow.workflows.max_depth') ?? 8),
             );
         });
 
         $this->app->singleton(FanOutWorkflows::class, function (Container $app): FanOutWorkflows {
             $config = $app->make(Config::class);
-            $maxDepth = $config->get('laraflow.workflows.max_depth');
-            $maxMembers = $config->get('laraflow.workflows.max_members');
 
             return new FanOutWorkflows(
                 repository: $app->make(ExecutionRepository::class),
@@ -274,9 +269,8 @@ class LaraflowServiceProvider extends ServiceProvider
                 delivery: $app->make(ChildDelivery::class),
                 events: $app->make(EventEmitter::class),
                 logger: $app->make(LoggerInterface::class),
-                // Blank means unset, as for every other setting.
-                maxDepth: $maxDepth === null || $maxDepth === '' ? 8 : (int) $maxDepth,
-                maxMembers: $maxMembers === null || $maxMembers === '' ? 1000 : (int) $maxMembers,
+                maxDepth: (int) ($this->setting($config, 'laraflow.workflows.max_depth') ?? 8),
+                maxMembers: (int) ($this->setting($config, 'laraflow.workflows.max_members') ?? 1000),
             );
         });
 
@@ -356,6 +350,7 @@ class LaraflowServiceProvider extends ServiceProvider
             resolver: $app->make(WorkflowResolver::class),
             events: $app->make(EventEmitter::class),
             clock: $app->make(ClockInterface::class),
+            redispatchAfterSeconds: (int) ($this->setting($app->make(Config::class), 'laraflow.recovery.redispatch_after') ?? 60),
         ));
     }
 
@@ -459,6 +454,12 @@ class LaraflowServiceProvider extends ServiceProvider
             __DIR__.'/../../config/laraflow.php' => $this->app->configPath('laraflow.php'),
         ], 'laraflow-config');
 
+        // publishes(), not publishesMigrations(): the latter re-dates each
+        // file on publish (the skeleton enables update_date_on_publish),
+        // and the published copies must keep the package's names — the
+        // provider also loads them by default, and Laravel only runs a
+        // migration once because the two share a name. The frozen schema
+        // and docs/upgrading.md depend on those names never changing.
         $this->publishes([
             __DIR__.'/../../database/migrations' => $this->app->databasePath('migrations'),
         ], 'laraflow-migrations');

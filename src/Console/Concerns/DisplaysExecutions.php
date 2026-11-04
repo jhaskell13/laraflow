@@ -150,17 +150,20 @@ trait DisplaysExecutions
     ): int {
         $failed = $repository->find($executionId);
         $steps = $repository->steps($failed);
+        // Redacted exactly as the execution row's copy was: the row and
+        // the report of it must not disagree about what is shown.
+        $error = $this->redactedMessage($exception);
 
         return $this->respond([
             'execution' => JsonReport::execution($failed) + ['steps' => array_map(JsonReport::step(...), $steps)],
             'outcome' => $failed->status->value,
-            'error' => $exception->getMessage(),
+            'error' => $error,
             'error_class' => $exception::class,
             'message' => "The failure is persisted. Recover it with: laraflow:execute {$executionId}",
-        ], function () use ($failed, $steps, $exception, $executionId): void {
+        ], function () use ($failed, $steps, $error, $executionId): void {
             $this->displayExecution($failed, $steps);
 
-            $this->components->error('A step failed: '.$exception->getMessage());
+            $this->components->error('A step failed: '.$error);
             $this->components->info(
                 "The failure is persisted. Recover it with: laraflow:execute {$executionId}"
             );

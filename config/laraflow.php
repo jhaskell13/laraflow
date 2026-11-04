@@ -193,12 +193,20 @@ return [
     | Enable it (e.g. 300) only if every pending execution in your
     | application is meant to run immediately.
     |
+    | redispatch_after: seconds a queue push is treated as in flight. A
+    | due retry, due wait, or lost pending whose last push became
+    | deliverable (available_at) more recently than this is left to the
+    | worker that will take it, instead of being pushed again on every
+    | recover run. Keep it above your normal queue latency; 0 re-pushes
+    | everything due, as before 0.6.0. Stale claims are unaffected.
+    |
     */
 
     'recovery' => [
         'limit' => env('LARAFLOW_RECOVERY_LIMIT', 100),
         'abandon_after_attempts' => env('LARAFLOW_RECOVERY_ABANDON_AFTER_ATTEMPTS', 3),
         'pending_after' => env('LARAFLOW_RECOVERY_PENDING_AFTER'),
+        'redispatch_after' => env('LARAFLOW_RECOVERY_REDISPATCH_AFTER', 60),
     ],
 
     /*
@@ -602,6 +610,13 @@ return [
         // absent, not hidden.
         'read_only' => env('LARAFLOW_DASHBOARD_READ_ONLY', false),
 
+        // A gate the four actions (start, execute, cancel, signal) must
+        // also pass, on top of the view rule — e.g. 'actOnLaraflow', for
+        // viewers who may look but not touch. Null: whoever may view may
+        // act. A named gate that is never defined denies every action.
+        // Dashboard::authActions() takes precedence. See docs/dashboard.md.
+        'action_gate' => env('LARAFLOW_DASHBOARD_ACTION_GATE'),
+
         // Executions per list page, up to the repository's own ceiling.
         'per_page' => env('LARAFLOW_DASHBOARD_PER_PAGE', 25),
 
@@ -631,9 +646,18 @@ return [
         'path' => env('LARAFLOW_TRIGGERS_PATH', 'laraflow/triggers'),
 
         // The middleware every trigger route runs through. `api` carries
-        // no session — the signature is the whole identity — and is where
-        // an application puts a rate limit (`throttle:…`) for these.
-        'middleware' => ['api'],
+        // no session — the signature is the whole identity. The throttle
+        // (60 a minute, per client IP) is there by default because these
+        // routes are public and each request costs an HMAC and, once
+        // verified, a database write; replace it with a named limiter
+        // (`throttle:laraflow-triggers`) when a signer sends more.
+        'middleware' => ['api', 'throttle:60,1'],
+
+        // The largest request body read before verification, in bytes.
+        // Larger is refused with 413 before anything is hashed, so an
+        // unauthenticated client cannot make the server hash megabytes.
+        // A signal payload is a small JSON object; 64 KiB is generous.
+        'max_body_bytes' => env('LARAFLOW_TRIGGERS_MAX_BODY_BYTES', 65536),
 
         // The shared secret the signed endpoint verifies against. At
         // least 32 bytes; `openssl rand -hex 32`. From the environment,

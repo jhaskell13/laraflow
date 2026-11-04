@@ -37,12 +37,13 @@ class JsonOutputTest extends TestCase
 
     public function test_every_operating_command_declares_json_and_the_generators_and_installer_do_not(): void
     {
-        $excluded = ['laraflow:install', 'make:workflow', 'make:step', 'make:connector'];
+        $excluded = ['laraflow:install', 'laraflow:make-workflow', 'laraflow:make-step', 'laraflow:make-connector'];
 
         foreach (Artisan::all() as $name => $command) {
-            // Laraflow's own commands: every laraflow:* and the three
-            // generators it ships; Laravel's make:* are not ours to judge.
-            if (! str_starts_with($name, 'laraflow:') && ! in_array($name, $excluded, true)) {
+            // Laraflow's own commands: every laraflow:*, generators
+            // included; Laravel's make:* (and the deprecated aliases,
+            // which are the generators under another key) are skipped.
+            if (! str_starts_with($name, 'laraflow:')) {
                 continue;
             }
 

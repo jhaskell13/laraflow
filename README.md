@@ -38,7 +38,7 @@ Laraflow gives that work a home. Workflows are ordered, named steps written as p
 |------------|-----------|
 | PHP        | 8.2, 8.3, 8.4, 8.5 |
 | Laravel    | 12.x, 13.x (Laravel 13 requires PHP 8.3+) |
-| Database   | SQLite, MySQL 8+, PostgreSQL 13+, MariaDB 10.6+, SQL Server 2019+ — all five run the full suite in CI |
+| Database   | SQLite, MySQL 8.4+, PostgreSQL 14+, MariaDB 10.11+, SQL Server 2022+ — all five run the full suite in CI |
 
 See [docs/compatibility.md](docs/compatibility.md) for the full policy, including what "supported" means at this stage.
 
@@ -69,8 +69,8 @@ That publishes `config/laraflow.php`, runs the migrations, and prints what to do
 From there, the whole first workflow is three commands and one edit:
 
 ```bash
-php artisan make:workflow FulfilOrder          # app/Workflows/FulfilOrder.php
-php artisan make:step ReserveInventory         # app/Workflows/Steps/ReserveInventory.php
+php artisan laraflow:make-workflow FulfilOrder          # app/Workflows/FulfilOrder.php
+php artisan laraflow:make-step ReserveInventory         # app/Workflows/Steps/ReserveInventory.php
 # name the step in the workflow's steps() list, then:
 php artisan laraflow:start FulfilOrder --input='{"order_id": 42}'
 php artisan laraflow:show 1
@@ -508,7 +508,7 @@ Keep credentials in your `.env` file, not in the published config.
 
 ## Your first workflow
 
-Scaffold both halves — `php artisan make:workflow SyncCustomerWorkflow` and `php artisan make:step LoadCustomer` (`--conditional` and `--sub-workflow` for the other two kinds of step) — or write them by hand. A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
+Scaffold both halves — `php artisan laraflow:make-workflow SyncCustomerWorkflow` and `php artisan laraflow:make-step LoadCustomer` (`--conditional` and `--sub-workflow` for the other two kinds of step) — or write them by hand. A workflow is a class that lists its steps in order. Each step is a class implementing `Laraflow\Workflow\Step` and is resolved from the Laravel container, so you can type-hint dependencies in step constructors.
 
 ```php
 <?php

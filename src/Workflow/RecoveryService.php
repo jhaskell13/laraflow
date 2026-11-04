@@ -58,8 +58,13 @@ class RecoveryService
         protected WorkflowResolver $resolver,
         protected EventEmitter $events,
         ClockInterface $clock,
+        protected int $redispatchAfterSeconds = 60,
     ) {
         $this->clock = $clock;
+
+        if ($redispatchAfterSeconds < 0) {
+            throw new InvalidArgumentException('laraflow.recovery.redispatch_after must not be negative.');
+        }
     }
 
     /**
@@ -89,6 +94,9 @@ class RecoveryService
     ): array {
         $now = $this->clock->now();
         $candidates = [];
+
+        // A push younger than this is in flight; see recovery.redispatch_after.
+        $availableBefore = $now->modify("-{$this->redispatchAfterSeconds} seconds");
 
         $stale = $this->repository->stale(
             $now->modify("-{$staleAfterSeconds} seconds"),
@@ -121,13 +129,13 @@ class RecoveryService
         };
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
-            foreach ($this->repository->dueForRetry($now, $remaining, $workflow, $tenantId) as $execution) {
+            foreach ($this->repository->dueForRetry($now, $remaining, $workflow, $tenantId, $availableBefore) as $execution) {
                 $candidates[] = $this->candidate($execution, RecoveryReason::RetryDue, $abandonAfterAttempts);
             }
         }
 
         if ($includeDueRetries && ($remaining = $limit - $spent()) > 0) {
-            foreach ($this->repository->waitingDue($now, $remaining, $workflow, $tenantId) as $execution) {
+            foreach ($this->repository->waitingDue($now, $remaining, $workflow, $tenantId, $availableBefore) as $execution) {
                 $candidates[] = $this->candidate($execution, RecoveryReason::WaitDue, $abandonAfterAttempts);
             }
         }
@@ -138,6 +146,7 @@ class RecoveryService
                 $remaining,
                 $workflow,
                 $tenantId,
+                $availableBefore,
             );
 
             foreach ($pending as $execution) {
@@ -181,7 +190,9 @@ class RecoveryService
 
         $this->emitRetryScheduled($candidate);
 
-        return $this->runner->execute($candidate->execution->id, $workflow);
+        // Recovery never re-runs a terminal failure: a candidate that
+        // failed between scan and run is refused, not resurrected.
+        return $this->runner->execute($candidate->execution->id, $workflow, reexecuteFailed: false);
     }
 
     /**

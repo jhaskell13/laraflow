@@ -465,7 +465,7 @@ final class Scheduler
                     // application with no queue must not have its heal
                     // path push jobs nothing will take.
                     $execution = $this->executions->find($executionId);
-                    $this->runner->execute($executionId, $this->resolver->resolve($executionId, $execution->workflow));
+                    $this->runner->execute($executionId, $this->resolver->resolve($executionId, $execution->workflow), reexecuteFailed: false);
                 } else {
                     $this->dispatcher->dispatchExecution($executionId);
                 }

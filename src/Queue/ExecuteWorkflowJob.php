@@ -53,8 +53,23 @@ class ExecuteWorkflowJob implements ShouldQueue
 
     public int $backoff = 0;
 
+    /**
+     * The failure an operator queued this delivery to re-run, as its
+     * `failed_at` (Y-m-d H:i:s) — set only by an operator's action
+     * (laraflow:execute --queue, the dashboard's execute action, both
+     * through Handoff). Null for every other delivery, so a duplicate or
+     * late delivery finding the execution failed is a no-op, as for
+     * completed: re-running a terminal failure is an explicit action,
+     * never a broker's at-least-once side effect.
+     *
+     * An instant rather than a flag: a duplicate of the operator's own
+     * job, arriving after the re-run it asked for has failed *again*,
+     * must not take that new failure as asked-for too. The opt-in names
+     * one failure and spends with it.
+     */
     public function __construct(
         public readonly int $executionId,
+        public readonly ?string $reexecuteFailedAt = null,
     ) {
         $this->applyQueueSettings();
     }
@@ -85,7 +100,7 @@ class ExecuteWorkflowJob implements ShouldQueue
         $workflow = $resolver->resolve($execution->id, $execution->workflow);
 
         try {
-            $result = $runner->execute($execution->id, $workflow);
+            $result = $runner->execute($execution->id, $workflow, reexecuteFailed: $this->reexecutes($execution));
 
             if (($result->isRetrying() || $result->isWaiting()) && $result->nextRetryAt !== null) {
                 // A retry was durably scheduled, or a wait parked with a
@@ -122,7 +137,10 @@ class ExecuteWorkflowJob implements ShouldQueue
                 'execution_id' => $execution->id,
             ]);
         } catch (ExecutionNotRunnableException) {
-            $logger->info('Laraflow ignored a delivery for an execution that is already finished (completed or cancelled).', [
+            // Failed is here too unless this delivery is an operator's
+            // queued re-run: a duplicate of the delivery that failed it
+            // must not run it again.
+            $logger->info('Laraflow ignored a delivery for an execution that is already finished (completed, cancelled, or failed).', [
                 'execution_id' => $execution->id,
             ]);
         } catch (ClaimLostException) {
@@ -175,6 +193,18 @@ class ExecuteWorkflowJob implements ShouldQueue
             'execution_id' => $this->executionId,
             'exception' => $message,
         ]);
+    }
+
+    /**
+     * Whether this delivery is the operator's re-run of the execution's
+     * current failure. The claim still decides; a failure this delivery
+     * was not issued for is refused there as not runnable.
+     */
+    protected function reexecutes(WorkflowExecution $execution): bool
+    {
+        return $this->reexecuteFailedAt !== null
+            && $execution->isFailed()
+            && $execution->failedAt?->format('Y-m-d H:i:s') === $this->reexecuteFailedAt;
     }
 
     /**
@@ -254,6 +284,10 @@ class ExecuteWorkflowJob implements ShouldQueue
                 $this->connection,
                 $this->queue,
                 $deferred->deferredUntil,
+                // A deferred operator re-run is still one: the row stays
+                // failed through a deferral, and the re-push must carry
+                // the operator's opt-in or it would be refused on arrival.
+                $this->reexecuteFailedAt !== null,
             );
 
             $logger->info('Laraflow re-queued a deferred execution for when its tenant may have a slot.', [

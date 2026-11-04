@@ -10,6 +10,7 @@ use Illuminate\Contracts\Config\Repository as Config;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\OutputsJson;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
+use Laraflow\Support\FilterInput;
 use Laraflow\Workflow\RetentionPolicy;
 use Laraflow\Workflow\RetentionReport;
 use Laraflow\Workflow\RetentionService;
@@ -51,7 +52,7 @@ class PruneCommand extends Command
         {--tenant= : Only consider executions for this tenant id}
         {--dry-run : Report what would be removed without removing anything}
         {--force : Skip the production confirmation}
-        {--json : Print one JSON document instead of the report; requires --force or --dry-run}';
+        {--json : Print one JSON document instead of the report; in production, requires --force or --dry-run}';
 
     protected $description = 'Apply the retention policy to finished workflow executions';
 
@@ -153,13 +154,18 @@ class PruneCommand extends Command
                 continue;
             }
 
-            if (! is_numeric($value)) {
+            // Whole numbers in digits only: is_numeric() read 1.5 days
+            // as 1 and 1e2 as 100 — a retention bound nobody typed, on
+            // a command that deletes (Milestone 10 audit).
+            $number = FilterInput::wholeNumber($value);
+
+            if ($number === null) {
                 throw new InvalidArgumentException(
                     "The --{$option} option must be {$unit}, got [{$value}]."
                 );
             }
 
-            $retention[$key] = (int) $value;
+            $retention[$key] = $number;
         }
 
         // RetentionPolicy does the bounds checking, so an invalid value

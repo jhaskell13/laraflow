@@ -11,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use InvalidArgumentException;
+use Laraflow\Dashboard\Dashboard;
 use Laraflow\Dashboard\Support\CursorTrail;
 use Laraflow\Dashboard\Support\FilterRequest;
 use Laraflow\Exceptions\Workflow\ExecutionNotFoundException;
@@ -91,14 +92,17 @@ final class ExecutionController
                 $page->executions,
             ))),
             'queueIsSync' => Outcome::queueIsSync($this->config),
-            'canAct' => $this->router->has('laraflow.actions.start'),
+            // The routes must exist (not read-only) and this request
+            // must pass the action rule: a viewer who may not act is
+            // not offered a form that would only answer 403.
+            'canAct' => $this->router->has('laraflow.actions.start') && Dashboard::checkAction($request),
             'oldInput' => $request->hasSession() ? $request->session()->getOldInput() : [],
             'reopenStart' => $request->query('start') !== null,
             'now' => $this->clock->now(),
         ]);
     }
 
-    public function show(int $id): View
+    public function show(Request $request, int $id): View
     {
         try {
             $execution = $this->repository->find($id);
@@ -144,7 +148,7 @@ final class ExecutionController
             // maps are the controller's to build.
             'stepNamesByPosition' => $byPosition,
             'queueIsSync' => Outcome::queueIsSync($this->config),
-            'canAct' => $this->router->has('laraflow.actions.execute'),
+            'canAct' => $this->router->has('laraflow.actions.execute') && Dashboard::checkAction($request),
             'now' => $now,
         ]);
     }

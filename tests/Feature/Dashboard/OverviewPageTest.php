@@ -87,6 +87,44 @@ class OverviewPageTest extends TestCase
         $response->assertSee('nothing');
     }
 
+    /**
+     * M10 audit: a status filter scopes the cards rather than being
+     * replaced by each card's status. Statuses the filter excludes say
+     * 0, the shares sum to 100%, and each card links to its own status
+     * alone — the card's status wins over the filter's.
+     */
+    public function test_a_status_filter_scopes_the_cards_and_each_card_links_to_its_own_status(): void
+    {
+        $runner = $this->app->make(WorkflowRunner::class);
+
+        $runner->run(new TwoStepWorkflow);
+        $runner->run(new TwoStepWorkflow);
+
+        StepTwo::$failTimes = 1;
+
+        try {
+            $runner->run(new TwoStepWorkflow);
+        } catch (RuntimeException) {
+        }
+
+        $response = $this->get('/laraflow?status[]=failed&tenant=');
+
+        $response->assertOk();
+        $response->assertSeeInOrder(['lf-count-card--completed', '0', 'completed', '0.0%'], false);
+        $response->assertSeeInOrder(['lf-count-card--failed', '1', 'failed', '100.0%'], false);
+        $response->assertDontSee('200.0%');
+        $response->assertSee('executions?status%5B0%5D=completed', false);
+        $response->assertDontSee('status%5B0%5D=failed&amp;status', false);
+
+        // Two statuses in the filter: each counts within the scope, and
+        // the completed card links to completed, not to the filter's pair.
+        $response = $this->get('/laraflow?status[]=failed&status[]=completed');
+
+        $response->assertSeeInOrder(['lf-count-card--completed', '2', 'completed', '66.7%'], false);
+        $response->assertSeeInOrder(['lf-count-card--failed', '1', 'failed', '33.3%'], false);
+        $response->assertSee('href="http://localhost/laraflow/executions?status%5B0%5D=completed"', false);
+    }
+
     public function test_what_needs_attention_is_what_the_console_says_needs_attention(): void
     {
         Date::setTestNow('2026-11-02 09:00:00');

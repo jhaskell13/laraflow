@@ -389,7 +389,7 @@ class RetentionServiceTest extends TestCase
 
         // A worker claims one between the scan and the write: claiming
         // sets status = running and clears finished_at.
-        $repository->claim($doomed->id, 'worker-a', 300);
+        $repository->claim($doomed->id, 'worker-a', 300, reexecuteFailed: true);
 
         $deleted = $repository->deleteExecutions(
             [$doomed->id, $other->id],

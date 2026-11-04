@@ -246,6 +246,47 @@ class ScheduleTest extends TestCase
         $this->assertSame([ScheduleAction::STARTED], $this->outcomes($third));
     }
 
+    public function test_pruning_ticks_never_breaks_without_overlapping(): void
+    {
+        // The Milestone 10 audit: pruneTicks() aged by created_at alone,
+        // took the latest fired tick of a schedule whose execution was
+        // still parked, and the next tick started beside it.
+        NightlyWorkflow::$withoutOverlapping = true;
+        NightlyWorkflow::$steps = [PauseStep::class];
+
+        $scheduler = $this->scheduler();
+        $scheduler->run();
+
+        $this->clock->set('2026-11-04 02:00:30');
+        $parked = $this->startedId($scheduler->run());
+
+        // Long after, every tick is old enough to prune by age.
+        $this->clock->set('2026-12-30 02:00:30');
+        $this->assertSame(0, $this->schedules()->countTicksBefore($this->clock->now()));
+        $this->assertSame(0, $this->schedules()->pruneTicks($this->clock->now(), 100));
+
+        $this->clock->set('2026-12-31 02:00:30');
+        $suppressed = $scheduler->run();
+        $this->assertSame([ScheduleAction::SKIPPED_OVERLAP], $this->outcomes($suppressed));
+        $this->assertSame($parked, $suppressed->actions[0]->overlappedExecutionId);
+
+        // The parked run finishes; a new tick fires and parks too.
+        $this->app->make(WorkflowRunner::class)->cancel($parked);
+        $this->clock->set('2027-01-01 02:00:30');
+        $latest = $this->startedId($scheduler->run());
+
+        $this->clock->set('2027-03-01 00:00:00');
+        $this->assertSame(2, $this->schedules()->countTicksBefore($this->clock->now()));
+        $this->assertSame(2, $this->schedules()->pruneTicks($this->clock->now(), 100), 'The finished tick and the skipped one go.');
+
+        $kept = ScheduleTickModel::query()->sole();
+        $this->assertSame($latest, $kept->workflow_execution_id, 'The latest fired tick, still unfinished, stays.');
+
+        // Finished, it is still the latest fired tick: kept all the same.
+        $this->app->make(WorkflowRunner::class)->cancel($latest);
+        $this->assertSame(0, $this->schedules()->pruneTicks($this->clock->now(), 100));
+    }
+
     public function test_a_lost_dispatch_is_healed_and_the_applications_own_pending_work_is_not(): void
     {
         // Real-clock base: Eloquent writes created_at from the real

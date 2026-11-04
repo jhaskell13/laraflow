@@ -35,9 +35,10 @@ final readonly class FilterRequest
      * clause everywhere, so one shareable link could pin a connection
      * for minutes (Milestone 8.5 audit). Past this the extras are
      * dropped and said so, rather than the page refusing: the filter a
-     * person meant is in the first few.
+     * person meant is in the first few. The bound itself is shared with
+     * the console (FilterInput::MAX_VALUES), which refuses instead.
      */
-    private const MAX_VALUES = 20;
+    private const MAX_VALUES = FilterInput::MAX_VALUES;
 
     /**
      * @param  list<string>  $problems  What could not be read, in words.
@@ -68,7 +69,9 @@ final readonly class FilterRequest
             $values['status'] = array_map(fn (ExecutionStatus $status): string => $status->value, $statuses);
         }
 
-        $workflows = self::list($request, 'workflow', $problems);
+        // Normalised as the console does: a leading backslash, as PHP
+        // writes a fully qualified name, would otherwise match nothing.
+        $workflows = array_values(array_unique(array_map(FilterInput::workflow(...), self::list($request, 'workflow', $problems))));
 
         if ($workflows !== []) {
             $values['workflow'] = $workflows;
@@ -106,6 +109,10 @@ final readonly class FilterRequest
         unset($slot);
 
         try {
+            // Named as the form names them; ExecutionFilter's own check
+            // below would say createdAfter/createdBefore.
+            FilterInput::assertWindow($since, $until, 'since', 'until');
+
             $filter = new ExecutionFilter(
                 workflow: $workflows === [] ? null : $workflows,
                 status: $statuses === [] ? null : $statuses,
@@ -157,25 +164,10 @@ final readonly class FilterRequest
     private static function list(Request $request, string $name, array &$problems): array
     {
         $value = $request->query($name);
-        $values = is_array($value) ? $value : [$value];
 
-        $out = [];
-
-        foreach ($values as $item) {
-            if (! is_scalar($item)) {
-                continue;
-            }
-
-            foreach (explode(',', (string) $item) as $piece) {
-                $piece = trim($piece);
-
-                if ($piece !== '') {
-                    $out[] = $piece;
-                }
-            }
-        }
-
-        $out = array_values(array_unique($out));
+        // The splitting is shared with the console (FilterInput); only
+        // what happens past the cap is this surface's own.
+        $out = FilterInput::values(is_array($value) ? $value : [$value]);
 
         if (count($out) > self::MAX_VALUES) {
             $problems[] = sprintf(

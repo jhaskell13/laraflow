@@ -91,6 +91,10 @@ class WorkflowDispatcher
      *                                               early (an imprecise driver, a duplicate) is refused with
      *                                               RetryNotDueException and treated as a no-op by the job; the
      *                                               queue owes no precision here.
+     * @param  bool  $reexecuteFailed  The operator's opt-in to re-running a
+     *                                 `failed` execution, carried on the job to the claim. Without
+     *                                 it a failed execution may still be queued, but the delivery
+     *                                 is refused as not runnable and does nothing.
      *
      * @throws ExecutionNotFoundException
      * @throws ExecutionNotRunnableException when the execution is already completed.
@@ -100,6 +104,7 @@ class WorkflowDispatcher
         ?string $connection = null,
         ?string $queue = null,
         ?DateTimeInterface $availableAt = null,
+        bool $reexecuteFailed = false,
     ): WorkflowExecution {
         $execution = $this->repository->find($executionId);
 
@@ -107,7 +112,7 @@ class WorkflowDispatcher
             throw ExecutionNotRunnableException::forStatus($execution->id, $execution->status);
         }
 
-        $this->queueJob($execution, $connection, $queue, $availableAt);
+        $this->queueJob($execution, $connection, $queue, $availableAt, $reexecuteFailed);
 
         return $execution;
     }
@@ -117,11 +122,17 @@ class WorkflowDispatcher
         ?string $connection,
         ?string $queue,
         ?DateTimeInterface $availableAt = null,
+        bool $reexecuteFailed = false,
     ): void {
         $connection ??= $this->stringConfig('laraflow.queue.connection');
         $queue ??= $this->stringConfig('laraflow.queue.queue');
 
-        $job = new ExecuteWorkflowJob($execution->id);
+        // The opt-in names the failure the caller saw, so the job cannot
+        // carry it on to a later one (see ExecuteWorkflowJob).
+        $job = new ExecuteWorkflowJob(
+            $execution->id,
+            $reexecuteFailed && $execution->isFailed() ? $execution->failedAt?->format('Y-m-d H:i:s') : null,
+        );
 
         // Null leaves Laravel's own defaults in place.
         $job->onConnection($connection);

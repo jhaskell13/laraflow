@@ -185,11 +185,18 @@ class WorkflowRunner
      *                                     before its next_retry_at — the deliberate operator override
      *                                     behind laraflow:execute --now. Without it, an early claim
      *                                     throws RetryNotDueException.
+     * @param  bool  $reexecuteFailed  Claim a `failed` execution and run it
+     *                                 again. True by default because calling this method in-process
+     *                                 *is* the explicit operator action (laraflow:execute, the
+     *                                 dashboard); the queue job passes false unless the delivery was
+     *                                 queued as an operator's re-run, so a duplicate delivery can
+     *                                 never re-run a terminal failure. Recovery passes false.
      */
     public function execute(
         int $executionId,
         Workflow $workflow,
-        bool $ignoreRetrySchedule = false
+        bool $ignoreRetrySchedule = false,
+        bool $reexecuteFailed = true
     ): WorkflowExecution {
         $claimToken = bin2hex(random_bytes(16));
 
@@ -198,7 +205,8 @@ class WorkflowRunner
                 $executionId,
                 $claimToken,
                 $this->options->staleAfterSeconds,
-                $ignoreRetrySchedule
+                $ignoreRetrySchedule,
+                $reexecuteFailed,
             );
         } catch (TenantThrottledException $deferred) {
             // The deferral is durable; announce it after the write it
@@ -537,15 +545,7 @@ class WorkflowRunner
             if ($stepExecution->isWaiting()) {
                 $resolution = $this->waits->resolve($execution, $stepExecution, $context, $policy, $failurePolicy, $waitsForcedDue, $startedAt);
 
-                if ($resolution->resumed) {
-                    continue;
-                }
-
-                if ($resolution->continueFailure !== null) {
-                    // The step failed under FailurePolicy::Continue; the
-                    // failure is already recorded on the step row.
-                    $firstFailure ??= $resolution->continueFailure;
-
+                if ($this->continuesAfterWait($resolution, $firstFailure)) {
                     continue;
                 }
 
@@ -628,8 +628,26 @@ class WorkflowRunner
                         return $execution;
                     }
 
-                    $this->waits->park($execution, $stepExecution, $context, $output);
-                    $this->cancelIfRequested($execution);
+                    if (! $this->waits->park($execution, $stepExecution, $context, $output)) {
+                        $this->cancelIfRequested($execution);
+
+                        return $execution;
+                    }
+
+                    // The signal it waits on arrived before it parked,
+                    // and was kept in the inbox: the payload is on the
+                    // step and this claim still holds the execution, so
+                    // the wait resolves here, exactly as a claim finding
+                    // the step signalled would resolve it.
+                    $resolution = $this->waits->resolve($execution, $stepExecution, $context, $policy, $failurePolicy, false, $this->now());
+
+                    if ($this->continuesAfterWait($resolution, $firstFailure)) {
+                        continue;
+                    }
+
+                    if ($resolution->terminalFailure !== null) {
+                        return $this->failTerminally($execution, $workflow, $context, $resolution->terminalFailure);
+                    }
 
                     return $execution;
                 }
@@ -686,6 +704,28 @@ class WorkflowRunner
         $this->parents->childFinished($execution);
 
         return $execution;
+    }
+
+    /**
+     * The step loop's reading of a resolved wait: true to go on to the
+     * next step (resumed, or failed under FailurePolicy::Continue — the
+     * failure already on the row and noted in $firstFailure); false when
+     * this claim is done with the execution, for the caller to fail it
+     * terminally or return the resting handle.
+     */
+    protected function continuesAfterWait(StepResolution $resolution, ?Throwable &$firstFailure): bool
+    {
+        if ($resolution->resumed) {
+            return true;
+        }
+
+        if ($resolution->continueFailure !== null) {
+            $firstFailure ??= $resolution->continueFailure;
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

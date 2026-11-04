@@ -17,6 +17,13 @@ enum TriggerRefusalReason: string
     /** No signature headers, or headers that are not the documented shape. */
     case Unsigned = 'unsigned';
 
+    /**
+     * Unverified, and the body is over laraflow.triggers.max_body_bytes:
+     * refused before anything is hashed, so it is not a verification
+     * failure and answers 413, not 401.
+     */
+    case BodyTooLarge = 'body_too_large';
+
     /** Well-formed, but the timestamp is outside the tolerance. */
     case Stale = 'stale';
 

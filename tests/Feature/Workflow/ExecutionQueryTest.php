@@ -278,6 +278,39 @@ class ExecutionQueryTest extends TestCase
         $this->assertFalse($third->hasMore());
     }
 
+    public function test_a_cursor_carries_its_direction_and_refuses_the_other(): void
+    {
+        array_map(fn () => $this->create()->id, range(1, 5));
+        $repository = $this->repository();
+
+        $newest = $repository->list(ExecutionFilter::all(), limit: 2)->nextCursor;
+        $oldest = $repository->list(new ExecutionFilter(oldestFirst: true), limit: 2)->nextCursor;
+
+        // Newest-first cursors are bare ids, as every cursor was before
+        // direction was encoded, so old ones still read the same.
+        $this->assertNotNull($newest);
+        $this->assertTrue(ctype_digit($newest));
+        $this->assertStringStartsWith('a', (string) $oldest);
+
+        foreach ([[$newest, true], [$oldest, false]] as [$cursor, $oldestFirst]) {
+            try {
+                $repository->list(new ExecutionFilter(oldestFirst: $oldestFirst), limit: 2, cursor: $cursor);
+                $this->fail("A cursor for the other direction [{$cursor}] was accepted.");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertStringContainsString('cannot continue', $exception->getMessage());
+            }
+        }
+
+        foreach (['a', 'ax', 'a-1'] as $malformed) {
+            try {
+                $repository->list(new ExecutionFilter(oldestFirst: true), cursor: $malformed);
+                $this->fail("[{$malformed}] was accepted.");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertStringContainsString('Malformed execution cursor', $exception->getMessage());
+            }
+        }
+    }
+
     public function test_a_malformed_cursor_is_rejected_rather_than_guessed_at(): void
     {
         $this->expectException(InvalidArgumentException::class);

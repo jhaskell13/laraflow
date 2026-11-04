@@ -11,6 +11,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Console\Concerns\ParsesLimit;
+use Laraflow\Console\Concerns\SelectsActionable;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\ExecutionRepository;
@@ -31,7 +32,10 @@ use Throwable;
  * first, up to --limit — the console's bulk form. A filter is required
  * (there is no "cancel everything"), the production confirmation
  * applies unless --force, and --dry-run names what would be cancelled
- * and cancels nothing.
+ * and cancels nothing. The bulk form selects only what it can act on:
+ * completed and cancelled rows are never selected (SelectsActionable),
+ * and a dry run predicts each row's outcome from its status rather
+ * than promising to cancel all of them.
  */
 class CancelCommand extends Command
 {
@@ -40,18 +44,19 @@ class CancelCommand extends Command
     use ParsesExecutionFilters;
     use ParsesExecutionId;
     use ParsesLimit;
+    use SelectsActionable;
 
     protected $signature = 'laraflow:cancel
         {execution? : The id of the execution to cancel; omit it to cancel by filter}
         {--reason= : Recorded on the execution and carried in the cancellation event}
-        {--status=* : Bulk: only executions with this status; repeatable}
-        {--workflow=* : Bulk: only executions created from this workflow class; repeatable}
+        {--status=* : Bulk: only executions with this status (never completed or cancelled); repeatable or comma-separated}
+        {--workflow=* : Bulk: only executions created from this workflow class; repeatable or comma-separated}
         {--correlation= : Bulk: only executions with this correlation id}
         {--tenant= : Bulk: only executions for this tenant id}
         {--since= : Bulk: only executions created at or after this time (inclusive)}
         {--until= : Bulk: only executions created before this time (exclusive)}
         {--limit= : Bulk: the most executions one run cancels, oldest first (default 100)}
-        {--dry-run : Bulk: name what would be cancelled without cancelling anything}
+        {--dry-run : Bulk: predict each outcome, by status, without cancelling anything}
         {--force : Bulk: skip the production confirmation}
         {--json : Print one JSON document instead of the report}';
 
@@ -94,8 +99,11 @@ class CancelCommand extends Command
     protected function many(WorkflowRunner $runner, ExecutionRepository $repository, ?string $reason): int
     {
         try {
-            $filter = $this->filterFromOptions(oldestFirst: true);
-            $this->assertSomeCriterion($filter, 'cancel');
+            $requested = $this->filterFromOptions(oldestFirst: true);
+            // Asked of the operator's own filter, before narrowing: the
+            // narrowed one always carries statuses, so would always pass.
+            $this->assertSomeCriterion($requested, 'cancel');
+            $filter = $this->narrowToActionable($requested, 'cancel');
             $limit = $this->limitOption(100);
         } catch (InvalidArgumentException $exception) {
             return $this->refuse($exception->getMessage());
@@ -107,30 +115,43 @@ class CancelCommand extends Command
             return self::FAILURE;
         }
 
-        $targets = $repository->list($filter, $limit)->executions;
+        // Counted before the page is read, so a row arriving between
+        // the two reads cannot leave `selected` larger than `matched`.
         $total = $repository->count($filter);
+        $targets = $total === 0 ? [] : $repository->list($filter, $limit)->executions;
+        $total = max($total, count($targets));
         $actions = [];
         $counts = ['cancelled' => 0, 'requested' => 0, 'skipped' => 0, 'refused' => 0, 'failed' => 0];
+        $predicted = ['would_cancel' => 0, 'would_request' => 0, 'already_cancelled' => 0, 'would_refuse' => 0];
 
         foreach ($targets as $target) {
             $actions[] = $action = $dryRun
-                ? ['execution' => $target->id, 'workflow' => $target->workflow, 'outcome' => 'would_cancel', 'message' => null]
+                ? $this->predict($target)
                 : $this->cancelOne($runner, $target, $reason);
 
-            if (! $dryRun) {
+            if ($dryRun) {
+                $predicted[$action['outcome']]++;
+            } else {
                 $counts[$this->bucket($action['outcome'])]++;
             }
         }
+
+        $ignored = $this->ignoredStatuses($requested);
 
         return $this->respond([
             'dry_run' => $dryRun,
             'matched' => $total,
             'selected' => count($targets),
+            'ignored_statuses' => $ignored,
             'actions' => $actions,
-            'counts' => $counts,
-        ], function () use ($actions, $counts, $total, $dryRun, $limit): void {
+            'counts' => $dryRun ? $predicted : $counts,
+        ], function () use ($actions, $counts, $predicted, $total, $dryRun, $limit, $ignored): void {
+            if ($ignored !== []) {
+                $this->components->warn('Ignored --status '.implode(', ', $ignored).': completed and cancelled executions cannot be cancelled.');
+            }
+
             if ($actions === []) {
-                $this->components->info('No executions match that filter.');
+                $this->components->info('No cancellable executions match that filter.');
 
                 return;
             }
@@ -146,10 +167,15 @@ class CancelCommand extends Command
 
             if ($dryRun) {
                 $this->components->info(sprintf(
-                    'Dry run: %d of %d matching execution(s) would be cancelled (oldest first, up to --limit=%d). Nothing was changed.',
+                    'Dry run over %d of %d matching execution(s) (oldest first, up to --limit=%d): %d would be cancelled, '
+                    .'%d would have cancellation requested from a running worker, %d are already cancelled, %d would be refused. Nothing was changed.',
                     count($actions),
                     $total,
                     $limit,
+                    $predicted['would_cancel'],
+                    $predicted['would_request'],
+                    $predicted['already_cancelled'],
+                    $predicted['would_refuse'],
                 ));
 
                 return;
@@ -166,10 +192,34 @@ class CancelCommand extends Command
                 $counts['failed'],
             ));
 
-            if ($total > count($actions)) {
-                $this->components->info('More matching executions exist; run the same command again to continue.');
+            // A requested row is still running, and a refused or failed
+            // one is unchanged: all three are selected again next time.
+            $hint = $this->continuationHint($total, count($actions), $counts['requested'] + $counts['refused'] + $counts['failed']);
+
+            if ($hint !== null) {
+                $this->components->info($hint);
             }
         }, $counts['failed'] > 0 ? self::FAILURE : self::SUCCESS);
+    }
+
+    /**
+     * What the real run would do with $target, read from its status by
+     * the same rules WorkflowRunner::cancel() applies — so a dry run
+     * that says "would cancel" is not quietly a "requested" or a
+     * refusal when it is run for real.
+     *
+     * @return array{execution: int, workflow: string, outcome: string, message: string|null}
+     */
+    protected function predict(WorkflowExecution $target): array
+    {
+        $row = ['execution' => $target->id, 'workflow' => $target->workflow];
+
+        return match (true) {
+            $target->isCancelled() => $row + ['outcome' => 'already_cancelled', 'message' => null],
+            $target->isCompleted() => $row + ['outcome' => 'would_refuse', 'message' => "Execution [{$target->id}] has completed and cannot be cancelled."],
+            $this->liveClaim($target) => $row + ['outcome' => 'would_request', 'message' => 'A live worker owns it; cancellation would be requested for its next step boundary.'],
+            default => $row + ['outcome' => 'would_cancel', 'message' => null],
+        };
     }
 
     /**
@@ -193,7 +243,7 @@ class CancelCommand extends Command
             // the run; the row says why and the rest of the batch goes on.
             return ['outcome' => 'refused', 'message' => $exception->getMessage()] + $row;
         } catch (Throwable $exception) {
-            return ['outcome' => 'failed', 'message' => $exception->getMessage()] + $row;
+            return ['outcome' => 'failed', 'message' => $this->redactedMessage($exception)] + $row;
         }
     }
 
@@ -225,6 +275,8 @@ class CancelCommand extends Command
             'cancelled' => '<fg=green>cancelled</>',
             'requested' => '<fg=yellow>requested from its worker</>',
             'would_cancel' => '<fg=cyan>would cancel</>',
+            'would_request' => '<fg=yellow>would request from its worker</>',
+            'would_refuse' => '<fg=gray>would be refused (not cancellable)</>',
             'already_cancelled' => '<fg=gray>already cancelled</>',
             'refused' => '<fg=gray>refused (not cancellable)</>',
             'failed' => '<fg=red>failed</>',

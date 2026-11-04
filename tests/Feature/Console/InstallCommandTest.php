@@ -32,9 +32,9 @@ class InstallCommandTest extends TestCase
         $this->assertSame(CommandStatus::SUCCESS, $status);
         $this->assertFileExists($this->app->configPath('laraflow.php'));
         $this->assertTrue(Schema::hasTable('laraflow_workflow_executions'));
-        $this->assertStringContainsString('make:workflow', $output);
-        $this->assertStringContainsString('make:step', $output);
-        $this->assertStringContainsString('make:connector', $output);
+        $this->assertStringContainsString('laraflow:make-workflow', $output);
+        $this->assertStringContainsString('laraflow:make-step', $output);
+        $this->assertStringContainsString('laraflow:make-connector', $output);
         $this->assertStringContainsString('laraflow:demo', $output);
         $this->assertStringNotContainsString('LARAFLOW_LOAD_MIGRATIONS', $output, 'No warning when migrations were not published.');
     }

@@ -17,7 +17,7 @@ A trigger is that controller, shipped once: an opt-in route group that verifies 
 - **The application owns the HTTP boundary.** It chooses the path and the middleware (rate limiting above all; `throttle:` is one word in a list). The package ships the routes, the verification, and the delivery; it does not ship an opinion about where the endpoint lives.
 - **Nothing the runner cannot do.** A trigger calls `WorkflowRunner::signal()` and then `WorkflowDispatcher::dispatchExecution()`, exactly as the dashboard's signal action does; the outcome is classified by `Handoff` and worded the way the console words it. There is no privileged path, and the reserved `laraflow.` signal prefix is refused at `signal()` as it is for every caller.
 - **Payloads are never logged, keys are never persisted.** A refused request is logged with the reason and the target, never the body; the signing key is read from configuration when a request is verified and appears in no record, event, or exception.
-- **Idempotent by the signal's own rules.** A duplicate delivery before the execution resumes overwrites the same payload ("last delivery wins"); after it resumes, it is refused. The endpoint adds no inbox table and no second idempotency scheme: what the signal contract already guarantees is what the endpoint guarantees.
+- **Idempotent by the signal's own rules.** A duplicate delivery before the execution resumes overwrites the same payload ("last delivery wins"); one that arrives before the step parks is kept in the runtime's signal inbox and answers the park; once the execution has finished, it is refused. The endpoint adds no second idempotency scheme: what the signal contract guarantees ([advanced-workflows.md](advanced-workflows.md#delays-schedules-and-wait-states)) is what the endpoint guarantees.
 
 ## Dependencies
 
@@ -36,14 +36,16 @@ Triggers::routes();
 // config/laraflow.php
 'triggers' => [
     'path' => env('LARAFLOW_TRIGGERS_PATH', 'laraflow/triggers'),
-    'middleware' => ['api'],
+    'middleware' => ['api', 'throttle:60,1'],
+    'max_body_bytes' => env('LARAFLOW_TRIGGERS_MAX_BODY_BYTES', 65536),
     'key' => env('LARAFLOW_TRIGGERS_KEY'),
     'previous_keys' => [...],   // LARAFLOW_TRIGGERS_PREVIOUS_KEYS, comma-separated
     'tolerance' => env('LARAFLOW_TRIGGERS_TOLERANCE', 300),
 ],
 ```
 
-- **`path`** and **`middleware`** behave as the dashboard's do, with the same call-time overrides: `Triggers::routes(path: 'hooks/laraflow', middleware: [])` for an application mounting inside a group that already supplies its stack. The default middleware is `api`, which carries no session — the signature stands in for CSRF protection — and, on Laravel 12/13, **no throttle unless the application opted in with `throttleApi()`**. Put a rate limit here explicitly (`'middleware' => ['api', 'throttle:60,1']`): verification is cheap but not free, and an endpoint that changes workflow state deserves a ceiling.
+- **`path`** and **`middleware`** behave as the dashboard's do, with the same call-time overrides: `Triggers::routes(path: 'hooks/laraflow', middleware: [])` for an application mounting inside a group that already supplies its stack. The default middleware is `['api', 'throttle:60,1']`: `api` carries no session — the signature stands in for CSRF protection — and, on Laravel 12/13, no throttle unless the application opted in with `throttleApi()`, so the package's default supplies one: 60 requests a minute per client IP, a `429` past it. Verification is cheap but not free, and an endpoint that changes workflow state deserves a ceiling. A provider that sends bursts from a few addresses needs more: register a named limiter (`RateLimiter::for('laraflow-triggers', …)`) and list `throttle:laraflow-triggers` instead. Overriding `middleware` replaces the whole list, throttle included.
+- **`max_body_bytes`** (default 65536) is the largest body read before verification, on the signed endpoint and in front of every named trigger's verifier. A larger body — by its declared `Content-Length` or by what actually arrived — is refused `413 {"status":"too_large"}` before anything is hashed, signed or not, with the reason `body_too_large` on the log and the `TriggerRefused` event. `0` turns the limit off, leaving the web server as the only bound. This is separate from, and checked long before, `execution.max_payload_bytes`.
 - **`key`** is the shared secret the signed endpoint verifies against: at least 32 bytes, any encoding, read from the environment and never from a committed file. **`previous_keys`** is a list of keys still accepted, for rotation — read from `LARAFLOW_TRIGGERS_PREVIOUS_KEYS`, comma-separated, so a rotation needs no published configuration file (which also means a key must not contain a comma): set the new key, move the old one there, and remove it once every signer has moved. Every key, previous included, must meet the 32-byte floor — a short key would weaken the endpoint for as long as the rotation lasts — and a request is verified against the current key first and each previous key after, with the match logged at debug so a rotation can be finished with evidence. Use a different key per environment: the signed string carries no audience, so staging and production sharing one key would honour each other's signatures.
 - **`tolerance`** is how far, in seconds, a request's timestamp may be from the server's clock in either direction (default 300; a negative value clamps to 0). Past it, the request is refused as stale however well it is signed. Keep it near the default: it is the replay window.
 
@@ -85,7 +87,7 @@ Every verification failure is one answer — `401` with `{"status": "refused"}` 
 
 ### Replay
 
-A request replayed within `tolerance` verifies again — the signature is valid for as long as the timestamp is. What that can do is bounded by the signal contract: before the execution resumes, the replay overwrites the same payload on the same wait; after it resumes, the replay is refused because nothing is waiting on that name. The one window a replay can reach is an execution that resumed and **re-parked on the same signal name within the tolerance** — an approval step that timed out and was retried inside five minutes, re-posting its request — where an old approval would answer the new wait. The defences, in order of preference: keep `tolerance` short; have the signer include something the step checks in the payload (a request id the step issued when it parked, compared on resume); or put the attempt in the signal name (`approval-2`), which the step chooses when it parks. The endpoint does not keep a table of signatures it has seen, because a store of every inbound request is an inbox, and an inbox is a second durability contract with its own retention — the signal already has one.
+A request replayed within `tolerance` verifies again — the signature is valid for as long as the timestamp is. What that can do is bounded by the signal contract: before the execution resumes, the replay overwrites the same payload on the same wait; after it resumes and while the execution is unfinished, the replay is kept in the signal inbox for the next wait on that name, if any; once it has finished, the replay is refused. The window a replay can reach is a **later wait on the same signal name in the same execution** — an approval step that timed out and was retried, re-posting its request, or a second approval under the same name — where an old approval would answer the new wait: within the tolerance by a replay, and at any time by a replay the inbox kept while the execution ran on. The defences, in order of preference: keep `tolerance` short; have the signer include something the step checks in the payload (a request id the step issued when it parked, compared on resume); or put the attempt in the signal name (`approval-2`), which the step chooses when it parks. The endpoint does not keep a table of signatures it has seen, because a store of every inbound request is a second durability contract with its own retention; the signal inbox keeps one row per name, not a history.
 
 ### What the endpoint answers
 
@@ -95,12 +97,13 @@ The response is JSON with a `status`, and the HTTP code says which kind of answe
 |---|---|---|
 | `202` | `recorded` | The signal is durable. `delivery` says what became of the execution: `queued` (a worker will resume it), `ran` (the sync driver ran it in this request; `execution_status` carries where it rested — `completed`, or `failed` with the failure on the record), `pending` (recorded, and the push did not land; a fixed `message` says `laraflow:recover` delivers it). Nothing a step or a broker threw is ever on the response: a provider keeps response bodies, and the record — where the redactor governs — is where failures live. |
 | `401` | `refused` | Verification failed. No other information. |
+| `413` | `too_large` | Before verification: the body exceeds `triggers.max_body_bytes`. Said the same whether or not the request was signed. |
 | `404` | `not_found` | Signed, and no such execution. Signed first, so an unsigned caller cannot enumerate. |
-| `409` | `not_waiting` | Signed, and the execution is not waiting on that signal — resumed already, timed out, finished, or parked on another name. `SignalRefusedException`'s message is the `message`. |
-| `413` | `too_large` | The payload exceeds `execution.max_payload_bytes`. |
+| `409` | `not_waiting` | Signed, and the execution can never take that signal — finished or compensating, or a reserved name. (A signal for an unfinished execution not yet parked on it is kept in the signal inbox and answered `202`.) `SignalRefusedException`'s message is the `message`. |
+| `413` | `too_large` | Signed, and the payload exceeds `execution.max_payload_bytes`. |
 | `422` | `invalid` | The body is not a JSON object, or the signal name is empty, over-long, or reserved. The `message` names the rule. |
 
-Every answer that is *about a signal* also carries `trigger`, `execution` (the id), and `signal`; `message` is the runtime's own wording where the runtime refused. Three answers are about the trigger itself and carry `trigger` alone: `200 {"status":"ignored"}` from a resolver that matched nothing, `404 {"status":"not_found"}` for a name no trigger is registered under (names are slugs, not secrets), and the resolver's `500 {"status":"error"}`. A `5xx` before the `202` usually means the signal was not recorded — and retrying is safe either way, because a duplicate overwrites the same wait or is refused.
+Every answer that is *about a signal* also carries `trigger`, `execution` (the id), and `signal`; `message` is the runtime's own wording where the runtime refused. Three answers are about the trigger itself and carry `trigger` alone: `200 {"status":"ignored"}` from a resolver that matched nothing, `404 {"status":"not_found"}` for a name no trigger is registered under (names are slugs, not secrets), and the resolver's `500 {"status":"error"}`. A `5xx` before the `202` usually means the signal was not recorded — and retrying is safe either way, because a duplicate overwrites the same wait, replaces itself in the inbox, or is refused.
 
 ## Named triggers for providers
 
@@ -183,7 +186,7 @@ An approval **page** is the application's. Laraflow does not serve one, and does
 ## Compatibility notes
 
 - New public surface: `Triggers` (the mount and the registry), `TriggerSignature`, `SignalIntent`, the `TriggerVerifier` contract, `TriggerRefusedException`, the two events, and the refusal-reason enum. The verification middleware and the controller are internal.
-- A new `triggers` configuration section — `path`, `middleware`, `key`, `previous_keys`, `tolerance` — arriving with the step that reads it.
+- A new `triggers` configuration section — `path`, `middleware` (throttled by default), `max_body_bytes`, `key`, `previous_keys`, `tolerance` — arriving with the step that reads it.
 - No schema change. No new repository method: the endpoint reads `find()` and writes through `signal()`.
 - `laraflow:signal {execution} {signal} {--payload=} {--deliver}` is the console's form of the same action, sharing the payload parsing and the delivery reporting; it is documented with the console in [public-api.md](public-api.md).
 

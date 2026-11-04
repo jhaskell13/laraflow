@@ -220,8 +220,7 @@ class EloquentScheduleRepository implements ScheduleRepository
         // Keyed deletes, portable everywhere: DELETE ... LIMIT is a
         // MySQL-ism, and an IN-list over ids the scan just read is the
         // retention tiers' own shape.
-        $ids = ScheduleTickModel::query()
-            ->where('created_at', '<=', $before)
+        $ids = $this->prunableTicks($before)
             ->orderBy('id')
             ->limit(max(1, $limit))
             ->pluck('id')
@@ -236,7 +235,7 @@ class EloquentScheduleRepository implements ScheduleRepository
 
     public function countTicksBefore(DateTimeImmutable $before): int
     {
-        return ScheduleTickModel::query()->where('created_at', '<=', $before)->count();
+        return $this->prunableTicks($before)->count();
     }
 
     public function pause(string $workflow, DateTimeImmutable $at): ScheduledWorkflow
@@ -265,6 +264,61 @@ class EloquentScheduleRepository implements ScheduleRepository
             ->update($this->counted(['paused_at' => null, 'last_tick_at' => $at]));
 
         return $this->toDomain(ScheduleModel::query()->findOrFail($model->id));
+    }
+
+    /**
+     * Ticks claimed before the cutoff that the overlap check no longer
+     * needs. Age alone was the rule once, and it broke
+     * withoutOverlapping: lastFiredTick() is how the scheduler finds
+     * the execution to wait on, so pruning a schedule's latest fired
+     * tick made a still-running execution invisible and the next tick
+     * started beside it (Milestone 10 audit). Kept, therefore:
+     *
+     * - the latest fired tick of each schedule — no later tick of the
+     *   same schedule has started an execution — whatever became of
+     *   its execution, because a later skipped tick is not what the
+     *   check reads;
+     * - any tick whose execution still exists and has not finished,
+     *   latest or not: it is live work, and its origin row is what
+     *   says a schedule started it.
+     *
+     * A tick whose execution retention has already removed is history
+     * only, and goes once it is not the latest. Both exemptions are
+     * correlated subqueries over the (schedule_id, tick_at) unique key
+     * and the executions primary key; the outer read is bounded by the
+     * caller's limit.
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<ScheduleTickModel>
+     */
+    protected function prunableTicks(DateTimeImmutable $before): \Illuminate\Database\Eloquent\Builder
+    {
+        $ticks = (new ScheduleTickModel)->getTable();
+
+        return ScheduleTickModel::query()
+            ->where("{$ticks}.created_at", '<=', $before)
+            ->where(function (\Illuminate\Database\Eloquent\Builder $query) use ($ticks): void {
+                $query
+                    // Skipped ticks started nothing; the check never
+                    // reads them as "the previous run".
+                    ->whereNull("{$ticks}.workflow_execution_id")
+                    ->orWhereExists(function (Builder $later) use ($ticks): void {
+                        $later->selectRaw('1')
+                            ->from("{$ticks} as later")
+                            ->whereColumn('later.schedule_id', "{$ticks}.schedule_id")
+                            ->whereColumn('later.tick_at', '>', "{$ticks}.tick_at")
+                            ->whereNotNull('later.workflow_execution_id');
+                    });
+            })
+            ->whereNotExists(function (Builder $live) use ($ticks): void {
+                $live->selectRaw('1')
+                    ->from('laraflow_workflow_executions')
+                    ->whereColumn('laraflow_workflow_executions.id', "{$ticks}.workflow_execution_id")
+                    ->whereNotIn('laraflow_workflow_executions.status', [
+                        ExecutionStatus::Completed->value,
+                        ExecutionStatus::Failed->value,
+                        ExecutionStatus::Cancelled->value,
+                    ]);
+            });
     }
 
     protected function modelFor(string $workflow): ScheduleModel

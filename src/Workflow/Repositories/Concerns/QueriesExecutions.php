@@ -40,16 +40,8 @@ trait QueriesExecutions
 
         if ($cursor !== null) {
             // Keyset: strictly past the last id of the previous page, in
-            // whichever direction the filter orders. Only a cursor this
-            // repository issued — a bare id — is accepted; anything
-            // else is a caller bug, not a page to guess at.
-            if (! ctype_digit($cursor)) {
-                throw new InvalidArgumentException(
-                    "Malformed execution cursor [{$cursor}]: pass back the nextCursor a previous page returned."
-                );
-            }
-
-            $query->where('id', $filter->oldestFirst ? '>' : '<', (int) $cursor);
+            // the direction the cursor was issued for.
+            $query->where('id', $filter->oldestFirst ? '>' : '<', self::cursorId($cursor, $filter->oldestFirst));
         }
 
         // Fetch one past the page to learn whether another exists, so
@@ -69,7 +61,7 @@ trait QueriesExecutions
 
         return new ExecutionPage(
             executions: $executions,
-            nextCursor: $hasMore && $executions !== [] ? (string) end($executions)->id : null,
+            nextCursor: $hasMore && $executions !== [] ? self::issueCursor(end($executions)->id, $filter->oldestFirst) : null,
             limit: $limit,
         );
     }
@@ -131,6 +123,21 @@ trait QueriesExecutions
         return new ChildProgress($parentStepExecutionId, $counts);
     }
 
+    public function childOfStep(
+        int $parentStepExecutionId
+    ): ?WorkflowExecution {
+        // Straight to the parent_step_execution_id index: the parent's
+        // children were once paged through to find this one, which a
+        // fan-out a thousand wide elsewhere in the same parent made a
+        // thousand-row read on every claim of a sub-workflow step.
+        $model = WorkflowExecutionModel::query()
+            ->where('parent_step_execution_id', $parentStepExecutionId)
+            ->orderByDesc('id')
+            ->first();
+
+        return $model === null ? null : $this->toDomain($model);
+    }
+
     public function attemptHistory(
         WorkflowExecution $execution
     ): array {
@@ -160,6 +167,52 @@ trait QueriesExecutions
             ->get()
             ->map(fn (StepAttemptModel $model): StepAttempt => $this->attemptToDomain($model))
             ->all();
+    }
+
+    /**
+     * A cursor carries its direction. A bare id said nothing about
+     * which way it pointed, so a newest-first cursor handed back with
+     * --oldest continued *upward* from a row near the top and silently
+     * skipped everything below it (Milestone 10 audit). Oldest-first
+     * cursors now carry an `a` prefix; newest-first cursors stay bare
+     * digits, so every cursor issued before the change — all of which
+     * the dashboard and `laraflow:list` issued newest-first by default
+     * — still reads as what it was.
+     */
+    protected static function issueCursor(int $id, bool $oldestFirst): string
+    {
+        return ($oldestFirst ? 'a' : '').$id;
+    }
+
+    /**
+     * The id a cursor this repository issued points past, refusing one
+     * issued for the other direction rather than reading it as a page
+     * it is not. Anything else is a caller bug, not a page to guess at.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected static function cursorId(string $cursor, bool $oldestFirst): int
+    {
+        $ascending = str_starts_with($cursor, 'a');
+        $digits = $ascending ? substr($cursor, 1) : $cursor;
+
+        if ($digits === '' || ! ctype_digit($digits)) {
+            throw new InvalidArgumentException(
+                "Malformed execution cursor [{$cursor}]: pass back the nextCursor a previous page returned."
+            );
+        }
+
+        if ($ascending !== $oldestFirst) {
+            throw new InvalidArgumentException(sprintf(
+                'Execution cursor [%s] was issued for a %s listing and cannot continue a %s one: '
+                .'repeat the order the first page was fetched with (--oldest or not), or start again without a cursor.',
+                $cursor,
+                $ascending ? 'oldest-first' : 'newest-first',
+                $oldestFirst ? 'oldest-first' : 'newest-first',
+            ));
+        }
+
+        return (int) $digits;
     }
 
     /**

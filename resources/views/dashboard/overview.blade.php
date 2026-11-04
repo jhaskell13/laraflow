@@ -41,8 +41,11 @@
 
     @if ($total > 0)
         <div class="lf-counts">
+            {{-- array_merge, not `+`: the card's status must replace the
+                 filter's, or a `?status=failed` scope links every card
+                 to the failed list. --}}
             @foreach (ExecutionStatus::cases() as $status)
-                <a class="lf-count-card lf-count-card--{{ $status->value }}" href="{{ route('laraflow.executions', $filters->query() + ['status' => [$status->value]]) }}">
+                <a class="lf-count-card lf-count-card--{{ $status->value }}" href="{{ route('laraflow.executions', array_merge($filters->query(), ['status' => [$status->value]])) }}">
                     <span class="lf-count-card__value">{{ number_format($counts[$status->value]) }}</span>
                     <span class="lf-count-card__label">{{ $status->value }}</span>
                     <span class="lf-count-card__share">{{ sprintf('%.1f%%', $counts[$status->value] / $total * 100) }}</span>

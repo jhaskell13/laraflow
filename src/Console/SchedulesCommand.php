@@ -7,6 +7,7 @@ namespace Laraflow\Console;
 use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Console\Command;
+use Illuminate\Console\ConfirmableTrait;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionFilters;
@@ -29,9 +30,22 @@ use Psr\Clock\ClockInterface;
  * or stalled. Exits non-zero when any schedule is orphaned or stalled,
  * so the scheduled health check that runs laraflow:summary can run this
  * too.
+ *
+ * With --pause, --resume, or --forget the exit code is the action's own:
+ * a pause that landed succeeds even while some other schedule is
+ * stalled, because the operator asked "did my pause work?", not "is
+ * everything healthy?" — and a script that paused a schedule and saw
+ * exit 1 would retry a pause that had already happened (Milestone 10
+ * audit). The listing still follows, with `needs_attention` on it.
+ *
+ * Under --json a non-zero listing carries `reason` beside `ok: false`:
+ * `ok` keeps meaning "the exit code was zero", and `reason` says why it
+ * was not when nothing was refused — there is no `error`, because
+ * nothing went wrong with the command.
  */
 class SchedulesCommand extends Command
 {
+    use ConfirmableTrait;
     use DisplaysExecutions;
     use ParsesExecutionFilters;
 
@@ -39,7 +53,8 @@ class SchedulesCommand extends Command
         {--pause= : Stop a schedule naming ticks until resumed; takes the workflow class}
         {--resume= : Resume a paused schedule; the paused interval is never caught up}
         {--forget= : Delete an orphaned schedule row and its tick history; refused while a declaration stands behind it}
-        {--json : Print one JSON document instead of the table}';
+        {--force : --forget: skip the production confirmation}
+        {--json : Print one JSON document instead of the table; --forget in production also requires --force}';
 
     protected $description = 'List workflow schedules, and pause, resume, or forget one';
 
@@ -53,16 +68,17 @@ class SchedulesCommand extends Command
             return $this->refuse($exception->getMessage());
         }
 
-        $acted = $this->act($schedules, $live, $now);
+        $action = $this->act($schedules, $live, $now);
 
-        if ($acted === self::FAILURE) {
+        if ($action === false) {
             return self::FAILURE;
         }
 
         $rows = $schedules->all();
+        $extra = $action === null ? [] : ['action' => $action];
 
         if ($rows === []) {
-            return $this->respond(['schedules' => [], 'needs_attention' => false], fn () => $this->components->info(
+            return $this->respond(['schedules' => [], 'needs_attention' => false] + $extra, fn () => $this->components->info(
                 'No schedules exist yet. Declare schedule() on a workflow, list the class under '
                 .'laraflow.schedules.workflows, and the first laraflow:schedule run registers it.'
             ));
@@ -90,7 +106,13 @@ class SchedulesCommand extends Command
             ];
         }
 
-        return $this->respond(['schedules' => $records, 'needs_attention' => $attention], function () use ($table, $attention): void {
+        // The action's exit code when one was taken; the listing's health
+        // otherwise. `reason` only when the exit is non-zero for health.
+        $code = $action !== null || ! $attention ? self::SUCCESS : self::FAILURE;
+        $document = ['schedules' => $records, 'needs_attention' => $attention] + $extra
+            + ($code === self::FAILURE ? ['reason' => 'needs_attention'] : []);
+
+        return $this->respond($document, function () use ($table, $attention): void {
             $this->table(['Workflow', 'Cron', 'Timezone', 'Policy', 'Last tick (UTC)', 'Lag', 'Next due (UTC)', 'State'], $table);
 
             if ($attention) {
@@ -99,16 +121,18 @@ class SchedulesCommand extends Command
                     .'due ticks standing unclaimed — is the scheduler running laraflow:schedule every minute?'
                 );
             }
-        }, $attention ? self::FAILURE : self::SUCCESS);
+        }, $code);
     }
 
     /**
-     * Perform the one requested action, if any. SUCCESS means carry on
-     * to the listing; FAILURE means the action itself was refused.
+     * Perform the one requested action, if any: null when none was
+     * asked for, false when it was refused (the refusal is already
+     * said), or the record of what was done for the document.
      *
      * @param  list<string>  $live
+     * @return array{name: string, workflow: string, message: string}|false|null
      */
-    protected function act(ScheduleRepository $schedules, array $live, DateTimeImmutable $now): int
+    protected function act(ScheduleRepository $schedules, array $live, DateTimeImmutable $now): array|false|null
     {
         $requested = array_filter([
             'pause' => $this->stringOption('pause'),
@@ -117,18 +141,26 @@ class SchedulesCommand extends Command
         ], fn (?string $value): bool => $value !== null);
 
         if (count($requested) > 1) {
-            return $this->refuse('Pass one of --pause, --resume, or --forget per run; they are separate decisions.');
+            $this->refuse('Pass one of --pause, --resume, or --forget per run; they are separate decisions.');
+
+            return false;
         }
 
         if ($requested === []) {
-            return self::SUCCESS;
+            return null;
         }
 
         $action = array_key_first($requested);
         $workflow = $this->target($schedules, (string) $requested[$action]);
 
         if ($workflow === null) {
-            return $this->refuse("No schedule exists for [{$requested[$action]}]. laraflow:schedules lists the classes that have one.");
+            $this->refuse("No schedule exists for [{$requested[$action]}]. laraflow:schedules lists the classes that have one.");
+
+            return false;
+        }
+
+        if ($action === 'forget' && ! $this->confirmForget($workflow)) {
+            return false;
         }
 
         try {
@@ -138,22 +170,39 @@ class SchedulesCommand extends Command
                 'forget' => $this->forget($schedules, $workflow, $live),
             };
         } catch (WorkflowException|InvalidArgumentException $exception) {
-            return $this->refuse($exception->getMessage());
+            $this->refuse($exception->getMessage());
+
+            return false;
         }
 
-        if ($this->wantsJson()) {
-            // The listing that follows carries the new state; the action
-            // itself is said on the document by the state it produced.
-            return self::SUCCESS;
-        }
-
-        $this->components->info(match ($action) {
+        $message = match ($action) {
             'pause' => "[{$workflow}] is paused: it names no ticks until resumed.",
             'resume' => "[{$workflow}] is resumed from now. The paused interval is never caught up — paused means do not run, not run later.",
             'forget' => "[{$workflow}] and its tick history are forgotten.",
-        });
+        };
 
-        return self::SUCCESS;
+        if (! $this->wantsJson()) {
+            $this->components->info($message);
+        }
+
+        return ['name' => $action, 'workflow' => $workflow, 'message' => $message];
+    }
+
+    /**
+     * Forgetting deletes tick history irreversibly, so it asks in
+     * production exactly as laraflow:prune and the bulk cancel do;
+     * --force is how a script says yes, and --json without it is
+     * refused there rather than hung on a prompt nobody can answer.
+     */
+    protected function confirmForget(string $workflow): bool
+    {
+        if ($this->wantsJson() && ! (bool) $this->option('force') && $this->laravel->environment('production')) {
+            $this->refuse('laraflow:schedules --forget under --json must pass --force in production: a machine cannot answer the confirmation.');
+
+            return false;
+        }
+
+        return $this->confirmToProceed("Forgetting [{$workflow}] deletes its schedule row and tick history. Continue?");
     }
 
     /**

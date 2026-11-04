@@ -73,6 +73,27 @@ class StepResolverTest extends TestCase
         $this->resolver()->make('App\Steps\Removed');
     }
 
+    public function test_a_class_that_is_not_a_step_is_never_constructed(): void
+    {
+        // The class name comes from a persisted row; building it to ask
+        // what it is would run whatever constructor it names.
+        $built = false;
+        $this->app->bind(stdClass::class, function () use (&$built): stdClass {
+            $built = true;
+
+            return new stdClass;
+        });
+
+        try {
+            $this->resolver()->make(stdClass::class);
+            $this->fail('A non-step class must be refused.');
+        } catch (WorkflowDefinitionMismatchException $exception) {
+            $this->assertStringContainsString('does not implement', $exception->getMessage());
+        }
+
+        $this->assertFalse($built, 'Refused on its name, before the container built it.');
+    }
+
     public function test_a_class_that_is_not_a_step_is_a_definition_mismatch(): void
     {
         $this->expectException(WorkflowDefinitionMismatchException::class);

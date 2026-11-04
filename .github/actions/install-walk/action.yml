@@ -1,9 +1,9 @@
 # The install walk: the Milestone 0 exit criterion, held for good and
 # restated by Milestone 8. A new application goes from `composer require`
 # to a persisted, recoverable execution using only the commands the
-# documentation gives a user — laraflow:install, the make:* generators,
-# laraflow:start — against whatever database the DB_* environment of the
-# calling step names. A real `laravel/laravel` skeleton, the package
+# documentation gives a user — laraflow:install, the laraflow:make-*
+# generators, laraflow:start — against whatever database the DB_*
+# environment of the calling step names. A real `laravel/laravel` skeleton, the package
 # required from a path repository, and every assertion a command an
 # actual user would run.
 #
@@ -37,17 +37,19 @@ runs:
         composer config repositories.laraflow path "${{ inputs.package }}"
         composer require "laraflow/laraflow:@dev" --no-interaction --no-progress
 
-    # Counted from the package rather than written down: the generators
-    # are the three make:* commands, and the laraflow:* commands are the
-    # classes directly under src/Console.
+    # Counted from the package rather than written down: the laraflow:*
+    # commands are the classes directly under src/Console plus the three
+    # laraflow:make-* generators under src/Console/Generators. The old
+    # make:* names survive only as deprecated aliases, which `list
+    # --raw` does not print, so they are not counted here.
     - name: Auto-discovery registered the provider and every command
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
         php artisan package:discover | grep -q "laraflow/laraflow"
         php artisan list --raw > commands.txt
-        test "$(grep -c '^laraflow:' commands.txt)" -eq "$(ls "${{ inputs.package }}"/src/Console/*.php | wc -l)"
-        test "$(grep -c '^make:\(workflow\|step\|connector\) ' commands.txt)" -eq 3
+        test "$(grep -c '^laraflow:' commands.txt)" -eq "$(ls "${{ inputs.package }}"/src/Console/*.php "${{ inputs.package }}"/src/Console/Generators/Make*Command.php | wc -l)"
+        test "$(grep -c '^laraflow:make-\(workflow\|step\|connector\) ' commands.txt)" -eq 3
 
     # The schema freeze means the migration count only ever grows, one
     # migration at a time, so it too is counted from the package. The
@@ -62,17 +64,17 @@ runs:
         test -f config/laraflow.php
         test "$(ls database/migrations | grep -c laraflow)" -eq "$MIGRATIONS"
         test "$(grep -c '_laraflow_.*DONE' install.log)" -eq "$MIGRATIONS"
-        grep -q 'make:workflow' install.log
+        grep -q 'laraflow:make-workflow' install.log
         grep -q 'laraflow:start' install.log
 
     - name: The generators write a workflow, two steps, and a connector
       shell: bash
       working-directory: ${{ inputs.app }}
       run: |
-        php artisan make:workflow FulfilOrder
-        php artisan make:step ReserveInventory
-        php artisan make:step ChargePayment
-        php artisan make:connector StripeConnector
+        php artisan laraflow:make-workflow FulfilOrder
+        php artisan laraflow:make-step ReserveInventory
+        php artisan laraflow:make-step ChargePayment
+        php artisan laraflow:make-connector StripeConnector
         test -f app/Workflows/FulfilOrder.php
         test -f app/Workflows/Steps/ReserveInventory.php
         test -f app/Workflows/Steps/ChargePayment.php
@@ -195,7 +197,7 @@ runs:
             }
         }
         WF
-        php artisan make:workflow Broadcast
+        php artisan laraflow:make-workflow Broadcast
         sed -i 's#^            //$#            \\App\\Workflows\\Steps\\NotifyEach::class,#' app/Workflows/Broadcast.php
         php -l app/Workflows/Broadcast.php
         php -l app/Workflows/Steps/NotifyEach.php
@@ -256,7 +258,7 @@ runs:
             }
         }
         STEP
-        php artisan make:workflow BookTrip
+        php artisan laraflow:make-workflow BookTrip
         sed -i 's#^            //$#            \\App\\Workflows\\Steps\\Book::class,\n            \\App\\Workflows\\Steps\\AlwaysFails::class,#' app/Workflows/BookTrip.php
         php -l app/Workflows/BookTrip.php
         php -l app/Workflows/Steps/Book.php

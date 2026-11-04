@@ -165,7 +165,7 @@ Two tables, additive, arriving as dated migrations under the freeze and through 
 | `overlapped_execution_id` | For `skipped_overlap`: the execution that was still running. |
 | `created_at` | When the row was claimed, as distinct from the instant it names. The difference is scheduler lag, which the listing shows. |
 
-`laraflow_schedule_ticks` grows by one row per tick that fires, which for a per-minute schedule is about half a million rows a year. Retention gains a fourth bound, `retention.prune_ticks_after_days` (null, like every other bound: nothing is removed until you say so), applied by `laraflow:prune` to tick rows by their `created_at`, independent of whether the executions they started still exist. Pruning a tick never touches an execution, and pruning an execution never touches a tick.
+`laraflow_schedule_ticks` grows by one row per tick that fires, which for a per-minute schedule is about half a million rows a year. Retention gains a fourth bound, `retention.prune_ticks_after_days` (null, like every other bound: nothing is removed until you say so), applied by `laraflow:prune` to tick rows by their `created_at`. Two kinds of tick are never pruned, because the [overlap](#overlap) check depends on them: a schedule's most recent fired tick, and any tick whose execution still exists and is unfinished. A tick whose execution retention has already deleted is history only and goes by age like any other, once it is not the latest. Pruning a tick never touches an execution, and pruning an execution never touches a tick.
 
 ## Observability
 

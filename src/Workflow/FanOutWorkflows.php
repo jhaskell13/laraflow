@@ -91,13 +91,16 @@ class FanOutWorkflows
         }
 
         // Create the remainder, delivering each as it exists. Every
-        // create() commits on its own, so a worker that dies here leaves
+        // member commits on its own, so a worker that dies here leaves
         // exactly the members it made, and the count of them is where
-        // the next claim resumes: nothing is created twice.
+        // the next claim resumes. Each creation is guarded on that
+        // count under the step row's lock, so a second worker resuming
+        // the same group — a stale reclaim racing the original — finds
+        // member $i already made and makes nothing: never created twice.
         $created = $progress->total();
 
         for ($i = $created; $i < count($declared); $i++) {
-            $member = $this->runner()->start(
+            $member = $this->repository->createMember($stepRow->id, $i, fn (): WorkflowExecution => $this->runner()->start(
                 $this->workflow($declared[$i]['workflow']),
                 $declared[$i]['input'],
                 new ExecutionOptions(
@@ -106,7 +109,12 @@ class FanOutWorkflows
                     parentExecutionId: $parent->id,
                     parentStepExecutionId: $stepRow->id,
                 ),
-            );
+            ));
+
+            if ($member === null) {
+                // Another worker made it, and delivers it.
+                continue;
+            }
 
             try {
                 $this->delivery->deliver($member->id);

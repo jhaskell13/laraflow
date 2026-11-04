@@ -10,12 +10,14 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
 use Laraflow\Support\Outcome;
 use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowResolver;
@@ -43,6 +45,8 @@ final class ActionController
         private readonly WorkflowDispatcher $dispatcher,
         private readonly WorkflowResolver $resolver,
         private readonly Container $container,
+        private readonly ErrorRedactor $redactor,
+        private readonly RunnerOptions $options,
     ) {}
 
     /**
@@ -73,7 +77,7 @@ final class ActionController
                 $request,
                 $id,
                 Outcome::ERROR,
-                'A step failed: '.$exception->getMessage().' The failure is persisted; recover from the checkpoint by executing again.',
+                'A step failed: '.$this->redacted($exception).' The failure is persisted; recover from the checkpoint by executing again.',
             );
         }
 
@@ -133,26 +137,46 @@ final class ActionController
             );
         }
 
+        // Delivered through Handoff, as every other dispatch is: a sync
+        // connection runs the job inside the dispatch call, so a throw
+        // here may be a broker refusing the push *or* a step failing
+        // inline, and only the record can tell which (Milestone 10
+        // audit — this used to say "could not be dispatched" for a step
+        // that had in fact run and failed).
         try {
             $before = $this->repository->find($id);
-            $this->dispatcher->dispatchExecution($id);
-        } catch (Throwable $exception) {
-            return $this->toExecution(
+        } catch (WorkflowException $exception) {
+            return $this->toExecution($request, $id, Outcome::ERROR, $exception->getMessage());
+        }
+
+        $handoff = Handoff::attempt($this->dispatcher, $this->repository, $before);
+
+        return match ($handoff->outcome) {
+            Handoff::QUEUED => $this->toExecution(
+                $request,
+                $id,
+                Outcome::INFO,
+                "Signal [{$name}] recorded and dispatched; a worker will resume the execution.",
+            ),
+            Handoff::RAN => $this->toOutcome($request, $handoff->execution),
+            Handoff::STEP_FAILED => $this->toExecution(
+                $request,
+                $id,
+                Outcome::ERROR,
+                "Signal [{$name}] delivered, and the queue connection ran the job in this process (sync driver): "
+                .'a step failed: '.$this->redacted($handoff->exception)
+                .' The failure is persisted; recover from the checkpoint by executing again.',
+            ),
+            // Refused or not pushed: the signal is recorded either way,
+            // and recover delivers what is recorded.
+            default => $this->toExecution(
                 $request,
                 $id,
                 Outcome::WARN,
-                "Signal [{$name}] recorded, but it could not be dispatched: ".$exception->getMessage()
+                "Signal [{$name}] recorded, but it could not be dispatched: ".$this->redacted($handoff->exception)
                 .' laraflow:recover delivers it.',
-            );
-        }
-
-        $after = $this->repository->find($id);
-
-        if (Outcome::ranInline($before, $after)) {
-            return $this->toOutcome($request, $after);
-        }
-
-        return $this->toExecution($request, $id, Outcome::INFO, "Signal [{$name}] recorded and dispatched; a worker will resume the execution.");
+            ),
+        };
     }
 
     /**
@@ -202,7 +226,7 @@ final class ActionController
                 $request,
                 $execution->id,
                 Outcome::ERROR,
-                'A step failed: '.$exception->getMessage().' The failure is persisted; recover from the checkpoint by executing again.',
+                'A step failed: '.$this->redacted($exception).' The failure is persisted; recover from the checkpoint by executing again.',
             );
         }
 
@@ -217,7 +241,38 @@ final class ActionController
     {
         $handoff = Handoff::attempt($this->dispatcher, $this->repository, $before);
 
+        // Handoff's step-failed message carries the raw exception text,
+        // which the console may print but a flash — rendered to whoever
+        // holds the session, and kept in it — must not (SECURITY.md).
+        // The same sentence, redacted.
+        if ($handoff->outcome === Handoff::STEP_FAILED) {
+            return $this->toExecution(
+                $request,
+                $before->id,
+                $handoff->level,
+                'The queue connection ran the job in this process (sync driver) and a step failed: '
+                .$this->redacted($handoff->exception),
+            );
+        }
+
         return $this->toExecution($request, $before->id, $handoff->level, $handoff->message);
+    }
+
+    /**
+     * An exception's message as Laraflow may show it: through the
+     * configured ErrorRedactor and truncated to
+     * laraflow.execution.max_error_length — the form the execution row
+     * already holds. A step's exception is the application's text and
+     * may carry a secret; the flash is rendered to a browser, so it gets
+     * what the record gets and nothing more.
+     */
+    private function redacted(?Throwable $exception): string
+    {
+        if ($exception === null) {
+            return '';
+        }
+
+        return mb_substr($this->redactor->redact($exception, $exception->getMessage()), 0, $this->options->maxErrorLength);
     }
 
     private function toOutcome(Request $request, WorkflowExecution $execution): RedirectResponse

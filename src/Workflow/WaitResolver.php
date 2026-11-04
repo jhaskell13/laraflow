@@ -48,18 +48,24 @@ final class WaitResolver
 
     /**
      * Park the execution on the Wait a step returned: the step row
-     * (waiting, with signal name, resume instant, or deadline) and the
-     * context the step built before waiting commit in one claim-guarded
-     * checkpoint; then the execution parks and the claim is released.
-     * The step's open attempt stays open — it closes when the wait
+     * (waiting, with signal name, resume instant, or deadline), the
+     * context the step built before waiting, the execution's park, and
+     * the claim's release commit in one claim-guarded transaction. The
+     * step's open attempt stays open — it closes when the wait
      * resolves, so one handle() run is one attempt row.
+     *
+     * Returns true when the signal it waits on was already in the
+     * inbox: the payload is on the step, the execution is still
+     * running under this claim, and the caller resolves the step now
+     * (resolve() sees a signalled wait) instead of parking. No waiting
+     * event fires for a park that never happened.
      */
     public function park(
         WorkflowExecution $execution,
         StepExecution $stepExecution,
         WorkflowContext $context,
         Wait $wait,
-    ): void {
+    ): bool {
         DurableValue::check($context->all(), 'context', $this->options->maxPayloadBytes);
 
         $now = $this->clock->now();
@@ -71,7 +77,6 @@ final class WaitResolver
 
         $stepExecution->markWaiting($wait->signal, $resumeAt, $timeoutAt);
         $execution->context = $context->all();
-        $this->repository->checkpoint($execution, $stepExecution);
 
         // A child wait — one child's, or a fan-out's join — heartbeats
         // on stale_after rather than parking indefinitely: when the
@@ -82,8 +87,12 @@ final class WaitResolver
             ? $now->add(new DateInterval("PT{$this->options->staleAfterSeconds}S"))
             : ($resumeAt ?? $timeoutAt);
 
-        $execution->markWaiting($nextEventAt);
-        $this->repository->release($execution);
+        // One write, where there were two: a checkpoint of the waiting
+        // step, then a release of the execution — and a signal landing
+        // between them was refused for an execution still `running`.
+        if ($this->repository->park($execution, $stepExecution, $nextEventAt) !== null) {
+            return true;
+        }
 
         $this->outcomes->emit(new WorkflowStepWaiting(
             ...$this->outcomes->identity($execution),
@@ -93,6 +102,8 @@ final class WaitResolver
             resumeAt: $resumeAt,
             timeoutAt: $timeoutAt,
         ));
+
+        return false;
     }
 
     /**
@@ -149,14 +160,24 @@ final class WaitResolver
             return $this->outcomes->settle($execution, $stepExecution, $policy, $failurePolicy, $this->waitTimeout($stepExecution), StepAttemptStatus::TimedOut);
         }
 
-        // Not due: a crash between checkpoint and release left the
-        // execution claimed, or an operator claimed a signal wait early
-        // — there is nothing to resume it with, so it parks again. A
-        // forced claim resumes a *timed* wait early; a signal wait
-        // without its signal has no output to complete with.
-        return $this->parkAgain($execution, $stepExecution->waitSignal === null
-            ? $stepExecution->nextRetryAt
-            : $stepExecution->timeoutAt);
+        // Not due: a crash between park and release left the execution
+        // claimed, or an operator claimed a signal wait early — there is
+        // nothing to resume it with, so it parks again. A forced claim
+        // resumes a *timed* wait early; a signal wait without its signal
+        // has no output to complete with.
+        if ($stepExecution->waitSignal === null) {
+            return $this->parkAgain($execution, $stepExecution->nextRetryAt);
+        }
+
+        // A signal wait re-parks through the inbox: a signal sent while
+        // this claim held the execution found it running, not waiting,
+        // and was kept there — consumed now, and the wait resolves on
+        // it instead of parking past it.
+        if ($this->repository->park($execution, $stepExecution, $stepExecution->timeoutAt) !== null) {
+            return $this->resolve($execution, $stepExecution, $context, $policy, $failurePolicy, false, $now);
+        }
+
+        return StepResolution::parked();
     }
 
     /**

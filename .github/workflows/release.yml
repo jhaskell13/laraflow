@@ -9,10 +9,17 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Version tags only — v1.2.3 and v1.2.3-rc.1 — so a stray `vnext`
+    # or `v-test` tag cannot start a release. Filter syntax, not regex:
+    # `+` repeats the class before it, `.` is literal.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
 
+# Read-only for everything, including the reusable CI call, whose matrix
+# runs `composer update` on freshly resolved third-party code: a called
+# workflow's token can be no wider than this. Only the draft job, which
+# runs nothing but this repository's own script and `gh`, may write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   checks:
@@ -22,9 +29,11 @@ jobs:
     name: Draft the release
     runs-on: ubuntu-latest
     needs: checks
+    permissions:
+      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Extract this version's changelog section
         run: |

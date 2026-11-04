@@ -11,7 +11,7 @@ class {{ class }} extends Workflow
     /**
      * The plan: an ordered list of step classes, persisted in full when
      * an execution is created and run in this order. `php artisan
-     * make:step` writes a step class; naming it here is yours to do.
+     * laraflow:make-step` writes a step class; naming it here is yours to do.
      *
      * @return list<class-string<\Laraflow\Workflow\Step>>
      */

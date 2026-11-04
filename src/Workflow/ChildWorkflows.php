@@ -133,25 +133,10 @@ class ChildWorkflows
      */
     protected function childOf(WorkflowExecution $parent, StepExecution $stepRow): ?WorkflowExecution
     {
-        $cursor = null;
-
-        do {
-            $page = $this->repository->list(
-                new ExecutionFilter(parentId: $parent->id),
-                ExecutionRepository::MAX_PAGE_SIZE,
-                $cursor,
-            );
-
-            foreach ($page->executions as $candidate) {
-                if ($candidate->parentStepExecutionId === $stepRow->id) {
-                    return $candidate;
-                }
-            }
-
-            $cursor = $page->nextCursor;
-        } while ($cursor !== null);
-
-        return null;
+        // One indexed read by the parent step, not the parent's every
+        // child paged through: a parent that also fans out may have a
+        // thousand children, none of them this step's.
+        return $this->repository->childOfStep($stepRow->id);
     }
 
     /**

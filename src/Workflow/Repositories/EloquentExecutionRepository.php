@@ -7,6 +7,7 @@ namespace Laraflow\Workflow\Repositories;
 use Closure;
 use DateTimeImmutable;
 use Illuminate\Database\Query\Expression;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\ExecutionAlreadyClaimedException;
 use Laraflow\Exceptions\Workflow\ExecutionNotCancellableException;
@@ -21,6 +22,7 @@ use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionOptions;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
+use Laraflow\Workflow\Models\SignalInboxModel;
 use Laraflow\Workflow\Models\StepAttemptModel;
 use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
@@ -31,6 +33,7 @@ use Laraflow\Workflow\StepStatus;
 use Laraflow\Workflow\Tenancy\TenantCeiling;
 use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\Tenancy\TenantLimits;
+use Laraflow\Workflow\Wait;
 use Laraflow\Workflow\WorkflowExecution;
 use Psr\Clock\ClockInterface;
 
@@ -116,7 +119,8 @@ class EloquentExecutionRepository implements ExecutionRepository
         int $id,
         string $claimToken,
         int $staleAfterSeconds,
-        bool $ignoreRetrySchedule = false
+        bool $ignoreRetrySchedule = false,
+        bool $reexecuteFailed = false
     ): WorkflowExecution {
         $now = $this->clock->now();
         $staleBefore = $now->modify("-{$staleAfterSeconds} seconds");
@@ -138,18 +142,24 @@ class EloquentExecutionRepository implements ExecutionRepository
         // record and have the queue job re-push a claim that can never
         // land (the Milestone 10 audit's second finding). An execution
         // with no tenant has nothing to be bounded by.
-        $limits = $before === null || $before->tenant_id === null || ! $this->claimableNow($before, $now, $staleBefore, $ignoreRetrySchedule)
+        $limits = $before === null || $before->tenant_id === null || ! $this->claimableNow($before, $now, $staleBefore, $ignoreRetrySchedule, $reexecuteFailed)
             ? TenantLimits::none()
             : $this->assertWithinTenantCeilings($before, $now, $staleBefore);
 
         $claimed = WorkflowExecutionModel::query()
             ->whereKey($id)
-            ->where(function ($query) use ($staleBefore, $now, $ignoreRetrySchedule) {
+            ->where(function ($query) use ($staleBefore, $now, $ignoreRetrySchedule, $reexecuteFailed) {
+                // Failed is terminal until an operator says otherwise.
+                // Accepting it unconditionally let a duplicate queue
+                // delivery — the at-least-once kind every broker is
+                // allowed — re-run a terminally failed execution, its
+                // side effects included, with nobody having asked
+                // (Milestone 10 audit). Re-execution is an explicit
+                // opt-in, carried from the operator's action to here.
                 $query
-                    ->whereIn('status', [
-                        ExecutionStatus::Pending->value,
-                        ExecutionStatus::Failed->value,
-                    ])
+                    ->whereIn('status', $reexecuteFailed
+                        ? [ExecutionStatus::Pending->value, ExecutionStatus::Failed->value]
+                        : [ExecutionStatus::Pending->value])
                     ->orWhere(function ($query) use ($now, $ignoreRetrySchedule) {
                         $query->where('status', ExecutionStatus::Retrying->value);
 
@@ -251,6 +261,36 @@ class EloquentExecutionRepository implements ExecutionRepository
         $execution->resumedFrom = is_string($resumedFrom) ? ExecutionStatus::tryFrom($resumedFrom) : null;
 
         return $execution;
+    }
+
+    public function createMember(
+        int $parentStepExecutionId,
+        int $index,
+        Closure $create
+    ): mixed {
+        return $this->transaction(function () use ($parentStepExecutionId, $index, $create): mixed {
+            // The parent step's row is the lock both creators queue on:
+            // a worker resuming a partial creation and a stale-reclaimed
+            // one still running it each counted k members and each made
+            // member k (Milestone 10 audit). Under the lock, the second
+            // counts k + 1 and makes nothing. On SQLite the lock is a
+            // no-op and the single writer does the ordering: the loser
+            // of that race gets "database is locked", not a duplicate.
+            StepExecutionModel::query()
+                ->whereKey($parentStepExecutionId)
+                ->lockForUpdate()
+                ->first(['id']);
+
+            $existing = WorkflowExecutionModel::query()
+                ->where('parent_step_execution_id', $parentStepExecutionId)
+                ->count();
+
+            if ($existing > $index) {
+                return null;
+            }
+
+            return $create();
+        });
     }
 
     public function steps(
@@ -392,11 +432,17 @@ class EloquentExecutionRepository implements ExecutionRepository
             // the payload instead — last delivery wins, mirroring the
             // at-least-once sources signals come from.
             //
-            // The row is locked for the transaction (a no-op on SQLite,
-            // whose writers serialise anyway), so a worker completing
-            // this step and parking the next cannot slip between this
-            // read and the write below and have a late duplicate land
-            // on a completed step.
+            // The lock is what serialises this against a worker
+            // completing the step and parking the next, on the engines
+            // that take it. SQLite does not: lockForUpdate() compiles
+            // to nothing there, and no lock is taken until the first
+            // write. What keeps SQLite correct is the compare-and-set in
+            // each UPDATE below (status = waiting, on the step and on
+            // the execution) — a race lost there is a refusal, rolled
+            // back — and SQLite's single writer, which turns a
+            // read-then-write race between two connections into a
+            // "database is locked" error for one of them rather than a
+            // lost or doubled write. The error is the caller's to retry.
             $row = StepExecutionModel::query()
                 ->where('workflow_execution_id', $id)
                 ->where('status', StepStatus::Waiting->value)
@@ -404,32 +450,61 @@ class EloquentExecutionRepository implements ExecutionRepository
                 ->lockForUpdate()
                 ->first(['id', 'wait_signal']);
 
-            // The database match is case-insensitive on MySQL, MariaDB,
-            // and SQL Server; the reserved prefix is an authorization
-            // boundary, so the name must match byte for byte.
-            if ($row === null || $row->wait_signal !== $signal) {
-                throw SignalRefusedException::forSignal($id, $signal);
-            }
-
-            StepExecutionModel::query()
-                ->whereKey($row->id)
-                ->where('status', StepStatus::Waiting->value)
-                ->update(['output' => $this->asJson($payload)]);
-
-            // Compare-and-set on the executions row, counted, so a
-            // worker claiming on a concurrent timeout rolls the payload
-            // back with the refusal.
-            $due = WorkflowExecutionModel::query()
-                ->whereKey($id)
-                ->where('status', ExecutionStatus::Waiting->value)
-                ->update($this->counted(['next_retry_at' => $at]));
-
-            if ($due !== 1) {
-                throw SignalRefusedException::forSignal($id, $signal);
-            }
+            $this->deliverSignal($id, $signal, $payload, $at, $row);
         });
 
         return $this->find($id);
+    }
+
+    public function park(
+        WorkflowExecution $execution,
+        StepExecution $step,
+        ?DateTimeImmutable $nextEventAt
+    ): ?array {
+        return $this->transaction(function () use ($execution, $step, $nextEventAt): ?array {
+            // One transaction, where there were two: the step row went
+            // `waiting` and committed, and only then did the execution
+            // park. A signal landing between them found the step parked
+            // and the execution still `running`, and was refused — the
+            // compare-and-set below it requires `waiting` (Milestone 10
+            // audit). Now nothing outside sees either until both hold.
+            //
+            // Lock order is step, then execution, then inbox — the order
+            // recordSignal() takes them in — so the two never deadlock.
+            $this->writeStep($step);
+
+            // The claim guard, and the execution-row lock that orders
+            // this park against a recordSignal() buffering the very name
+            // it waits on: whichever takes the row first, the other sees
+            // its work — the signal finds the step waiting, or the park
+            // finds the signal in the inbox.
+            $this->assertClaimHeld($execution, [
+                'context' => $this->asJson($execution->context),
+                'fruitless_claims' => 0,
+            ]);
+
+            $buffered = $this->takeBufferedSignal($execution->id, $step);
+
+            if ($buffered !== null) {
+                // Answered before it parked: the payload lands where a
+                // signal on a waiting step lands, and the execution
+                // stays running under this claim for the caller to
+                // resume. A worker that dies before it does leaves a
+                // waiting, signalled step a stale reclaim resumes.
+                StepExecutionModel::query()
+                    ->whereKey($step->id)
+                    ->update(['output' => $this->asJson($buffered)]);
+
+                $step->output = $buffered;
+
+                return $buffered;
+            }
+
+            $execution->markWaiting($nextEventAt);
+            $this->release($execution);
+
+            return null;
+        });
     }
 
     public function recordDispatch(
@@ -603,6 +678,136 @@ class EloquentExecutionRepository implements ExecutionRepository
     }
 
     /**
+     * Put a signal on the step parked on it, or keep it in the inbox for
+     * the park that will ask for it (docs/advanced-workflows.md).
+     *
+     * Decided under the execution row's lock, which park() takes in its
+     * claim guard before it reads the inbox, so a park and this write
+     * are ordered one way or the other — never interleaved: the signal
+     * finds the step waiting, or the park finds the signal. The lock is
+     * taken after the step row's (the caller's read), the order every
+     * step checkpoint and park() use, so none of them deadlock.
+     *
+     * - `waiting`, on this name: the payload becomes the step's output
+     *   and the execution is due now.
+     * - unfinished otherwise — pending, running (a claim holds it, even
+     *   one about to re-park this very wait), retrying, or waiting on
+     *   another name: buffered, latest delivery wins.
+     * - completed, cancelled, failed, compensating, or gone: refused —
+     *   no park can follow. A reserved (`laraflow.`) name is refused
+     *   unless it is exactly what a step is parked on: the machinery's
+     *   signals have heartbeats that heal a lost one, and buffering one
+     *   would let a child's outcome answer a park it was never for.
+     *
+     * @param  array<array-key, mixed>  $payload
+     *
+     * @throws SignalRefusedException
+     */
+    protected function deliverSignal(int $id, string $signal, array $payload, DateTimeImmutable $at, ?StepExecutionModel $row): void
+    {
+        $status = WorkflowExecutionModel::query()
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->value('status');
+
+        if ($status === ExecutionStatus::Waiting->value) {
+            // Asked again under the lock when the first read found
+            // nothing: a park that committed while this transaction
+            // waited for the row has the step waiting now. A plain read
+            // — the row lock already orders it, and a locking one here
+            // would take step after execution, the reverse order.
+            $row ??= StepExecutionModel::query()
+                ->where('workflow_execution_id', $id)
+                ->where('status', StepStatus::Waiting->value)
+                ->where('wait_signal', $signal)
+                ->first(['id', 'wait_signal']);
+
+            // The database match is case-insensitive on MySQL, MariaDB,
+            // and SQL Server; the reserved prefix is an authorization
+            // boundary, so the name must match byte for byte.
+            if ($row !== null && $row->wait_signal === $signal) {
+                StepExecutionModel::query()
+                    ->whereKey($row->id)
+                    ->where('status', StepStatus::Waiting->value)
+                    ->update(['output' => $this->asJson($payload)]);
+
+                WorkflowExecutionModel::query()
+                    ->whereKey($id)
+                    ->update($this->counted(['next_retry_at' => $at]));
+
+                return;
+            }
+        }
+
+        if (! is_string($status)
+            || str_starts_with(mb_strtolower($signal), Wait::RESERVED_PREFIX)
+            || in_array($status, [
+                ExecutionStatus::Completed->value,
+                ExecutionStatus::Cancelled->value,
+                ExecutionStatus::Failed->value,
+                ExecutionStatus::Compensating->value,
+            ], true)) {
+            throw SignalRefusedException::forSignal($id, $signal);
+        }
+
+        $values = ['name' => $signal, 'payload' => $payload, 'received_at' => $at];
+        $key = ['workflow_execution_id' => $id, 'name_hash' => SignalInboxModel::hashName($signal)];
+
+        // Latest wins: one row per execution and name, overwritten by a
+        // later delivery, so the inbox is bounded by the names a sender
+        // uses, not by how often it sends. Update first; insert when
+        // there was nothing to update; and an insert that lost a race
+        // to the unique key — possible on SQLite, which took no lock
+        // above — becomes the update it should have been.
+        $existing = SignalInboxModel::query()->where($key)->first();
+
+        if ($existing !== null) {
+            $existing->fill($values)->save();
+
+            return;
+        }
+
+        try {
+            SignalInboxModel::query()->create($key + $values);
+        } catch (UniqueConstraintViolationException) {
+            SignalInboxModel::query()->where($key)->firstOrFail()->fill($values)->save();
+        }
+    }
+
+    /**
+     * Remove and return the buffered payload for the application signal
+     * $step is about to park on, or null when there is none. A timed
+     * wait and the machinery's waits never consume the inbox.
+     *
+     * @return array<array-key, mixed>|null
+     */
+    protected function takeBufferedSignal(int $executionId, StepExecution $step): ?array
+    {
+        $signal = $step->waitSignal;
+
+        if ($signal === null || str_starts_with(mb_strtolower($signal), Wait::RESERVED_PREFIX)) {
+            return null;
+        }
+
+        // A locking read: on MySQL under REPEATABLE READ a plain read
+        // would answer from the snapshot this transaction began with,
+        // before a signal that committed while the claim guard waited.
+        $row = SignalInboxModel::query()
+            ->where('workflow_execution_id', $executionId)
+            ->where('name_hash', SignalInboxModel::hashName($signal))
+            ->lockForUpdate()
+            ->first();
+
+        if ($row === null || $row->name !== $signal) {
+            return null;
+        }
+
+        SignalInboxModel::query()->whereKey($row->id)->delete();
+
+        return $row->payload;
+    }
+
+    /**
      * Write $values to the executions row only if this worker still
      * holds the claim, and throw otherwise. Called inside the step
      * transactions so a lost claim rolls back the step write and the
@@ -759,10 +964,11 @@ class EloquentExecutionRepository implements ExecutionRepository
      * its predicate, for deciding who the ceilings apply to. A race that
      * changes the answer after this read is settled by the CAS itself.
      */
-    protected function claimableNow(WorkflowExecutionModel $before, DateTimeImmutable $now, DateTimeImmutable $staleBefore, bool $ignoreRetrySchedule): bool
+    protected function claimableNow(WorkflowExecutionModel $before, DateTimeImmutable $now, DateTimeImmutable $staleBefore, bool $ignoreRetrySchedule, bool $reexecuteFailed): bool
     {
         return match (ExecutionStatus::from($before->status)) {
-            ExecutionStatus::Pending, ExecutionStatus::Failed => true,
+            ExecutionStatus::Pending => true,
+            ExecutionStatus::Failed => $reexecuteFailed,
             ExecutionStatus::Retrying => $ignoreRetrySchedule
                 || $before->next_retry_at === null
                 || $before->next_retry_at->toImmutable() <= $now,

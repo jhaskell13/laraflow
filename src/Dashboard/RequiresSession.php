@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Laraflow\Dashboard;
 
 use Closure;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Facade;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -26,6 +28,23 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  * A session is the thing Laravel's CSRF protection is built on, so its
  * absence is the detectable shape of that mistake. Misconfiguration
  * must be loud — the same rule the configured error redactor follows.
+ *
+ * A session is not, on its own, a CSRF check (Milestone 10 audit): a
+ * custom stack of `StartSession` without `VerifyCsrfToken` passes the
+ * first test and still leaves the four routes forgeable. So the token
+ * is checked here too — the request's `_token` field, or its
+ * `X-CSRF-TOKEN` header, against the session's — with hash_equals, and
+ * a mismatch is the 419 Laravel's own middleware answers. Behind `web`
+ * this is the same comparison run twice, which costs nothing; behind
+ * anything less it is the only one. The dashboard's forms all carry
+ * `@csrf`, so nothing the dashboard sends is refused. The encrypted
+ * `X-XSRF-TOKEN` cookie header is not accepted: decrypting it would
+ * need the application's encrypter, and nothing the dashboard sends
+ * uses it.
+ *
+ * Skipped while running unit tests, exactly as VerifyCsrfToken skips
+ * itself, so an application's own feature tests that post to the
+ * dashboard keep working.
  */
 final class RequiresSession
 {
@@ -43,6 +62,34 @@ final class RequiresSession
             ));
         }
 
+        if (! $this->runningUnitTests() && ! $this->tokenMatches($request)) {
+            // The message names no token: the response goes to whoever
+            // sent the forged request.
+            throw new HttpException(419, 'The Laraflow dashboard refused this action: its CSRF token is missing or '
+                .'does not match the session. Reload the page and try again.');
+        }
+
         return $next($request);
+    }
+
+    private function tokenMatches(Request $request): bool
+    {
+        $expected = (string) $request->session()->token();
+        $given = $request->input('_token');
+
+        if (! is_string($given) || $given === '') {
+            $given = $request->header('X-CSRF-TOKEN');
+        }
+
+        return $expected !== ''
+            && is_string($given) && $given !== ''
+            && hash_equals($expected, $given);
+    }
+
+    private function runningUnitTests(): bool
+    {
+        $app = Facade::getFacadeApplication();
+
+        return $app instanceof Application && $app->runningInConsole() && $app->runningUnitTests();
     }
 }

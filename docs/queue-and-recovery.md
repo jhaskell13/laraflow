@@ -124,10 +124,12 @@ Every supported queue backend delivers at least once. Duplicates are safe here b
 |---|---|
 | Two jobs for a `pending` execution | One claims and runs it; the other logs and returns successfully. |
 | A job arrives for a `running` execution with a live claim | `ExecutionAlreadyClaimedException`, caught — the job succeeds without running anything. |
-| A job arrives for a `completed` execution | `ExecutionNotRunnableException`, caught — job succeeds, nothing runs. |
+| A job arrives for a `completed` or `cancelled` execution | `ExecutionNotRunnableException`, caught — job succeeds, nothing runs. |
+| A job arrives for a `failed` execution | `ExecutionNotRunnableException`, caught — job succeeds, nothing runs. A terminal failure is re-run only when an operator asks (below), never because a broker delivered twice. |
+| A job an operator queued to re-run a `failed` execution | Claims it and re-runs it. The job carries the opt-in, naming the failure it was issued for (its `failed_at`); a duplicate of that job arriving after the re-run has failed *again* finds a different failure and is refused like any other delivery. |
 | A worker is reclaimed mid-run | `ClaimLostException`, caught — nothing this worker did was persisted; the new owner is authoritative. |
 
-All four are **no-ops, not failures**: they are logged and the job completes, so duplicate delivery never pollutes `failed_jobs`. This requires no cache lock and no `ShouldBeUnique`; the database claim is the only authority.
+All of these but the operator's re-run are **no-ops, not failures**: they are logged and the job completes, so duplicate delivery never pollutes `failed_jobs`. This requires no cache lock and no `ShouldBeUnique`; the database claim is the only authority.
 
 What duplicates do *not* change: the at-least-once contract still applies to a step interrupted between performing a side effect and checkpointing it. Wrap external calls that must not repeat in `$context->remember()` ([idempotency.md](idempotency.md)), or use `$context->idempotencyKey()` for a provider's own idempotency scheme, for calls that must not repeat.
 
@@ -137,6 +139,15 @@ What duplicates do *not* change: the at-least-once contract still applies to a s
 - **A missing or invalid workflow class** (`WorkflowDefinitionMismatchException`). This is a deployment problem — code was removed while executions referencing it were in flight — and must be visible to an operator, not retried silently.
 
 A job whose execution record no longer exists (pruned) logs a warning and returns; retrying could not repair it.
+
+### Re-running a failed execution is an operator action
+
+Until 0.6.0 the claim accepted `failed` unconditionally, so the second copy of the delivery that failed an execution ran it all over again, side effects included. Now `ExecutionRepository::claim()` takes `failed` only with `$reexecuteFailed`, and only these paths pass it:
+
+- `laraflow:execute <id>` and the bulk form, and the dashboard's execute action — in-process, through `WorkflowRunner::execute()`, whose `$reexecuteFailed` defaults to true because calling it *is* the explicit act;
+- the same actions with `--queue` (and the dashboard's queued execute), through `Handoff`, which asks `WorkflowDispatcher::dispatchExecution(..., reexecuteFailed: true)` for a failed execution, and the dispatcher sets `ExecuteWorkflowJob::$reexecuteFailedAt`. A tenant deferral re-push of that job carries it on.
+
+A plain `dispatchExecution()`, every recovery pass (`laraflow:recover`, inline or queued), the scheduler's heal, and the delayed retry and wait deliveries never pass it. An application calling `dispatchExecution()` itself to re-run a failure must now pass `reexecuteFailed: true`.
 
 ## Recovering interrupted work
 
@@ -162,6 +173,8 @@ Schedule::command('laraflow:recover')->everyFiveMinutes()->withoutOverlapping();
 | `retry due` | `retrying`, with `next_retry_at` at or before now | Scanned unless `--skip-retries` |
 | `wait due` | `waiting`, with `next_retry_at` at or before now — a timed resume, a signal deadline, a recorded signal, or a sub-workflow heartbeat | Scanned unless `--skip-retries` |
 | `never dispatched` | `pending`, created more than `pending_after` ago | **Off** — opt in |
+
+A queue push still in flight is not a candidate. Every push records when its delivery becomes available (`available_at`: the push itself, or a delayed delivery's due time), and the due-retry, due-wait, and pending scans skip a row whose last push became available less than `laraflow.recovery.redispatch_after` seconds ago (default 60) — the window the scheduler's own heal uses (`schedules.redispatch_after`). Before 0.6.0 every run re-pushed everything due, so a backlogged queue gained one more copy of each job per run. Keep the window above your normal queue latency; a push that really was lost is re-pushed once it passes, so the cost of a lost delivery is at most one window. `0` restores the old behaviour. Stale claims are unaffected: a claim is proof the delivery was consumed.
 
 Scans share the per-run limit in that order, so lost work outranks scheduled work when the budget is tight; abandoned and unrecoverable candidates are reported but do not consume the budget of the scans that follow, so a backlog of stuck work cannot starve due retries and waits. Note that `--skip-retries` withholds due *waits* as well as due retries: it reduces recovery to interrupted and lost work only.
 

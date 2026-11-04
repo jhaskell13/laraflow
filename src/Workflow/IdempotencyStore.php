@@ -44,7 +44,11 @@ interface IdempotencyStore
 
     /**
      * The work completed; persist its value and mark the pending record
-     * settled. A record that is no longer pending is left as it is.
+     * settled. A record that is no longer pending is left as it is. A
+     * record that no longer exists at all is written back as settled —
+     * the work happened, and a missing record would read as "never ran"
+     * to the next attempt — unless another attempt has begun the key
+     * since, whose record then stands.
      */
     public function settle(
         int $executionId,
@@ -57,7 +61,8 @@ interface IdempotencyStore
     /**
      * The work threw a known failure; mark the pending record so the
      * next attempt starts over. A record that is no longer pending is
-     * left as it is.
+     * left as it is, and one that no longer exists needs nothing: an
+     * absent record already means "begin again".
      */
     public function fail(
         int $executionId,

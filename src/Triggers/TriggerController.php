@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Triggers;
 
+use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -68,6 +69,14 @@ final class TriggerController
                 'trigger' => $trigger,
                 'message' => "No trigger named [{$trigger}] is registered.",
             ], 404);
+        }
+
+        // The body limit before the provider's verifier, as before the
+        // signed endpoint's: a verifier hashes the body too.
+        if (VerifyTriggerSignature::oversized($request, $this->container->make(Config::class))) {
+            $this->reporter->refused($trigger, TriggerRefusalReason::BodyTooLarge, null, null);
+
+            return VerifyTriggerSignature::tooLarge();
         }
 
         $verifier = $this->container->make($definition->verifier);

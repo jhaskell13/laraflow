@@ -165,16 +165,20 @@ class SignedEndpointTest extends TestCase
 
     public function test_a_signal_the_execution_is_not_waiting_on_is_a_conflict_with_the_runtimes_words(): void
     {
+        // An unfinished execution keeps a signal for another name in its
+        // inbox, for a park that may ask for it: accepted, not refused.
         $id = $this->parked();
+        $this->signed($id, 'wrong-signal', self::PAYLOAD)->assertStatus(202);
+
+        // Replayed after the resume ran it to the end: finished, nothing
+        // will park again, and that is the conflict.
+        $this->signed($id, 'manager-approval', self::PAYLOAD)->assertStatus(202);
 
         $response = $this->signed($id, 'wrong-signal', self::PAYLOAD);
 
         $response->assertStatus(409);
         $response->assertJson(['status' => 'not_waiting', 'execution' => $id, 'signal' => 'wrong-signal']);
         $this->assertStringContainsString('wrong-signal', (string) $response->json('message'));
-
-        // Replayed after the resume: nothing is waiting on it any more.
-        $this->signed($id, 'manager-approval', self::PAYLOAD)->assertStatus(202);
         $this->signed($id, 'manager-approval', self::PAYLOAD)->assertStatus(409);
     }
 
@@ -198,6 +202,46 @@ class SignedEndpointTest extends TestCase
         $this->assertStringContainsString('reserved', (string) $response->json('message'));
 
         $this->assertTrue($this->executions()->find($id)->isWaiting(), 'Refused means untouched.');
+    }
+
+    /**
+     * M10 audit: a body over laraflow.triggers.max_body_bytes is refused
+     * before verification hashes it — signed or not, the same 413, with
+     * nothing in it about the limit or the signature.
+     */
+    public function test_a_body_over_the_limit_is_refused_before_it_is_verified(): void
+    {
+        Event::fake([TriggerRefused::class]);
+        config()->set('laraflow.triggers.max_body_bytes', 100);
+        $id = $this->parked();
+
+        $large = json_encode(['note' => str_repeat('x', 200)], JSON_THROW_ON_ERROR);
+
+        // Validly signed: still refused, because size comes first.
+        $response = $this->signed($id, 'manager-approval', $large);
+        $response->assertStatus(413);
+        $response->assertExactJson(['status' => 'too_large']);
+
+        // Unsigned: the same answer, not a 401 that would say "size was fine".
+        $response = $this->signed($id, 'manager-approval', $large, []);
+        $response->assertStatus(413);
+        $response->assertExactJson(['status' => 'too_large']);
+
+        // A declared length over the limit is refused on the header alone.
+        $response = $this->signed($id, 'manager-approval', self::PAYLOAD, ['Content-Length' => '1000000']);
+        $response->assertStatus(413);
+
+        Event::assertDispatched(TriggerRefused::class, fn (TriggerRefused $event): bool => $event->reason === TriggerRefusalReason::BodyTooLarge);
+        $this->assertTrue($this->executions()->find($id)->isWaiting(), 'Refused means untouched.');
+
+        // At the limit or under, verification proceeds as before.
+        $this->signed($id, 'manager-approval', self::PAYLOAD)->assertStatus(202);
+    }
+
+    public function test_the_default_body_limit_and_throttle_are_on(): void
+    {
+        $this->assertSame(65536, config('laraflow.triggers.max_body_bytes'));
+        $this->assertContains('throttle:60,1', config('laraflow.triggers.middleware'));
     }
 
     /**

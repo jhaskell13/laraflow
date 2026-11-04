@@ -39,11 +39,17 @@ final readonly class Handoff
     /** The runtime refused to queue it; nothing was pushed and nothing ran. */
     public const REFUSED = 'refused';
 
-    /** The push itself failed; the execution is persisted and nothing ran. */
-    public const PUSH_FAILED = 'push-failed';
+    /**
+     * The push itself failed; the execution is persisted and nothing ran.
+     *
+     * snake_case like every other outcome word Laraflow puts in a JSON
+     * document (would_cancel, already_cancelled, not_due); this and the
+     * next were the two hyphenated ones until 0.6.0.
+     */
+    public const PUSH_FAILED = 'push_failed';
 
     /** It ran in this process and a step threw. */
-    public const STEP_FAILED = 'step-failed';
+    public const STEP_FAILED = 'step_failed';
 
     private function __construct(
         public string $outcome,
@@ -62,7 +68,13 @@ final readonly class Handoff
         $id = $execution->id;
 
         try {
-            $dispatcher->dispatchExecution($id);
+            // Every caller here is an explicit action on this execution,
+            // so handing over a failed one *is* the operator's re-run
+            // (laraflow:execute --queue, the dashboard's execute). The
+            // opt-in travels on the job, naming this failure; a plain
+            // delivery refuses a failed execution, and so does a
+            // duplicate of this one once the re-run has failed again.
+            $dispatcher->dispatchExecution($id, reexecuteFailed: $execution->isFailed());
         } catch (WorkflowException $exception) {
             // The runtime's own refusal — not runnable, already
             // claimed, a definition that no longer matches. Its message

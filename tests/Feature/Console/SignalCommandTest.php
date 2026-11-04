@@ -62,7 +62,12 @@ class SignalCommandTest extends TestCase
     {
         $id = $this->parked();
 
-        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:signal', ['execution' => (string) $id, 'signal' => 'wrong-signal']);
+        // A finished execution can never park on a signal again. (An
+        // unfinished one keeps a signal for another name in its inbox.)
+        $finished = $this->parked();
+        $this->app->make(WorkflowRunner::class)->cancel($finished);
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:signal', ['execution' => (string) $finished, 'signal' => 'wrong-signal']);
         $this->assertSame(CommandStatus::FAILURE, $status);
         $this->assertStringContainsString('wrong-signal', $output);
 

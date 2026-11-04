@@ -95,6 +95,22 @@ class NamedTriggerTest extends TestCase
         $this->assertTrue($this->logger->hasRecordContaining('warning', 'refused a trigger request'));
     }
 
+    /**
+     * M10 audit: the body limit holds before a provider's verifier too.
+     */
+    public function test_a_body_over_the_limit_is_refused_before_the_verifier_runs(): void
+    {
+        config()->set('laraflow.triggers.max_body_bytes', 50);
+
+        Triggers::register('stripe', AcceptingVerifier::class, fn (): ?SignalIntent => null);
+
+        $response = $this->postJson('/laraflow/triggers/stripe', ['note' => str_repeat('x', 200)]);
+
+        $response->assertStatus(413);
+        $response->assertExactJson(['status' => 'too_large']);
+        $this->assertSame(0, AcceptingVerifier::$verified, 'Nothing was verified.');
+    }
+
     public function test_an_event_that_signals_nothing_is_acknowledged_and_ignored(): void
     {
         Triggers::register('stripe', AcceptingVerifier::class, fn (): ?SignalIntent => null);
@@ -148,7 +164,9 @@ class NamedTriggerTest extends TestCase
         ));
 
         $this->postJson('/laraflow/triggers/stripe', ['execution' => 999, 'signal' => 'manager-approval'])->assertNotFound();
-        $this->postJson('/laraflow/triggers/stripe', ['execution' => $this->parked, 'signal' => 'wrong-signal'])->assertStatus(409);
+        // Another name for an unfinished execution is kept in its
+        // signal inbox, not refused; refusal is for what cannot park.
+        $this->postJson('/laraflow/triggers/stripe', ['execution' => $this->parked, 'signal' => 'wrong-signal'])->assertStatus(202);
         $this->postJson('/laraflow/triggers/stripe', ['execution' => $this->parked, 'signal' => 'manager-approval'])->assertStatus(202);
         $this->postJson('/laraflow/triggers/stripe', ['execution' => $this->parked, 'signal' => 'manager-approval'])->assertStatus(409);
     }

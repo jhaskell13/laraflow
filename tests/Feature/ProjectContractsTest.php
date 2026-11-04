@@ -92,7 +92,7 @@ class ProjectContractsTest extends TestCase
 
         // Not preceded by a slash: `laraflow/laraflow:dev-main` is a
         // Composer constraint, not a command.
-        preg_match_all('/(?<![\/a-z])laraflow:([a-z]+)/', $docs, $matches);
+        preg_match_all('/(?<![\/a-z])laraflow:([a-z][a-z-]*[a-z]|[a-z])/', $docs, $matches);
 
         $missing = [];
 
@@ -111,9 +111,9 @@ class ProjectContractsTest extends TestCase
         $problems = [];
 
         // Each console row looks like: | `laraflow:x {--a=} {--b}` | ...
-        // The make:* generators are documented in the same table and
-        // are just as much the package's console surface.
-        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
+        // The generators (laraflow:make-*) are documented in the same
+        // table and are just as much the package's console surface.
+        preg_match_all('/`(laraflow:[a-z-]+)((?: \{[^}]+\})+)`/', $doc, $rows, PREG_SET_ORDER);
 
         $this->assertNotEmpty($rows, 'The console table was not found; this audit needs updating.');
 
@@ -162,14 +162,16 @@ class ProjectContractsTest extends TestCase
         $global = ['help', 'quiet', 'verbose', 'version', 'ansi', 'no-ansi', 'no-interaction', 'env'];
 
         $documented = [];
-        preg_match_all('/`((?:laraflow|make):[a-z]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
+        preg_match_all('/`(laraflow:[a-z-]+)((?: \{[^}]+\})*)`/', $doc, $rows, PREG_SET_ORDER);
 
         foreach ($rows as [, $name, $options]) {
             $documented[$name] = ($documented[$name] ?? '').$options;
         }
 
         foreach (Artisan::all() as $name => $command) {
-            if (! str_starts_with($name, 'laraflow:') && ! in_array($name, ['make:workflow', 'make:step', 'make:connector'], true)) {
+            // The deprecated make:* aliases are listed under the names
+            // they alias, so only laraflow:* names need a row.
+            if (! str_starts_with($name, 'laraflow:')) {
                 continue;
             }
 
@@ -619,7 +621,7 @@ class ProjectContractsTest extends TestCase
         }
 
         $this->assertSame(
-            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL'],
+            ['0:DateTimeImmutable', '1:int=100', '2:?string=NULL', '3:?string=NULL', '4:?DateTimeImmutable=NULL'],
             $shapes['stale'],
         );
         $this->assertCount(1, array_unique(array_map('serialize', $shapes)), 'The recovery scans differ in shape: '.json_encode($shapes));

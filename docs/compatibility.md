@@ -7,12 +7,12 @@ This policy states which platform versions Laraflow supports, what "supported" m
 | Component | Versions | Status |
 |-----------|----------|--------|
 | PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
-| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each of the four server engines below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
+| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each server engine version below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
 | SQLite | 3.x | Tested: the suite's default (in-memory). |
-| MySQL | 8.0+ | Tested: the full suite runs against MySQL 8.0 in CI, on both Laravel majors, and the install walk ends the job against it. |
-| MariaDB | 10.6+ | Tested: the full suite runs against MariaDB 10.6 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
-| PostgreSQL | 13+ | Tested: the full suite runs against PostgreSQL 13 in CI, on both Laravel majors, and the install walk ends the job against it. |
-| SQL Server | 2019+ | Tested: the full suite runs against SQL Server 2019 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
+| MySQL | 8.4+ | Tested: the full suite runs against MySQL 8.4 (LTS) in CI, on both Laravel majors, and the install walk ends the job against it. The 9.x innovation releases are not a support target. |
+| MariaDB | 10.11+ | Tested: the full suite runs against MariaDB 10.11 and 11.4 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
+| PostgreSQL | 14+ | Tested: the full suite runs against PostgreSQL 14 and 17 in CI, on both Laravel majors, and the install walk ends the job against it. |
+| SQL Server | 2022+ | Tested: the full suite runs against SQL Server 2022 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
 
 Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
 
@@ -111,7 +111,7 @@ Connectors talk to services Laraflow does not control, so a second compatibility
 - A PHP or Laravel version is dropped only in a **minor** release before 1.0, or a **major** release after 1.0, and is announced in the changelog.
 - PHP versions are dropped when they reach end of security support at php.net.
 - Laravel versions are dropped when they leave Laravel's bug-fix window.
-- Database engine versions are dropped when their vendor ends general support.
+- Database engine versions are dropped when their vendor ends general support (for SQL Server, mainstream support). 0.6.0 applied this to MySQL 8.0, MariaDB 10.6, PostgreSQL 13, and SQL Server 2019; the floors above are the result.
 
 ## Versioning
 
@@ -138,4 +138,4 @@ The database schema is **frozen**: the shipped migrations are immutable, and any
 - **Security vulnerabilities:** see [SECURITY.md](../SECURITY.md). Do not open a public issue.
 - **Questions:** GitHub issues, tagged as a question.
 
-There is no commercial support and no response-time guarantee. Only the latest development snapshot (and, once tagged, the latest minor release) receives fixes.
+There is no commercial support and no response-time guarantee. Which releases receive fixes — the latest minor, and the previous one for a stated window — is defined once, in [SECURITY.md](../SECURITY.md#supported-versions).
