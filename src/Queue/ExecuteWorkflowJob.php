@@ -36,7 +36,7 @@ use Throwable;
  * return without doing anything, so a duplicate is a no-op rather than a
  * failed job. See docs/queue-and-recovery.md.
  */
-class ExecuteWorkflowJob implements ShouldQueue
+final class ExecuteWorkflowJob implements ShouldQueue
 {
     use InteractsWithQueue;
     use Queueable;

@@ -11,7 +11,7 @@ use Laraflow\Console\Concerns\DisplaysExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\JsonReport;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\IdempotencyStatus;
 use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
@@ -23,7 +23,7 @@ use Laraflow\Workflow\WorkflowExecution;
 /**
  * @experimental Console tooling is still evolving; see docs/public-api.md.
  */
-class ShowCommand extends Command
+final class ShowCommand extends Command
 {
     use DisplaysExecutions;
     use ParsesExecutionId;
@@ -35,7 +35,7 @@ class ShowCommand extends Command
 
     protected $description = 'Inspect a workflow execution and its steps';
 
-    public function handle(ExecutionRepository $repository, IdempotencyStore $idempotency, ScheduleRepository $schedules): int
+    public function handle(ExecutionReader $repository, IdempotencyStore $idempotency, ScheduleRepository $schedules): int
     {
         try {
             $id = $this->executionIdArgument();
@@ -125,7 +125,7 @@ class ShowCommand extends Command
      * @param  StepExecution[]  $steps
      * @return list<array<string, mixed>>
      */
-    protected function waitingOn(ExecutionRepository $repository, WorkflowExecution $execution, array $steps): array
+    protected function waitingOn(ExecutionReader $repository, WorkflowExecution $execution, array $steps): array
     {
         if (! $execution->isWaiting()) {
             return [];
@@ -178,7 +178,7 @@ class ShowCommand extends Command
      *
      * @param  StepExecution[]  $steps
      */
-    protected function displayWait(ExecutionRepository $repository, WorkflowExecution $execution, array $steps): void
+    protected function displayWait(ExecutionReader $repository, WorkflowExecution $execution, array $steps): void
     {
         foreach ($steps as $step) {
             if (! $step->isWaiting()) {
@@ -240,7 +240,7 @@ class ShowCommand extends Command
      * @param  StepExecution[]  $steps
      */
     protected function displayAttemptHistory(
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowExecution $execution,
         array $steps
     ): void {

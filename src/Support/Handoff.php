@@ -6,7 +6,7 @@ namespace Laraflow\Support;
 
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowExecution;
 use Throwable;
 
@@ -62,7 +62,7 @@ final readonly class Handoff
 
     public static function attempt(
         WorkflowDispatcher $dispatcher,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowExecution $execution,
     ): self {
         $id = $execution->id;

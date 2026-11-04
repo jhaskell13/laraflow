@@ -13,7 +13,7 @@ use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
 use Laraflow\Support\JsonReport;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 
 /**
@@ -26,7 +26,7 @@ use Laraflow\Workflow\WorkflowRunner;
  * is due now and laraflow:recover or a worker resumes it; with it, the
  * execution is handed to the queue in the same breath.
  */
-class SignalCommand extends Command
+final class SignalCommand extends Command
 {
     use ParsesExecutionId;
     use StartsExecutions;
@@ -40,7 +40,7 @@ class SignalCommand extends Command
 
     protected $description = 'Record a signal for a waiting execution, and optionally deliver it';
 
-    public function handle(WorkflowRunner $runner, ExecutionRepository $repository, WorkflowDispatcher $dispatcher): int
+    public function handle(WorkflowRunner $runner, ExecutionReader $repository, WorkflowDispatcher $dispatcher): int
     {
         $signal = trim((string) $this->argument('signal'));
 

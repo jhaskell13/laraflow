@@ -22,7 +22,7 @@ use Throwable;
  * Public because register() is the contract a package schedules through;
  * its methods beyond that serve the scheduler and are not a contract.
  */
-class ScheduleRegistry
+final class ScheduleRegistry
 {
     /** @var list<string> */
     protected array $registered = [];

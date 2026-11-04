@@ -17,7 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
  * step is a paste rather than a search.
  */
 #[AsCommand(name: 'laraflow:make-connector', aliases: ['make:connector'])]
-class MakeConnectorCommand extends GeneratorCommand
+final class MakeConnectorCommand extends GeneratorCommand
 {
     use PublishesStubs;
     use WarnsOnDeprecatedName;

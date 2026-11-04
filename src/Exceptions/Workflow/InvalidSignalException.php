@@ -13,7 +13,7 @@ use Laraflow\Workflow\Wait;
  * that selects a waiting step is case-insensitive on MySQL, MariaDB,
  * and SQL Server, so a differently-cased spelling must be refused too.
  */
-class InvalidSignalException extends WorkflowException
+final class InvalidSignalException extends WorkflowException
 {
     public static function empty(): self
     {

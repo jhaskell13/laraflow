@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Date;
 use Laraflow\Support\Formats;
 use Laraflow\Support\JsonReport;
 use Laraflow\Support\Outcome;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\StepStatus;
@@ -144,7 +144,7 @@ trait DisplaysExecutions
      * stands, the error, and the command that picks it up again.
      */
     protected function reportFailedRun(
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         int $executionId,
         Throwable $exception,
     ): int {

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Exceptions\Workflow;
 
-class UnserializableValueException extends WorkflowException
+final class UnserializableValueException extends WorkflowException
 {
     public static function at(string $path, mixed $value): self
     {

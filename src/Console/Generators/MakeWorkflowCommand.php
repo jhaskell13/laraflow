@@ -15,7 +15,7 @@ use Symfony\Component\Console\Input\InputOption;
  * first workflow is generated rather than typed.
  */
 #[AsCommand(name: 'laraflow:make-workflow', aliases: ['make:workflow'])]
-class MakeWorkflowCommand extends GeneratorCommand
+final class MakeWorkflowCommand extends GeneratorCommand
 {
     use PublishesStubs;
     use WarnsOnDeprecatedName;

@@ -13,7 +13,7 @@ use Laraflow\Workflow\Tenancy\TenantCeiling;
  * the execution's status did not change and no attempt was recorded.
  * Identifiers and numbers only.
  */
-readonly class WorkflowExecutionDeferred
+final readonly class WorkflowExecutionDeferred
 {
     /**
      * @param  int  $count  What the ceiling counted — executions holding a

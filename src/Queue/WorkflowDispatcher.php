@@ -34,7 +34,7 @@ use Psr\Clock\ClockInterface;
  * Queue concerns live here rather than on WorkflowRunner so the runner
  * stays a pure durable-execution engine with no queue dependency.
  */
-class WorkflowDispatcher
+final class WorkflowDispatcher
 {
     protected ClockInterface $clock;
 

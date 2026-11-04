@@ -10,7 +10,7 @@ use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonReport;
 use Laraflow\Support\Outcome;
 use Laraflow\Workflow\ExecutionOptions;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowExecution;
@@ -43,7 +43,7 @@ trait StartsExecutions
      */
     protected function startInline(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         Workflow $workflow,
         array $input,
         ?ExecutionOptions $options = null,
@@ -77,7 +77,7 @@ trait StartsExecutions
      */
     protected function startQueued(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowDispatcher $dispatcher,
         Workflow $workflow,
         array $input,
@@ -98,7 +98,7 @@ trait StartsExecutions
      *
      * @param  array<string, mixed>  $extra  Fields a calling command adds to the document.
      */
-    protected function reportHandoff(Handoff $handoff, ExecutionRepository $repository, array $extra = []): int
+    protected function reportHandoff(Handoff $handoff, ExecutionReader $repository, array $extra = []): int
     {
         $steps = $handoff->showsRecord() ? $repository->steps($handoff->execution) : null;
 

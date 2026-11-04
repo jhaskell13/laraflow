@@ -40,7 +40,7 @@ use Psr\Clock\ClockInterface;
  * scrub. Deleting first means the later tiers never do work on rows
  * that are about to disappear.
  */
-class RetentionService
+final class RetentionService
 {
     protected ClockInterface $clock;
 

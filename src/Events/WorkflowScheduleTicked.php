@@ -11,7 +11,7 @@ use DateTimeImmutable;
  * created, in the one transaction that did both. Fired after that
  * commit; the execution's input is never on the event.
  */
-readonly class WorkflowScheduleTicked
+final readonly class WorkflowScheduleTicked
 {
     /**
      * @param  int  $missed  Due instants that passed unclaimed before this

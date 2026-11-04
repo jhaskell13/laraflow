@@ -18,7 +18,7 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 use LogicException;
 use Throwable;
@@ -33,7 +33,7 @@ final class TriggerController
     public function __construct(
         private WorkflowRunner $runner,
         private WorkflowDispatcher $dispatcher,
-        private ExecutionRepository $repository,
+        private ExecutionReader $repository,
         private TriggerRegistry $registry,
         private TriggerReporter $reporter,
         private Container $container,

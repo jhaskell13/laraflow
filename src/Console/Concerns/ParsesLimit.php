@@ -6,7 +6,7 @@ namespace Laraflow\Console\Concerns;
 
 use InvalidArgumentException;
 use Laraflow\Support\FilterInput;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 
 /**
  * @internal The --limit option, read one way by every command that
@@ -37,6 +37,6 @@ trait ParsesLimit
             throw new InvalidArgumentException("The --limit option must be a positive integer, got [{$value}].");
         }
 
-        return min($number, ExecutionRepository::MAX_PAGE_SIZE);
+        return min($number, ExecutionReader::MAX_PAGE_SIZE);
     }
 }

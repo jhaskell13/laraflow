@@ -17,7 +17,7 @@ use Laraflow\Workflow\Tenancy\TenantCeiling;
  * suggests the same delay so whoever asked can wait the right amount.
  * See docs/tenancy.md, "What happens at the ceiling".
  */
-class TenantThrottledException extends WorkflowException implements SuggestsRetryDelay
+final class TenantThrottledException extends WorkflowException implements SuggestsRetryDelay
 {
     public function __construct(
         string $message,
@@ -72,7 +72,7 @@ class TenantThrottledException extends WorkflowException implements SuggestsRetr
         );
     }
 
-    public function suggestedRetryDelaySeconds(DateTimeInterface $now): ?int
+    public function suggestedRetryDelaySeconds(DateTimeInterface $now): int
     {
         return $this->delaySeconds;
     }

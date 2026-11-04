@@ -9,7 +9,7 @@ namespace Laraflow\Events;
  * never on the event — it is the waiting step's output, read through
  * the repository once the execution resumes.
  */
-readonly class WorkflowExecutionSignalled
+final readonly class WorkflowExecutionSignalled
 {
     public function __construct(
         public int $executionId,

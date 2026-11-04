@@ -10,7 +10,7 @@ namespace Laraflow\Exceptions\Workflow;
  * recursion between workflow classes would otherwise be discovered as an
  * unbounded tree of executions.
  */
-class WorkflowDepthExceededException extends WorkflowException
+final class WorkflowDepthExceededException extends WorkflowException
 {
     public static function forDepth(string $workflow, int $depth, int $max): self
     {

@@ -20,7 +20,7 @@ use Laraflow\Integration\ConnectorRegistry;
  * one account on one provider; the connector class is shared by all of
  * them. Instances are built on first use and cached per connection.
  */
-class LaraflowManager
+final class LaraflowManager
 {
     public function __construct(
         protected ConnectorRegistry $registry,

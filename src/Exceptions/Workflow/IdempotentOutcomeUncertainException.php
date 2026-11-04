@@ -16,7 +16,7 @@ use DateTimeImmutable;
  * again. Supply a reconcile callback to remember(), or resolve the
  * outcome by hand. See docs/idempotency.md.
  */
-class IdempotentOutcomeUncertainException extends WorkflowException
+final class IdempotentOutcomeUncertainException extends WorkflowException
 {
     public static function forKey(string $step, int $position, string $key, DateTimeImmutable $startedAt): self
     {

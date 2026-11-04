@@ -54,7 +54,9 @@ use Laraflow\Triggers\TriggerReporter;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildDelivery;
 use Laraflow\Workflow\ChildWorkflows;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionStore;
 use Laraflow\Workflow\FanOutWorkflows;
 use Laraflow\Workflow\IdempotencyResolver;
 use Laraflow\Workflow\IdempotencyStore;
@@ -79,7 +81,7 @@ use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
-class LaraflowServiceProvider extends ServiceProvider
+final class LaraflowServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
@@ -150,6 +152,15 @@ class LaraflowServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(ExecutionRepository::class, EloquentExecutionRepository::class);
+
+        // The two halves of the repository resolve through it rather
+        // than to singletons of their own, so there is one instance per
+        // application and a test or an application that rebinds
+        // ExecutionRepository (instance(), a custom driver) rebinds the
+        // reader and the store with it. A pair of singletons would each
+        // cache whatever they first saw and quietly disagree.
+        $this->app->bind(ExecutionReader::class, fn (Container $app): ExecutionReader => $app->make(ExecutionRepository::class));
+        $this->app->bind(ExecutionStore::class, fn (Container $app): ExecutionStore => $app->make(ExecutionRepository::class));
         $this->app->singleton(IdempotencyStore::class, EloquentIdempotencyStore::class);
 
         $this->app->singleton(IdempotencyResolver::class, fn (Container $app): IdempotencyResolver => new IdempotencyResolver(

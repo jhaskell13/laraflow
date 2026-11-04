@@ -21,7 +21,7 @@ namespace Laraflow\Workflow;
  * @internal Produced and consumed by RecoveryService; applications read
  *           recovery results through the command or the lifecycle events.
  */
-readonly class RecoveryCandidate
+final readonly class RecoveryCandidate
 {
     /**
      * @param  int  $attempts  Highest step attempt count, 0 if nothing ran yet.

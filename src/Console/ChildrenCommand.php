@@ -10,7 +10,7 @@ use Laraflow\Console\Concerns\ListsExecutions;
 use Laraflow\Console\Concerns\ParsesExecutionId;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Workflow\ExecutionFilter;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 
 /**
  * @experimental Console tooling is still evolving; see docs/public-api.md.
@@ -21,7 +21,7 @@ use Laraflow\Workflow\ExecutionRepository;
  * question "what did this fan out into, and how is each doing" was
  * answerable only by filtering a listing by hand until now.
  */
-class ChildrenCommand extends Command
+final class ChildrenCommand extends Command
 {
     use ListsExecutions;
     use ParsesExecutionId;
@@ -47,7 +47,7 @@ class ChildrenCommand extends Command
         parent::__construct();
     }
 
-    public function handle(ExecutionRepository $repository): int
+    public function handle(ExecutionReader $repository): int
     {
         try {
             $id = $this->executionIdArgument();

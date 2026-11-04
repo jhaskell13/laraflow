@@ -10,7 +10,7 @@ namespace Laraflow\Exceptions\Workflow;
  * cancel is a group too wide to run, and the bound is where that is
  * said rather than discovered as a cascade that never finishes.
  */
-class FanOutTooWideException extends WorkflowException
+final class FanOutTooWideException extends WorkflowException
 {
     public static function forCount(string $step, int $position, int $declared, int $max): self
     {

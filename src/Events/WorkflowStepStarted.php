@@ -13,7 +13,7 @@ namespace Laraflow\Events;
  * Lifecycle events carry identifiers and metadata only — never workflow
  * input, step output, or context (see docs/execution-lifecycle.md).
  */
-readonly class WorkflowStepStarted
+final readonly class WorkflowStepStarted
 {
     /**
      * @param  string  $workflow  Workflow class name.

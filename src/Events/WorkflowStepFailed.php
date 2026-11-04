@@ -15,7 +15,7 @@ namespace Laraflow\Events;
  * (truncated to laraflow.execution.max_error_length), or null when
  * laraflow.events.include_error_messages is disabled.
  */
-readonly class WorkflowStepFailed
+final readonly class WorkflowStepFailed
 {
     /**
      * @param  string  $workflow  Workflow class name.

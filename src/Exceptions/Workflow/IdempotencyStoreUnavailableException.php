@@ -10,7 +10,7 @@ namespace Laraflow\Exceptions\Workflow;
  * record into. Raised rather than silently running the work, because
  * silently running it is the behaviour the store exists to end.
  */
-class IdempotencyStoreUnavailableException extends WorkflowException
+final class IdempotencyStoreUnavailableException extends WorkflowException
 {
     public static function forContext(): self
     {

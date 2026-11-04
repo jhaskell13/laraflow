@@ -17,7 +17,7 @@ use DateTimeImmutable;
  * plain worker loss before the deadline (a free re-run) and from an
  * ordinary thrown failure.
  */
-class StepTimeoutException extends WorkflowException
+final class StepTimeoutException extends WorkflowException
 {
     public static function forStep(
         string $step,

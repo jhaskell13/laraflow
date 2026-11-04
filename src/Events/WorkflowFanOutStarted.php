@@ -10,7 +10,7 @@ namespace Laraflow\Events;
  * write; carries the group's size and the member ids, never their
  * inputs.
  */
-readonly class WorkflowFanOutStarted
+final readonly class WorkflowFanOutStarted
 {
     /**
      * @param  list<int>  $memberIds

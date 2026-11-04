@@ -30,7 +30,7 @@ use Throwable;
  * command that called out to every provider to prove reachability
  * would be a different, slower, and much more surprising tool.
  */
-class ConnectorsCommand extends Command
+final class ConnectorsCommand extends Command
 {
     use OutputsJson;
 

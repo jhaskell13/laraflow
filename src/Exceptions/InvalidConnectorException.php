@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions;
 
 use Laraflow\Integration\Connector;
 
-class InvalidConnectorException extends ConnectorException
+final class InvalidConnectorException extends ConnectorException
 {
     public static function forClass(string $name, string $class): self
     {

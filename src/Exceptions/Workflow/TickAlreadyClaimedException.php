@@ -13,7 +13,7 @@ use DateTimeZone;
  * outcome for all but one of them, and the loser's transaction —
  * execution included — rolls back whole (docs/schedules.md, "The tick").
  */
-class TickAlreadyClaimedException extends WorkflowException
+final class TickAlreadyClaimedException extends WorkflowException
 {
     public static function for(string $workflow, DateTimeImmutable $tickAt): self
     {

@@ -21,7 +21,7 @@ use Laraflow\Exceptions\Workflow\InvalidExecutionOptionsException;
  * run(), and dispatch() so that later milestones can record more
  * without changing four signatures again.
  */
-readonly class ExecutionOptions
+final readonly class ExecutionOptions
 {
     /**
      * Matches the `string` columns these are persisted to. A value that

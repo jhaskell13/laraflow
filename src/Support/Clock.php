@@ -21,7 +21,7 @@ use Psr\Clock\ClockInterface;
  * without global state and without one test's frozen time leaking into
  * another's.
  */
-class Clock implements ClockInterface
+final class Clock implements ClockInterface
 {
     public function now(): DateTimeImmutable
     {

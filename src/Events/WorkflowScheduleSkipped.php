@@ -12,7 +12,7 @@ use DateTimeImmutable;
  * unfinished. Fired after the skip's durable write; carries no
  * correlation id because no execution was created to carry one.
  */
-readonly class WorkflowScheduleSkipped
+final readonly class WorkflowScheduleSkipped
 {
     /**
      * @param  int  $overlappedExecutionId  The still-unfinished execution

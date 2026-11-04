@@ -7,17 +7,17 @@ namespace Laraflow\Console;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Laraflow\Console\Concerns\ListsExecutions;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 
 /**
  * @experimental Console tooling is still evolving; see docs/public-api.md.
  *
- * Lists executions through the public ExecutionRepository query API —
+ * Lists executions through the public ExecutionReader query API —
  * the same filters and keyset pagination an application gets. The
  * command holds no query knowledge of its own and touches no Eloquent
  * model, so anything it can show, application code can show too.
  */
-class ListCommand extends Command
+final class ListCommand extends Command
 {
     use ListsExecutions;
 
@@ -50,7 +50,7 @@ class ListCommand extends Command
         parent::__construct();
     }
 
-    public function handle(ExecutionRepository $repository): int
+    public function handle(ExecutionReader $repository): int
     {
         try {
             $filter = $this->filterFromOptions((bool) $this->option('oldest'));

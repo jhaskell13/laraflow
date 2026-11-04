@@ -26,7 +26,7 @@ use Psr\Clock\ClockInterface;
 /**
  * @internal Implementation detail; not covered by the compatibility policy.
  */
-class EloquentScheduleRepository implements ScheduleRepository
+final class EloquentScheduleRepository implements ScheduleRepository
 {
     public function __construct(
         protected ClockInterface $clock,

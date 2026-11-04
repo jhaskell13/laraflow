@@ -29,7 +29,7 @@ use Throwable;
  * and a worker may die anywhere while creating it (docs/advanced-
  * workflows.md, "Fan-out and fan-in").
  */
-class FanOutWorkflows
+final class FanOutWorkflows
 {
     /**
      * @param  int  $maxDepth  laraflow.workflows.max_depth, as for sub-workflows.

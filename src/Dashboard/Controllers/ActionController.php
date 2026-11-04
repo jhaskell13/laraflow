@@ -16,7 +16,7 @@ use Laraflow\Support\JsonObject;
 use Laraflow\Support\Outcome;
 use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\ExecutionOptions;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\RunnerOptions;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowExecution;
@@ -40,7 +40,7 @@ final class ActionController
     public const FLASH = 'laraflow.flash';
 
     public function __construct(
-        private readonly ExecutionRepository $repository,
+        private readonly ExecutionReader $repository,
         private readonly WorkflowRunner $runner,
         private readonly WorkflowDispatcher $dispatcher,
         private readonly WorkflowResolver $resolver,

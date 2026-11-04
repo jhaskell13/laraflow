@@ -43,7 +43,7 @@ use Psr\Clock\ClockInterface;
  * was not when nothing was refused — there is no `error`, because
  * nothing went wrong with the command.
  */
-class SchedulesCommand extends Command
+final class SchedulesCommand extends Command
 {
     use ConfirmableTrait;
     use DisplaysExecutions;

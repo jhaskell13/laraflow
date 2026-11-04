@@ -17,7 +17,7 @@ use Laraflow\Support\Duration;
  * they describe (see ExecutionRepository::saveStep()/checkpoint()), so
  * history can never disagree with the step row.
  */
-readonly class StepAttempt
+final readonly class StepAttempt
 {
     public function __construct(
         public int $executionId,

@@ -21,7 +21,7 @@ use Psr\Clock\ClockInterface;
  * constructor must type-hint and forward it; nothing beyond construction
  * is a contract.
  */
-class TransportPipeline
+final class TransportPipeline
 {
     public function __construct(
         protected Sleeper $sleeper,

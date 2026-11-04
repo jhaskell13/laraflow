@@ -16,7 +16,7 @@ use RuntimeException;
  * `laraflow:execute` can demonstrate recovery: the attempt counter and
  * the stable idempotency key both come from durable state.
  */
-class ChargePayment implements Step
+final class ChargePayment implements Step
 {
     public function handle(WorkflowContext $context): mixed
     {

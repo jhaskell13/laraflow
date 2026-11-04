@@ -31,7 +31,7 @@ use Laraflow\Exceptions\InvalidConnectorException;
  *
  * @internal Implementation detail; not covered by the compatibility policy.
  */
-class ConnectorRegistry
+final class ConnectorRegistry
 {
     protected const RECOGNISED_KEYS = ['connector', 'default', 'connections'];
 

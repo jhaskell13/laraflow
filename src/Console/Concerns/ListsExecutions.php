@@ -7,7 +7,7 @@ namespace Laraflow\Console\Concerns;
 use Laraflow\Support\JsonReport;
 use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionPage;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
@@ -34,7 +34,7 @@ trait ListsExecutions
      * @param  array<string, mixed>  $extra  Fields the calling command adds to the document.
      */
     protected function renderPage(
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         ExecutionFilter $filter,
         ExecutionPage $page,
         string $continue,

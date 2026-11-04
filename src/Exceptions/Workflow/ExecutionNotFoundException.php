@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Exceptions\Workflow;
 
-class ExecutionNotFoundException extends WorkflowException
+final class ExecutionNotFoundException extends WorkflowException
 {
     public static function forId(int $id): self
     {

@@ -15,7 +15,7 @@ use Laraflow\Exceptions\ConnectorConfigurationException;
  * @internal The default binding. Applications replace it by binding their
  *           own CredentialProvider; nothing should depend on this class.
  */
-class ConfigCredentialProvider implements CredentialProvider
+final class ConfigCredentialProvider implements CredentialProvider
 {
     public function __construct(protected Config $config) {}
 

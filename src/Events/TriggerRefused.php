@@ -13,7 +13,7 @@ use Laraflow\Triggers\TriggerRefusalReason;
  * address: an application that wants the address has it in its own
  * request log.
  */
-readonly class TriggerRefused
+final readonly class TriggerRefused
 {
     public function __construct(
         public string $trigger,

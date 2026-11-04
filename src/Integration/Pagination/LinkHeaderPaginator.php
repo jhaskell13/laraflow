@@ -15,7 +15,7 @@ use Laraflow\Integration\ConnectorResponse;
  * against the base URL — so HttpConnector checks its host before
  * following it. See PaginationException::foreignHost().
  */
-class LinkHeaderPaginator implements Paginator
+final class LinkHeaderPaginator implements Paginator
 {
     /**
      * @param  string  $relation  The link relation to follow.

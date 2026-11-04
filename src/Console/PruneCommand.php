@@ -34,7 +34,7 @@ use Throwable;
  * one invocation, which is how an operator prunes one workflow or one
  * tenant on a different schedule from everything else.
  */
-class PruneCommand extends Command
+final class PruneCommand extends Command
 {
     use ConfirmableTrait;
     use OutputsJson;

@@ -10,7 +10,7 @@ namespace Laraflow\Events;
  * only when a compensation's own retries were exhausted and the pass
  * stopped rather than reaching past it.
  */
-readonly class WorkflowCompensated
+final readonly class WorkflowCompensated
 {
     public function __construct(
         public int $executionId,

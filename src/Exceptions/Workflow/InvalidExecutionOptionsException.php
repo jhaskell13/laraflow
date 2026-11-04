@@ -13,7 +13,7 @@ namespace Laraflow\Exceptions\Workflow;
  * enforced where the value enters the package rather than at each
  * place it is later written.
  */
-class InvalidExecutionOptionsException extends WorkflowException
+final class InvalidExecutionOptionsException extends WorkflowException
 {
     public static function tooLong(string $name, int $length, int $max): self
     {

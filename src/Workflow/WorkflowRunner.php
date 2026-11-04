@@ -46,7 +46,7 @@ use Throwable;
  * step that is not yet completed, checkpointing output and context after
  * each step, and run() is the synchronous combination of the two.
  */
-class WorkflowRunner
+final class WorkflowRunner
 {
     protected ClockInterface $clock;
 

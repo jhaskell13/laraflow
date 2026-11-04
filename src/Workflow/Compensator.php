@@ -29,7 +29,7 @@ use Throwable;
  * scan reclaims and a pass the next claim continues.
  * docs/advanced-workflows.md, "Compensation".
  */
-class Compensator
+final class Compensator
 {
     /**
      * Step ids that already have a compensation row, seen while

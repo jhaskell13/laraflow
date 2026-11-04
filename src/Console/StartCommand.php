@@ -12,7 +12,7 @@ use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\JsonObject;
 use Laraflow\Support\WorkflowName;
 use Laraflow\Workflow\ExecutionOptions;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\Workflow;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
@@ -25,7 +25,7 @@ use Throwable;
  * generators have written a workflow: nothing else runs a class that
  * did not ship with the package without writing code first.
  */
-class StartCommand extends Command
+final class StartCommand extends Command
 {
     use StartsExecutions;
 
@@ -41,7 +41,7 @@ class StartCommand extends Command
 
     public function handle(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowDispatcher $dispatcher,
     ): int {
         try {

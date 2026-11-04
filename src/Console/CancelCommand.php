@@ -14,7 +14,7 @@ use Laraflow\Console\Concerns\ParsesLimit;
 use Laraflow\Console\Concerns\SelectsActionable;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Support\JsonReport;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
@@ -37,7 +37,7 @@ use Throwable;
  * and a dry run predicts each row's outcome from its status rather
  * than promising to cancel all of them.
  */
-class CancelCommand extends Command
+final class CancelCommand extends Command
 {
     use ConfirmableTrait;
     use DisplaysExecutions;
@@ -62,7 +62,7 @@ class CancelCommand extends Command
 
     protected $description = 'Cancel a workflow execution, or request cancellation from its running worker';
 
-    public function handle(WorkflowRunner $runner, ExecutionRepository $repository): int
+    public function handle(WorkflowRunner $runner, ExecutionReader $repository): int
     {
         $reason = $this->stringOption('reason');
 
@@ -96,7 +96,7 @@ class CancelCommand extends Command
         );
     }
 
-    protected function many(WorkflowRunner $runner, ExecutionRepository $repository, ?string $reason): int
+    protected function many(WorkflowRunner $runner, ExecutionReader $repository, ?string $reason): int
     {
         try {
             $requested = $this->filterFromOptions(oldestFirst: true);

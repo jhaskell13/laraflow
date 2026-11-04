@@ -20,7 +20,7 @@ use Throwable;
  * parent needs no answer, and a child's outcome must never be made to
  * fail on its parent's account.
  */
-class ParentNotifier
+final class ParentNotifier
 {
     protected ClockInterface $clock;
 

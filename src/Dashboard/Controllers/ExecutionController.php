@@ -19,7 +19,7 @@ use Laraflow\Support\Outcome;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ChildProgress;
 use Laraflow\Workflow\ExecutionFilter;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\IdempotencyStore;
 use Laraflow\Workflow\Scheduling\ScheduleRepository;
 use Laraflow\Workflow\Wait;
@@ -30,7 +30,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * @internal The executions pages: the list, and one execution in full.
  *
- * Reads the public ExecutionRepository and IdempotencyStore and nothing
+ * Reads the public ExecutionReader and IdempotencyStore and nothing
  * else, exactly as laraflow:list and laraflow:show do — the dashboard
  * is the console's surface with a different renderer
  * (docs/dashboard.md), and the same contract test holds both to it.
@@ -42,7 +42,7 @@ final class ExecutionController
      * answered with this many, so the configured value is clamped here
      * rather than silently corrected downstream.
      */
-    private const MAX_PER_PAGE = ExecutionRepository::MAX_PAGE_SIZE;
+    private const MAX_PER_PAGE = ExecutionReader::MAX_PAGE_SIZE;
 
     /**
      * How many children of a parent the detail page lists. A fan-out
@@ -52,7 +52,7 @@ final class ExecutionController
     private const CHILDREN_SHOWN = 50;
 
     public function __construct(
-        private readonly ExecutionRepository $repository,
+        private readonly ExecutionReader $repository,
         private readonly IdempotencyStore $idempotency,
         private readonly ScheduleRepository $schedules,
         private readonly ViewFactory $views,

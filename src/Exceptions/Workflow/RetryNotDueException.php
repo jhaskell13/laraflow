@@ -14,7 +14,7 @@ use DateTimeImmutable;
  * silently honoured. Running a retry ahead of schedule is a deliberate
  * operator act: laraflow:execute --now, or execute(..., ignoreRetrySchedule: true).
  */
-class RetryNotDueException extends WorkflowException
+final class RetryNotDueException extends WorkflowException
 {
     public static function forId(int $id, ?DateTimeImmutable $nextRetryAt): self
     {

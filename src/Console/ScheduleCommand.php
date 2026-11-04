@@ -28,7 +28,7 @@ use Laraflow\Workflow\Scheduling\SchedulerRun;
  * is needed (a declaration is unusable, a start failed, or a schedule
  * row has no declaration behind it), including under --dry-run.
  */
-class ScheduleCommand extends Command
+final class ScheduleCommand extends Command
 {
     use DisplaysExecutions;
 

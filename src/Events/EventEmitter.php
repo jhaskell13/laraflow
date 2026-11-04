@@ -20,7 +20,7 @@ use Throwable;
  * behaviour. Listeners whose failure should be retried or surfaced must
  * be queued listeners, which Laravel handles independently.
  */
-class EventEmitter
+final class EventEmitter
 {
     public function __construct(
         protected ?Dispatcher $events,

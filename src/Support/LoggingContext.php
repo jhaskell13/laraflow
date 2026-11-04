@@ -30,7 +30,7 @@ use Laraflow\Workflow\WorkflowExecution;
  * than deleting them, so the remainder of the outer run is still
  * attributed correctly.
  */
-class LoggingContext
+final class LoggingContext
 {
     public const PREFIX = 'laraflow.';
 

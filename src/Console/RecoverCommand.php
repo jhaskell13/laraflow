@@ -41,7 +41,7 @@ use Throwable;
  * Exit code 1 signals that human attention is needed (work was abandoned
  * or a recovery action failed), including under --dry-run.
  */
-class RecoverCommand extends Command
+final class RecoverCommand extends Command
 {
     use DisplaysExecutions;
     use ParsesExecutionFilters;

@@ -10,7 +10,7 @@ namespace Laraflow\Events;
  * the waiting step's output, as for any signal. `$trigger` is the
  * named trigger, or `signed` for the direct endpoint.
  */
-readonly class TriggerAccepted
+final readonly class TriggerAccepted
 {
     public function __construct(
         public string $trigger,

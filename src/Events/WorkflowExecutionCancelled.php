@@ -19,7 +19,7 @@ use DateTimeImmutable;
  * input, step output, or context. `reason` is the free text supplied by
  * whoever requested the cancellation.
  */
-readonly class WorkflowExecutionCancelled
+final readonly class WorkflowExecutionCancelled
 {
     /**
      * @param  string  $workflow  Workflow class name.

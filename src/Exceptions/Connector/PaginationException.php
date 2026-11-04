@@ -14,7 +14,7 @@ use Laraflow\Integration\Connection;
  * caller a short list that looks complete, which is the one outcome a
  * paginator must never produce.
  */
-class PaginationException extends ConnectorException
+final class PaginationException extends ConnectorException
 {
     public static function limitReached(Connection $connection, int $maxPages): self
     {

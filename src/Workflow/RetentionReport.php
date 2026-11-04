@@ -15,7 +15,7 @@ namespace Laraflow\Workflow;
  * existing at all is the point, and seeing the count is how an
  * operator knows it did its job.
  */
-readonly class RetentionReport
+final readonly class RetentionReport
 {
     public function __construct(
         public int $scanned = 0,

@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 use Laraflow\Console\Concerns\StartsExecutions;
 use Laraflow\Demo\DemoWorkflow;
 use Laraflow\Queue\WorkflowDispatcher;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 
 /**
@@ -17,7 +17,7 @@ use Laraflow\Workflow\WorkflowRunner;
  * `laraflow:start` for the one workflow that ships with the package:
  * the same start-and-report path, with the demo's input filled in.
  */
-class DemoCommand extends Command
+final class DemoCommand extends Command
 {
     use StartsExecutions;
 
@@ -30,7 +30,7 @@ class DemoCommand extends Command
 
     public function handle(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowDispatcher $dispatcher,
     ): int {
         $input = [

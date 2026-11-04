@@ -14,7 +14,7 @@ use Throwable;
  * read, because a schedule that silently never fires is the failure
  * scheduling exists to remove (docs/schedules.md, "Registration").
  */
-class InvalidScheduleException extends WorkflowException
+final class InvalidScheduleException extends WorkflowException
 {
     public static function missing(string $workflow): self
     {

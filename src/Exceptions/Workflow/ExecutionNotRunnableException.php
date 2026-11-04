@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions\Workflow;
 
 use Laraflow\Workflow\ExecutionStatus;
 
-class ExecutionNotRunnableException extends WorkflowException
+final class ExecutionNotRunnableException extends WorkflowException
 {
     public static function forStatus(int $id, ExecutionStatus $status): self
     {

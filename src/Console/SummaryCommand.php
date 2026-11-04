@@ -11,7 +11,7 @@ use Laraflow\Console\Concerns\ParsesExecutionFilters;
 use Laraflow\Workflow\AttentionReport;
 use Laraflow\Workflow\AttentionScan;
 use Laraflow\Workflow\ExecutionFilter;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionStatus;
 use Psr\Clock\ClockInterface;
 
@@ -29,7 +29,7 @@ use Psr\Clock\ClockInterface;
  * a console view; `--workflow=` scopes the same numbers to one workflow
  * using an indexed filter instead.
  */
-class SummaryCommand extends Command
+final class SummaryCommand extends Command
 {
     use DisplaysExecutions;
     use ParsesExecutionFilters;
@@ -44,7 +44,7 @@ class SummaryCommand extends Command
 
     protected $description = 'Summarise workflow executions by status, and surface work needing attention';
 
-    public function handle(ExecutionRepository $repository, AttentionScan $scan, ClockInterface $clock): int
+    public function handle(ExecutionReader $repository, AttentionScan $scan, ClockInterface $clock): int
     {
         try {
             $filter = $this->filterFromOptions();
@@ -110,7 +110,7 @@ class SummaryCommand extends Command
      * command being touched.
      */
     protected function displayCounts(
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         ExecutionFilter $filter,
         int $total,
     ): void {

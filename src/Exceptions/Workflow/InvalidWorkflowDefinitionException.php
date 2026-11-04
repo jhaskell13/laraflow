@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions\Workflow;
 
 use Laraflow\Workflow\Step;
 
-class InvalidWorkflowDefinitionException extends WorkflowException
+final class InvalidWorkflowDefinitionException extends WorkflowException
 {
     public static function noSteps(string $workflow): self
     {

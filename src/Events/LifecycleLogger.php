@@ -26,7 +26,7 @@ use Psr\Log\LogLevel;
  * or that ships them to a metrics backend instead, should not also pay
  * for a log line per step.
  */
-class LifecycleLogger
+final class LifecycleLogger
 {
     public function __construct(
         protected LoggerInterface $logger,

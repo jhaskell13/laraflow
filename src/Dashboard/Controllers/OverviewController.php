@@ -9,7 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Laraflow\Dashboard\Support\FilterRequest;
 use Laraflow\Workflow\AttentionScan;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\ExecutionStatus;
 use Psr\Clock\ClockInterface;
 
@@ -21,7 +21,7 @@ use Psr\Clock\ClockInterface;
 final class OverviewController
 {
     public function __construct(
-        private readonly ExecutionRepository $repository,
+        private readonly ExecutionReader $repository,
         private readonly AttentionScan $attention,
         private readonly ViewFactory $views,
         private readonly ClockInterface $clock,

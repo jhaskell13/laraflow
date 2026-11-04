@@ -47,7 +47,7 @@ use Psr\Clock\ClockInterface;
  * by the runner via `attempts`, and applying the interruption bound to
  * them would strand every policy whose budget exceeds it.
  */
-class RecoveryService
+final class RecoveryService
 {
     protected ClockInterface $clock;
 

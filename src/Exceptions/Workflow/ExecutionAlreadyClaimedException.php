@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions\Workflow;
 
 use Laraflow\Workflow\ExecutionStatus;
 
-class ExecutionAlreadyClaimedException extends WorkflowException
+final class ExecutionAlreadyClaimedException extends WorkflowException
 {
     /**
      * @param  ExecutionStatus  $status  What the claim holder is doing:

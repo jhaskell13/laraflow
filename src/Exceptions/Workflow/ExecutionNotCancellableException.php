@@ -11,7 +11,7 @@ use Laraflow\Workflow\ExecutionStatus;
  * finished. Cancelling an already-cancelled execution is not an error —
  * it is an idempotent no-op — so in practice this means `completed`.
  */
-class ExecutionNotCancellableException extends WorkflowException
+final class ExecutionNotCancellableException extends WorkflowException
 {
     public static function forStatus(int $id, ExecutionStatus $status): self
     {

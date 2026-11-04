@@ -17,7 +17,7 @@ namespace Laraflow\Exceptions\Workflow;
  * inbox and answers the park that asks for it
  * (docs/advanced-workflows.md).
  */
-class SignalRefusedException extends WorkflowException
+final class SignalRefusedException extends WorkflowException
 {
     public static function forSignal(int $executionId, string $signal): self
     {

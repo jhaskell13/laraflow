@@ -16,7 +16,7 @@ use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\Outcome;
-use Laraflow\Workflow\ExecutionRepository;
+use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowExecution;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
@@ -41,7 +41,7 @@ use Throwable;
  * row from its status — a live claim or a retry not yet due is a
  * would_refuse, not a would_run.
  */
-class ExecuteCommand extends Command
+final class ExecuteCommand extends Command
 {
     use ConfirmableTrait;
     use ParsesExecutionFilters;
@@ -69,7 +69,7 @@ class ExecuteCommand extends Command
 
     public function handle(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
     ): int {
@@ -82,7 +82,7 @@ class ExecuteCommand extends Command
 
     protected function one(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
     ): int {
@@ -129,7 +129,7 @@ class ExecuteCommand extends Command
 
     protected function many(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
     ): int {
@@ -285,7 +285,7 @@ class ExecuteCommand extends Command
      */
     protected function executeOne(
         WorkflowRunner $runner,
-        ExecutionRepository $repository,
+        ExecutionReader $repository,
         WorkflowResolver $resolver,
         WorkflowDispatcher $dispatcher,
         WorkflowExecution $target,

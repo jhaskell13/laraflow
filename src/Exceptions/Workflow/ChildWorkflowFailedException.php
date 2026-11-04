@@ -12,7 +12,7 @@ namespace Laraflow\Exceptions\Workflow;
  * retrying the parent step reports the same outcome until an operator
  * intervenes.
  */
-class ChildWorkflowFailedException extends WorkflowException
+final class ChildWorkflowFailedException extends WorkflowException
 {
     public static function forOutcome(string $step, int $position, int $childId, string $status): self
     {

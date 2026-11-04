@@ -16,7 +16,7 @@ use Symfony\Component\Console\Input\InputOption;
  * knows, so the shape is right before a line is written.
  */
 #[AsCommand(name: 'laraflow:make-step', aliases: ['make:step'])]
-class MakeStepCommand extends GeneratorCommand
+final class MakeStepCommand extends GeneratorCommand
 {
     use PublishesStubs;
     use WarnsOnDeprecatedName;

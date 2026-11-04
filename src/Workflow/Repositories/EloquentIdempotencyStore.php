@@ -20,7 +20,7 @@ use Laraflow\Workflow\Models\IdempotencyKeyModel;
  * work it guards runs, and the value has to survive the step failing
  * afterwards. Neither may ride the step checkpoint.
  */
-class EloquentIdempotencyStore implements IdempotencyStore
+final class EloquentIdempotencyStore implements IdempotencyStore
 {
     public function begin(
         int $executionId,

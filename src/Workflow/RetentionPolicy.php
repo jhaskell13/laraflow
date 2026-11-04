@@ -20,7 +20,7 @@ use InvalidArgumentException;
  * stopped — not from creation, so a long-running execution is not
  * pruned for having started a long time ago.
  */
-readonly class RetentionPolicy
+final readonly class RetentionPolicy
 {
     /**
      * @param  int|null  $scrubAfterDays  Clear payloads of `completed` and

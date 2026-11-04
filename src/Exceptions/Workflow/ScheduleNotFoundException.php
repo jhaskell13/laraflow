@@ -8,7 +8,7 @@ namespace Laraflow\Exceptions\Workflow;
  * A schedule operation named a workflow class no schedule row exists
  * for — never synchronised, or forgotten.
  */
-class ScheduleNotFoundException extends WorkflowException
+final class ScheduleNotFoundException extends WorkflowException
 {
     public static function forWorkflow(string $workflow): self
     {

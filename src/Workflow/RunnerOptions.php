@@ -19,7 +19,7 @@ use InvalidArgumentException;
  * arguments long and made "which of these is configuration?" a
  * question you had to answer by reading the service provider.
  */
-readonly class RunnerOptions
+final readonly class RunnerOptions
 {
     /**
      * @param  int  $staleAfterSeconds  How long a claim may go unrefreshed

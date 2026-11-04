@@ -18,7 +18,7 @@ use Laraflow\Exceptions\Workflow\IdempotencyStoreUnavailableException;
  * The context also exposes execution metadata so steps can build
  * idempotency keys for side effects that may repeat after a crash.
  */
-class WorkflowContext
+final class WorkflowContext
 {
     protected ?int $stepPosition = null;
 

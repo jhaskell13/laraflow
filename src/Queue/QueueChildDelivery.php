@@ -14,7 +14,7 @@ use Laraflow\Workflow\ChildDelivery;
  * carries a ChildDelivery, the dispatcher carries the runner, and eager
  * construction would make that a cycle.
  */
-class QueueChildDelivery implements ChildDelivery
+final class QueueChildDelivery implements ChildDelivery
 {
     public function __construct(protected Container $container) {}
 

@@ -21,7 +21,7 @@ use Laraflow\Exceptions\Workflow\WorkflowDefinitionMismatchException;
  * state outlives the code that wrote it: everything here is the
  * package refusing to guess what changed code meant by an old record.
  */
-class StepResolver
+final class StepResolver
 {
     public function __construct(
         protected Container $container,

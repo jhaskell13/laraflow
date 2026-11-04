@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Exceptions\Workflow;
 
-class ClaimLostException extends WorkflowException
+final class ClaimLostException extends WorkflowException
 {
     public static function forId(int $id): self
     {

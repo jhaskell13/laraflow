@@ -18,7 +18,7 @@ use LogicException;
  * subclass declaring its own constructor must type-hint and forward it;
  * nothing beyond construction is a contract.
  */
-class ChildWorkflows
+final class ChildWorkflows
 {
     /**
      * @param  int  $maxDepth  How deep sub-workflows may nest, from the root;

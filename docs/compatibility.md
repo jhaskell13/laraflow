@@ -29,7 +29,16 @@ If an application is pinned to Laravel 10 or 11, the right answer is to upgrade 
 
 The whole test suite runs against any of these engines by setting `LARAFLOW_TEST_DB_DRIVER` and the connection variables documented in [CONTRIBUTING.md](../CONTRIBUTING.md) — that is the mechanism the Milestone 6 CI matrix uses to turn "expected to work" into "tested".
 
-**MongoDB is not a supported persistence backend.** It is not one of Laravel's native database drivers, and Laraflow's durability contract is built on what relational engines provide: a migrated schema, foreign keys, compare-and-set `UPDATE ... WHERE` claiming, and indexed keyset pagination. The third-party `mongodb/laravel-mongodb` Eloquent layer does not change that. A document-store persistence driver is post-1.0 work ("additional persistence drivers only when the abstractions have real consumers"), designed against the `ExecutionRepository` contract rather than by pointing the existing migrations at Mongo.
+**MongoDB is not a supported persistence backend.** It is not one of Laravel's native database drivers, and Laraflow's durability contract is built on what relational engines provide: a migrated schema, foreign keys, compare-and-set `UPDATE ... WHERE` claiming, and indexed keyset pagination. The third-party `mongodb/laravel-mongodb` Eloquent layer does not change that. A document-store persistence driver is post-1.0 work ("additional persistence drivers only when the abstractions have real consumers"), designed against the `ExecutionRepository` contract rather than by pointing the existing migrations at Mongo — see [alternative persistence drivers](#alternative-persistence-drivers).
+
+### Alternative persistence drivers
+
+A persistence driver implements `Laraflow\Workflow\ExecutionRepository` and binds it in the container; the reader and store interfaces resolve through that binding, so one class serves all three. Since 0.6.0 the interface is two halves with different promises ([public-api.md](public-api.md#persistence)):
+
+- **`ExecutionReader` is Public.** `find`, `steps`, `attempts`, `attemptHistory`, `list`, `count`, `stepProgress`, `childProgress`, and `MAX_PAGE_SIZE` follow the deprecation policy below, and will be frozen at 1.0. Applications, the console, and the dashboard read through it alone.
+- **`ExecutionStore` is Experimental.** Claiming, checkpointing, parking, signals, fan-out member creation, the recovery scans, and retention are the engine's own protocol with its storage. Every milestone so far has widened it, and its shape has been proved against exactly one driver, so it is *not* covered by the 1.0 freeze: a minor release may add or change a method, and the changelog will say so. A driver written outside this repository should pin a minor version and run the package's repository tests against itself.
+
+The split is what lets 1.0 promise a stable read API without promising that the write protocol is finished. A store method graduates to Public once a second driver has implemented it unchanged.
 
 ### What "supported" means before 1.0
 

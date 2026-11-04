@@ -14,7 +14,7 @@ use Illuminate\Console\Command;
  * do next. Each part can be declined, and nothing here does anything
  * `vendor:publish` and `migrate` would not.
  */
-class InstallCommand extends Command
+final class InstallCommand extends Command
 {
     protected $signature = 'laraflow:install
         {--skip-migrations : Publish the configuration only, and run php artisan migrate yourself}

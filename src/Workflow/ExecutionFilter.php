@@ -24,7 +24,7 @@ use InvalidArgumentException;
  * about persistence. Validation happens at construction so a broken
  * filter fails where it is written rather than inside a scheduled job.
  */
-readonly class ExecutionFilter
+final readonly class ExecutionFilter
 {
     /** @var list<string>|null Workflow class names; null matches every workflow. */
     public ?array $workflows;

@@ -14,7 +14,7 @@ use Throwable;
  * goes to the log and the event, never to the caller
  * (docs/triggers.md, "The signature").
  */
-class TriggerRefusedException extends LaraflowException
+final class TriggerRefusedException extends LaraflowException
 {
     public function __construct(
         string $message = 'The trigger request was refused.',

@@ -6,7 +6,7 @@ namespace Laraflow\Exceptions\Workflow;
 
 use BackedEnum;
 
-class InvalidStateTransitionException extends WorkflowException
+final class InvalidStateTransitionException extends WorkflowException
 {
     public static function between(string $subject, BackedEnum $from, BackedEnum $to): self
     {

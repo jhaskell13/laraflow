@@ -30,7 +30,7 @@ use Throwable;
  * and *how long* to wait, and knows nothing about persistence, queues,
  * or clocks. The runner applies its decisions.
  */
-readonly class StepPolicy
+final readonly class StepPolicy
 {
     /**
      * Exceptions that are never retried, whatever a policy says.

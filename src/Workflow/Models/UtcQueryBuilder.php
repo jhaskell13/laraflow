@@ -33,7 +33,7 @@ use Illuminate\Database\Query\Processors\Processor;
  * without each call site having to remember. Nested and sub-queries
  * are built with newQuery(), which returns this class again.
  */
-class UtcQueryBuilder extends Builder
+final class UtcQueryBuilder extends Builder
 {
     // All three required, where the parent defaults the last two to
     // the connection's: the model hands over exactly the connection's

@@ -13,7 +13,7 @@ namespace Laraflow\Events;
  * workflow input, step output, or context (see
  * docs/execution-lifecycle.md). Step class names are metadata.
  */
-readonly class WorkflowPlanMigrated
+final readonly class WorkflowPlanMigrated
 {
     /**
      * @param  string  $workflow  Workflow class name.
