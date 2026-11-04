@@ -886,6 +886,50 @@ class ProjectContractsTest extends TestCase
         $this->assertSame([], $offenders, 'A bundled connector depends on something an application cannot.');
     }
 
+    /**
+     * docs/metrics.md is the contract and MetricCatalog is the code every
+     * bridge registers from; each must name exactly the series the other
+     * does, with the same type and labels. The tenant label is opt-in
+     * and documented in prose, so the tables are compared with it off.
+     */
+    public function test_the_metrics_document_and_the_catalog_define_the_same_series(): void
+    {
+        $doc = (string) file_get_contents($this->path('docs/metrics.md'));
+        $documented = [];
+
+        foreach (explode("\n", $doc) as $line) {
+            if (! str_starts_with($line, '| `laraflow_')) {
+                continue;
+            }
+
+            // Cells are split on unescaped pipes: a label's values are
+            // written `completed` \| `failed` inside one cell.
+            $cells = array_map('trim', preg_split('/(?<!\\\\)\|/', trim($line, '|')) ?: []);
+
+            if (preg_match('/`(laraflow_[a-z_]+)`/', $cells[0], $name) !== 1) {
+                $this->fail("A series row names no series: {$line}");
+            }
+
+            // A label is a backticked name opening the cell or following
+            // a comma; a value follows "=" or a pipe and is skipped.
+            preg_match_all('/(?:^|,\s*)`([a-z_]+)`/', $cells[2], $labels);
+
+            $documented[$name[1]] = ['type' => $cells[1], 'labels' => $labels[1]];
+        }
+
+        $cataloged = [];
+
+        foreach ((new \Laraflow\Observability\Metrics\MetricCatalog)->all() as $metric) {
+            $cataloged[$metric->name] = ['type' => $metric->type->value, 'labels' => $metric->labels];
+        }
+
+        ksort($documented);
+        ksort($cataloged);
+
+        $this->assertNotEmpty($documented, 'The series tables were not found; this audit needs updating.');
+        $this->assertSame($documented, $cataloged);
+    }
+
     public function test_every_lifecycle_event_carries_the_correlation_identifiers(): void
     {
         $missing = [];

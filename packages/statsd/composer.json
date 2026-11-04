@@ -1,0 +1,69 @@
+{
+    "name": "laraflow/statsd",
+    "description": "StatsD and DogStatsD metrics for Laraflow workflows: the series docs/metrics.md defines, pushed over UDP.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "laraflow",
+        "workflow",
+        "statsd",
+        "dogstatsd",
+        "datadog",
+        "metrics",
+        "observability"
+    ],
+    "homepage": "https://github.com/jhaskell13/laraflow",
+    "support": {
+        "issues": "https://github.com/jhaskell13/laraflow/issues",
+        "source": "https://github.com/jhaskell13/laraflow"
+    },
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^12.0|^13.0",
+        "laraflow/laraflow": "^0.7"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.13",
+        "orchestra/testbench": "^10.12|^11.0",
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Laraflow\\StatsD\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Laraflow\\StatsD\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Laraflow\\StatsD\\StatsDServiceProvider"
+            ]
+        }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../..",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "laraflow/laraflow": "0.7.x-dev"
+                }
+            }
+        }
+    ],
+    "scripts": {
+        "test": "./vendor/bin/phpunit",
+        "analyse": "./vendor/bin/phpstan analyse --memory-limit=1G"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

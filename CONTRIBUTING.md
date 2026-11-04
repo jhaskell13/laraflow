@@ -110,6 +110,19 @@ It checks the things that are easy to get subtly wrong: that the connector holds
 
 A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
 
+## Working on a metrics bridge
+
+The bridges under `packages/` are Composer packages of their own, resolved against the core in this checkout through a path repository, and published by splitting each directory to its own repository ([decision 0007](docs/decisions/0007-bridges-live-in-this-repository.md)). Work on one from its directory:
+
+```bash
+cd packages/prometheus
+composer install
+composer test
+composer analyse
+```
+
+A bridge chooses none of the series it publishes. Names, types, and labels are defined in [docs/metrics.md](docs/metrics.md) and mapped once in the core (`Laraflow\Observability\Metrics`); a bridge implements `MetricsSink` for its backend and extends `MetricsBridgeServiceProvider`. A change to what is published is a change to the document and the core mapping, made in the same pull request as any bridge it affects — the conformance kit in each bridge's tests fails until all three agree ([decision 0010](docs/decisions/0010-one-mapping-bridges-are-sinks.md)).
+
 ### Database migrations
 
 **The schema is frozen.** Shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.

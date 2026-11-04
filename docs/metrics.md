@@ -57,7 +57,7 @@ Labels are what make a series useful and what make a metrics bill explode. Every
 | `step` | Step class, fully qualified | |
 | `outcome` | Fixed per series (below) | |
 | `reason`, `ceiling`, `kind` | The backing values of `RecoveryReason`, `TenantCeiling`, and the wait kind | |
-| `queue` | The queue name the execution was dispatched to | Configuration, not input. |
+| `queue` | The queue name the execution was dispatched to; empty for the connection's default queue | Configuration, not input. |
 | `connector`, `connection` | Registered connector names | |
 | `method`, `status_class` | HTTP method; `2xx`…`5xx` | The status class, not the status: `418` is as bounded as `4xx`, but a bridge should not be the reason to find out. |
 | `trigger` | Registered trigger names, or `signed` for the signed endpoint | |
@@ -66,7 +66,7 @@ Labels are what make a series useful and what make a metrics bill explode. Every
 
 **Never a label:** execution ids, correlation ids, step positions, error messages, request paths, signal payloads, or anything else that grows with traffic. A bridge that adds one is non-conforming, and the conformance kit fails it.
 
-**The tenant label is opt-in.** A tenant id is bounded by the application's customer list, which for some applications is ten and for others is a hundred thousand. Each bridge's configuration has a `tenant_label` switch, off by default; when on, the `tenant` label is added to every execution, step, and connector series that the event can attribute to a tenant, and to no others. An execution without a tenant is reported with the label absent (Prometheus: empty), never with a placeholder that could collide with a real tenant id.
+**The tenant label is opt-in.** A tenant id is bounded by the application's customer list, which for some applications is ten and for others is a hundred thousand. Each bridge's configuration has a `tenant_label` switch, off by default; when on, the `tenant` label is added — last — to every execution, step, compensation, and connector series, the families an event can attribute to a tenant, and to no others: not the schedule and trigger series, and not the gauges. An execution without a tenant is reported with the label absent (Prometheus: empty), never with a placeholder that could collide with a real tenant id.
 
 The connector events carry the running execution's tenant id from 0.7.0, read from the execution's durable record as the tenant-scoped rate limit reads it; a call made outside any execution has the label absent.
 
@@ -139,10 +139,23 @@ Every attempt is a step event, so a step that fails twice and then succeeds cont
 
 The gauges never take the tenant label: the snapshot is unscoped, and a per-tenant breakdown of every gauge is exactly the query cost the opt-in exists to avoid. An application that needs one tenant's gauges takes a scoped snapshot itself.
 
+## How a bridge is built
+
+The mapping from events and the snapshot to these series is written once, in the core package, and every bridge renders the same output:
+
+- `MetricCatalog` lists every series above as data — name, type, help text, labels in order, default buckets — and a contract test holds this document's tables and that list to each other.
+- `EventMetrics` turns each event into the counters and histograms of the tables above; `EventMetrics::events()` names the events it maps and `UNMAPPED` the ones it deliberately does not, with the reason, and a test fails on an event that is in neither. `SnapshotMetrics` turns a snapshot into the gauges.
+- A bridge implements `MetricsSink` — `increment()`, `observe()`, `replaceGauge()` — for its backend, and extends `MetricsBridgeServiceProvider`, which keeps rules 4 and 5 below for every bridge alike.
+- Its tests replay every event and a snapshot through the real sink with `Laraflow\Testing\MetricsConformance` and assert the backend exposes exactly these families.
+
+A backend not covered by the three bridges — CloudWatch, a Datadog API client — is built the same way, outside this repository, and held to the same kit. [docs/decisions/0010](decisions/0010-one-mapping-bridges-are-sinks.md) records why the mapping is not each bridge's own.
+
+**Histogram buckets** are bridge configuration, not part of this contract: the catalog's defaults (`FAST_BUCKETS` for steps and connector calls, `EXECUTION_BUCKETS` for whole executions — which include waits, so they run to a week — and `LAG_BUCKETS` for queue lag) suit most applications, and a bridge may let the application replace them. Changing buckets changes a histogram's resolution, not its name or labels.
+
 ## What every bridge must do
 
 1. **Read only the public contract.** Events and `Snapshots` — nothing `@internal`, no Eloquent model, no table. A test enforces it, as it does for the dashboard.
-2. **Publish exactly these names and labels.** A bridge may omit a series its backend cannot represent and must say so in its README; it may not rename one, add a label, or add a series under the `laraflow_` prefix that this document does not define. The shared conformance kit replays every event and a snapshot through the bridge and compares what it published against the tables above.
+2. **Publish exactly these names and labels.** A bridge may omit a series its backend cannot represent and must say so in its README; it may not rename one, add a label, or add a series under the `laraflow_` prefix that this document does not define. The conformance kit, `Laraflow\Testing\MetricsConformance`, replays every event and a snapshot through the bridge and compares what it exposes against the tables above.
 3. **Never affect an execution.** Listeners run inside the event emitter, which already logs a throwing listener instead of failing the workflow ([inspection-and-observability.md](inspection-and-observability.md)); a bridge must additionally not block — UDP, local shared memory, or one round trip to a store, never an HTTP call per event.
 4. **Ship off by default.** Installing a bridge registers nothing until its configuration says so; a scrape endpoint is mounted by the application, as the dashboard is, and denied by default outside `local`.
 5. **Configure itself in its own file** (`config/laraflow-prometheus.php` and so on), never in the core `laraflow.php`.

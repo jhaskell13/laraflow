@@ -15,6 +15,7 @@ Records are numbered in the order they were written, not the order the decisions
 | [0007](0007-bridges-live-in-this-repository.md) | Metrics bridges live in this repository and are split out to publish | Accepted |
 | [0008](0008-documentation-site-on-vitepress.md) | The documentation site is built with VitePress from `docs/` | Accepted |
 | [0009](0009-one-release-per-milestone.md) | Milestone 11 is 0.7.0 and Milestone 12 is 1.0.0 | Accepted |
+| [0010](0010-one-mapping-bridges-are-sinks.md) | One mapping in the core; a bridge is a sink | Accepted |
 
 ## Writing one
 

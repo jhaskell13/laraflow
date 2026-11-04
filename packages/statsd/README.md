@@ -1,0 +1,27 @@
+# laraflow/statsd
+
+> **Under construction** — Milestone 11, step 4. Not yet published; installing it from this repository changes nothing, and enabling it is refused until the step lands.
+
+Counters and timings pushed over UDP as events fire, as plain StatsD or with DogStatsD tags, and a scheduled command that pushes the snapshot's gauges.
+
+The series it publishes — names, types, labels, and units — are not this package's to choose: they are defined once in [docs/metrics.md](../../docs/metrics.md), mapped from Laraflow's events once in the core package, and held to that document by the conformance kit (`Laraflow\Testing\MetricsConformance`) in this package's tests.
+
+## Configuration
+
+Published with `php artisan vendor:publish --tag=laraflow-statsd-config` to `config/laraflow-statsd.php`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` (`LARAFLOW_STATSD_ENABLED`) | Nothing is registered until this is true. |
+| `tenant_label` | `false` (`LARAFLOW_STATSD_TENANT_LABEL`) | Add the `tenant` label to execution, step, compensation, and connector series. Read [the cardinality note](../../docs/metrics.md#labels) first. |
+
+## Development
+
+This package lives in the Laraflow repository and is tested against the core checked out beside it ([decision 0007](../../docs/decisions/0007-bridges-live-in-this-repository.md)):
+
+```bash
+cd packages/statsd
+composer install
+composer test
+composer analyse
+```
