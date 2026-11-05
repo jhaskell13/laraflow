@@ -13,10 +13,12 @@ return [
 
     /*
      * Add the `tenant` label to every execution, step, compensation, and
-     * connector series. Off by default: a tenant id is bounded by your
-     * customer list, which may be ten or a hundred thousand, and every
-     * tenant multiplies every series it appears on (docs/metrics.md).
+     * connector series. Off by default: every tenant multiplies the rows
+     * Pulse aggregates (docs/metrics.md).
      */
     'tenant_label' => (bool) env('LARAFLOW_PULSE_TENANT_LABEL', false),
+
+    // Seconds between snapshots taken from `pulse:check`'s heartbeat.
+    'gauge_interval' => (int) env('LARAFLOW_PULSE_GAUGE_INTERVAL', 60),
 
 ];

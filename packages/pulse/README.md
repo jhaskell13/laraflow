@@ -1,27 +1,56 @@
 # laraflow/pulse
 
-> **Under construction** — Milestone 11, step 5. Not yet published; installing it from this repository changes nothing, and enabling it is refused until the step lands.
+[Laravel Pulse](https://pulse.laravel.com) recorders and a dashboard card for [Laraflow](../../README.md) workflows, over the series [docs/metrics.md](../../docs/metrics.md) defines.
 
-Pulse recorders over the same events, and cards for the Pulse dashboard: throughput, failures, slowest steps, tenant deferrals.
+> Developed in the Laraflow repository and released with Laraflow 0.7.0 ([decision 0007](../../docs/decisions/0007-bridges-live-in-this-repository.md)).
 
-The series it publishes — names, types, labels, and units — are not this package's to choose: they are defined once in [docs/metrics.md](../../docs/metrics.md), mapped from Laraflow's events once in the core package, and held to that document by the conformance kit (`Laraflow\Testing\MetricsConformance`) in this package's tests.
+## What you get
+
+- **Every series in docs/metrics.md, recorded into Pulse.** Each series family is a Pulse type under its documented name; each series' labels are its Pulse key, as JSON. The names are mapped from Laraflow's events once, in the core package, and this package's tests read them back from Pulse's own tables after a real ingest and hold them to the document with Laraflow's conformance kit.
+- **The gauges**, taken from a database snapshot on `pulse:check`'s isolated heartbeat — once across your servers, every `gauge_interval` seconds — and replaced whole, so a drained workflow disappears rather than lingering.
+- **A card** for the Pulse dashboard: executions finished by outcome per workflow for the selected period, the slowest steps, and what is unfinished, due, deferred, overdue, or stalled as of the last heartbeat.
+
+Recording only buffers in memory; Pulse ingests at the end of each request and job, as it does for its own recorders.
+
+## Install
+
+Pulse must already be installed and `pulse:check` running.
+
+```bash
+composer require laraflow/pulse
+php artisan vendor:publish --tag=laraflow-pulse-config
+```
+
+```dotenv
+LARAFLOW_PULSE_ENABLED=true
+```
+
+Add the card to `resources/views/vendor/pulse/dashboard.blade.php`:
+
+```blade
+<livewire:laraflow.workflows cols="6" />
+```
+
+## How the series sit in Pulse
+
+| docs/metrics.md type | In Pulse |
+|---|---|
+| counter | Entries aggregated by `sum` |
+| histogram | Entries aggregated by `avg`, `max`, and `count`; the value in **whole milliseconds** |
+| gauge | Values, purged and set whole on each heartbeat |
+
+**Durations are milliseconds here.** Pulse stores integers, and seconds would round every step to zero; this is the one bridge whose backend forces a unit other than the one the series name carries. The card labels them `ms`.
 
 ## Configuration
 
-Published with `php artisan vendor:publish --tag=laraflow-pulse-config` to `config/laraflow-pulse.php`:
+`config/laraflow-pulse.php`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` (`LARAFLOW_PULSE_ENABLED`) | Nothing is registered until this is true. |
-| `tenant_label` | `false` (`LARAFLOW_PULSE_TENANT_LABEL`) | Add the `tenant` label to execution, step, compensation, and connector series. Read [the cardinality note](../../docs/metrics.md#labels) first. |
+| `enabled` | `false` | Nothing is registered until this is true. |
+| `tenant_label` | `false` | Add `tenant` to the key of execution, step, compensation, and connector series. Every tenant multiplies the rows Pulse aggregates; read [the cardinality note](../../docs/metrics.md#labels) first. |
+| `gauge_interval` | `60` | Seconds between snapshots taken on the heartbeat. |
 
-## Development
+## Omitted series
 
-This package lives in the Laraflow repository and is tested against the core checked out beside it ([decision 0007](../../docs/decisions/0007-bridges-live-in-this-repository.md)):
-
-```bash
-cd packages/pulse
-composer install
-composer test
-composer analyse
-```
+None. Every family docs/metrics.md defines is recorded.

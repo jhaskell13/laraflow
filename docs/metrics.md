@@ -8,7 +8,7 @@ The core package records no metrics and depends on no metrics library. It publis
 |---|---|---|
 | Prometheus | `laraflow/prometheus` | Counters and histograms kept in shared storage (Redis or APCu), and a mountable scrape endpoint that reads the snapshot on each scrape. |
 | StatsD | `laraflow/statsd` | Counters and timings pushed over UDP as events fire (plain StatsD or DogStatsD tags), and a scheduled command that pushes the snapshot. |
-| Laravel Pulse | `laraflow/pulse` | Pulse recorders over the same events, and dashboard cards. Pulse aggregates on its own terms; the series below are what its recorders record. |
+| Laravel Pulse | `laraflow/pulse` | Every series recorded into Pulse — each family a Pulse type under its name, each series' labels its key — the gauges recorded from `pulse:check`'s heartbeat, and a dashboard card. Pulse stores integers, so histogram values are kept in whole milliseconds there. |
 
 All three live in this repository under `packages/` and are released from it ([decision 0007](decisions/0007-bridges-live-in-this-repository.md)). An application installs only the one it wants; nothing here changes what the core package requires.
 
