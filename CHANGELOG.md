@@ -20,6 +20,8 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 - **`ConnectorRequestSent` and `ConnectorRequestFailed` carry `tenantId`** — the running execution's, read from its durable record as the tenant-scoped rate limit reads it, and null for a call made outside any execution. A trailing optional constructor argument; listeners are unaffected. The correlation id stays off both: it is unbounded, and the log context already carries it.
 
+- **The documentation site.** VitePress over `docs/`, unchanged, so the contract tests, GitHub, and the site read the same files: a sidebar over the contracts, local search, and links out of `docs/` — to the changelog, CONTRIBUTING, SECURITY — rewritten to their GitHub pages rather than copied in. The `Docs` workflow builds it on every change, failing on a dead internal link, and deploys it to GitHub Pages from `main` once a maintainer enables Pages and sets the `DOCS_DEPLOY` variable. One version, from `main`, until a second is needed ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)). The build toolchain is not in the dist archive.
+
 ### Breaking
 
 - **A custom `ExecutionStore` gains four methods and the trace context.** `retriesDue()` and `waitsDue()` — the attention scan's due retries and waits, scoped by a whole `ExecutionFilter` — and `countAttention()` and `countByWorkflowAndStatus()`, the snapshot's exact counts. Each count must share its predicate with the list it counts, as `docs/public-api.md` specifies. The store is experimental; the reader half of the repository is unchanged. It must also persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.

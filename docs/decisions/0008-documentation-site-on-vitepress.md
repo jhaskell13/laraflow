@@ -1,6 +1,6 @@
 # 0008 — The documentation site is built with VitePress from `docs/`
 
-**Status:** Accepted (Milestone 11).
+**Status:** Accepted (Milestone 11). Per-version publishing deferred when the milestone was narrowed ([0011](0011-one-optional-package.md)): the site is built from `main` alone until a second version is worth the machinery.
 
 ## Context
 

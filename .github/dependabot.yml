@@ -17,3 +17,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+  # The documentation site's toolchain (docs/package.json).
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      docs:
+        patterns: ['*']

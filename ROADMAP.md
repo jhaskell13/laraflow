@@ -385,13 +385,17 @@ Narrowed after step 6 to what only a Laravel package should do: emit what an app
 
 0. **Contracts first.** ✅ [docs/metrics.md](docs/metrics.md), [docs/tracing.md](docs/tracing.md), [docs/community-connectors.md](docs/community-connectors.md), and [docs/decisions/](docs/decisions/README.md).
 1. **The metrics snapshot.** ✅ `Snapshots` and `MetricsSnapshot`: exact counts of what is unfinished, due, overdue, deferred, and stalled, in a fixed number of queries; a tenant id on the connector events; and the scoping fix in `laraflow:summary` it surfaced. Metrics themselves are the application's, from the events and the snapshot, with documented recipes.
-2. **Tracing.** ✅ The `Tracer` hook and the trace context each execution remembers, in the core; `laraflow/opentelemetry`, the one optional package, depending on the OpenTelemetry API only.
-3. **The documentation site.** VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)), one version: a CI build that fails on a dead link, deployed to Pages from `main` once the maintainer enables it.
-4. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial; one upgrade guide per minor.
-5. **Contributing a connector.** A documentation page and the community list: a connector is a package that runs `ConnectorContract` in its own CI, and is listed by pull request. No template repository or reusable workflow.
-6. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
-7. **Horizon and Octane.** Horizon: a documentation section on matching its `timeout` to `stale_after`, no code. Octane: tests that no per-request state — the dashboard's callbacks, the log context — leaks between requests, and code only if one does.
-8. **Audit and release.** A hostile audit of the milestone; CI run by the maintainer, its failures addressed from the logs; the closing record, and 0.7.0.
+2. **Bridge scaffolding.** Built, then removed before release ([decision 0011](docs/decisions/0011-one-optional-package.md)).
+3. **`laraflow/prometheus`.** Built, then removed before release (decision 0011).
+4. **`laraflow/statsd`.** Built, then removed before release (decision 0011).
+5. **`laraflow/pulse`.** Built, then removed before release (decision 0011).
+6. **Tracing.** ✅ The `Tracer` hook and the trace context each execution remembers, in the core; `laraflow/opentelemetry`, the one optional package, depending on the OpenTelemetry API only.
+7. **The documentation site.** ✅ VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)), one version: a CI build that fails on a dead link, deployed to Pages from `main` once the maintainer enables it.
+8. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial; one upgrade guide per minor.
+9. **Contributing a connector.** A documentation page and the community list: a connector is a package that runs `ConnectorContract` in its own CI, and is listed by pull request. No template repository or reusable workflow.
+10. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
+11. **Horizon and Octane.** Horizon: a documentation section on matching its `timeout` to `stale_after`, no code. Octane: tests that no per-request state — the dashboard's callbacks, the log context — leaks between requests, and code only if one does.
+12. **Audit and release.** A hostile audit of the milestone; CI run by the maintainer, its failures addressed from the logs; the closing record, and 0.7.0.
 
 Everything new in this milestone — the snapshot, the tracing hook, the span names and attributes — is Experimental until 1.0, so real use decides what is frozen.
 

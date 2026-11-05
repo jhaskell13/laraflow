@@ -1,0 +1,14 @@
+{
+    "name": "laraflow-docs",
+    "private": true,
+    "description": "The Laraflow documentation site, built with VitePress from the Markdown in this directory.",
+    "type": "module",
+    "scripts": {
+        "dev": "vitepress dev",
+        "build": "vitepress build",
+        "preview": "vitepress preview"
+    },
+    "devDependencies": {
+        "vitepress": "^1.6.4"
+    }
+}

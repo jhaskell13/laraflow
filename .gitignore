@@ -42,3 +42,9 @@ coverage.xml
 /workbench/.env
 /workbench/storage/
 .phpstan/
+
+# The documentation site's build (docs/.vitepress)
+/docs/node_modules/
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
+/docs/.vitepress/.temp/

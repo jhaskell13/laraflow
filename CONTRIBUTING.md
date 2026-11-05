@@ -110,6 +110,18 @@ It checks the things that are easy to get subtly wrong: that the connector holds
 
 A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
 
+## Working on the documentation
+
+`docs/` is both the Markdown GitHub shows and the source of the documentation site, built with VitePress ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)). To preview it:
+
+```bash
+cd docs
+npm install
+npm run dev
+```
+
+`npm run build` fails on a dead internal link, as the `Docs` workflow does on a pull request. Link between pages with relative `.md` links; a link out of `docs/` (to `CONTRIBUTING.md`, `SECURITY.md`) is rewritten to GitHub on the site. A new page needs a sidebar entry in `docs/.vitepress/config.mts`.
+
 ## Working on the tracing package
 
 `packages/opentelemetry` is `laraflow/opentelemetry`, the one optional package ([decision 0011](docs/decisions/0011-one-optional-package.md)): a Composer package of its own, resolved against the core in this checkout through a path repository, and published by splitting the directory to its own repository. Work on it from its directory:
