@@ -136,7 +136,7 @@ try {
 
 The same call recovers executions whose worker died mid-run: a `running` execution whose claim is older than `laraflow.execution.stale_after` (default 300 seconds) can be reclaimed, and the interrupted step runs again. Two workers can never both hold a live execution — claiming is an atomic compare-and-set, and a worker that loses its claim can no longer write durable state.
 
-A step that repeats this way may re-perform external side effects — that is the **at-least-once contract**. Wrap a side effect in `$context->remember('charge', fn () => $payments->charge(...))` and it runs at most once per execution across every retry, recovery, and worker; a worker that dies *after* the charge and *before* its result was recorded leaves evidence, and the next attempt is told the outcome is uncertain rather than charging again ([docs/idempotency.md](idempotency.md)). The full execution contract, state machines, and crash-boundary behaviour are specified in [docs/execution-lifecycle.md](execution-lifecycle.md).
+A step that repeats this way may re-perform external side effects — that is the **at-least-once contract**. Wrap a side effect in `$context->remember('charge', fn () => $payments->charge(...))` and it runs at most once per execution across every retry, recovery, and worker; a worker that dies *after* the charge and *before* its result was recorded leaves evidence, and the next attempt is told the outcome is uncertain rather than charging again ([idempotency.md](idempotency.md)). The full execution contract, state machines, and crash-boundary behaviour are specified in [execution-lifecycle.md](execution-lifecycle.md).
 
 ### What gets persisted
 

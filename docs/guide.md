@@ -38,11 +38,11 @@ php artisan laraflow:cancel 42 --reason="customer withdrew the order"
 
 Cancellation is immediate for work that is waiting and **cooperative** for work that is running — the worker stops at its next step boundary, and the step in flight finishes and checkpoints first.
 
-Timeouts are deadlines, not preemption: Laraflow does not interrupt running PHP. A step reads its own deadline from the context (`$context->remainingSeconds()`) and bounds its own work; an attempt whose worker died *past* its deadline is charged to the retry budget as a timeout, while one that died before it re-runs for free. The full contract — schedules, the three-way timeout distinction, the two attempt bounds, cancellation semantics, and error redaction — is in [docs/retry-and-failure-policy.md](retry-and-failure-policy.md).
+Timeouts are deadlines, not preemption: Laraflow does not interrupt running PHP. A step reads its own deadline from the context (`$context->remainingSeconds()`) and bounds its own work; an attempt whose worker died *past* its deadline is charged to the retry budget as a timeout, while one that died before it re-runs for free. The full contract — schedules, the three-way timeout distinction, the two attempt bounds, cancellation semantics, and error redaction — is in [retry-and-failure-policy.md](retry-and-failure-policy.md).
 
 ## Conditions, waits, and sub-workflows
 
-The plan stays a linear list of steps, but a step can decide not to run, park the execution until something happens, or run a whole other workflow. The semantics — what persists, what happens on recovery, what the events say — are one document: [docs/advanced-workflows.md](advanced-workflows.md).
+The plan stays a linear list of steps, but a step can decide not to run, park the execution until something happens, or run a whole other workflow. The semantics — what persists, what happens on recovery, what the events say — are one document: [advanced-workflows.md](advanced-workflows.md).
 
 ### Conditional steps
 
@@ -113,7 +113,7 @@ The child inherits the parent's correlation and tenant identifiers, runs like an
 
 ## Parallelism and compensation
 
-Two capabilities that run a workflow wider and unwind it when it fails. Both are composition and step rows rather than new machinery, and both are specified in the same document as the rest: [docs/advanced-workflows.md](advanced-workflows.md).
+Two capabilities that run a workflow wider and unwind it when it fails. Both are composition and step rows rather than new machinery, and both are specified in the same document as the rest: [advanced-workflows.md](advanced-workflows.md).
 
 ### Fan-out and fan-in
 
@@ -205,7 +205,7 @@ An execution persisted under version 1 is carried forward the next time it is cl
 
 A migration may rewrite **only the part of the plan the execution has not reached**. A `pending` step row has no output, no attempt history, and nothing in the context, so it can be renumbered, removed, or replaced; every other row is the record of something that happened. Reaching further back is refused with `PlanMigrationRefusedException`, naming the step and the status that froze it. Leave `version()` alone and a changed `steps()` still strands its executions, exactly as before — silence means refuse.
 
-The full contract — what is refused and why, how several versions behind are chained, and how to test a migration — is in [docs/workflow-versioning.md](workflow-versioning.md). Deploy guidance is in [docs/upgrading.md](upgrading.md).
+The full contract — what is refused and why, how several versions behind are chained, and how to test a migration — is in [workflow-versioning.md](workflow-versioning.md). Deploy guidance is in [upgrading.md](upgrading.md).
 
 ## Running on a queue
 
@@ -266,7 +266,7 @@ Event::listen(function (WorkflowExecutionFailed $event) {
 });
 ```
 
-Queueing, retry interaction, recovery policy, and event payload safety are specified in full in [docs/queue-and-recovery.md](queue-and-recovery.md).
+Queueing, retry interaction, recovery policy, and event payload safety are specified in full in [queue-and-recovery.md](queue-and-recovery.md).
 
 ## Scheduled workflows
 
@@ -298,7 +298,7 @@ class NightlyReconciliation extends Workflow
 Schedule::command('laraflow:schedule')->everyMinute();
 ```
 
-A tick is a row with a unique `(schedule, instant)` index, claimed in the same transaction that creates the execution — so **exactly one execution per tick, however many schedulers race it**, with no lock to lose and no leader to elect. Missed ticks follow a declared policy: `skip` (the default) runs only the latest due tick and counts the gap on its row; `catch_up` replays them oldest first, each execution told *its* tick, bounded per run and by a window. `withoutOverlapping()` declines to run beside the previous tick's unfinished execution and records what it waited on; `tenant()` stamps every execution the schedule starts. `laraflow:schedules` lists every schedule with its last tick, lag, and next due instant — and exits non-zero when one is orphaned or stalled, so the same cron that runs your health checks can watch the scheduler itself. The full contract, missed-tick arithmetic and DST behaviour included, is [docs/schedules.md](schedules.md).
+A tick is a row with a unique `(schedule, instant)` index, claimed in the same transaction that creates the execution — so **exactly one execution per tick, however many schedulers race it**, with no lock to lose and no leader to elect. Missed ticks follow a declared policy: `skip` (the default) runs only the latest due tick and counts the gap on its row; `catch_up` replays them oldest first, each execution told *its* tick, bounded per run and by a window. `withoutOverlapping()` declines to run beside the previous tick's unfinished execution and records what it waited on; `tenant()` stamps every execution the schedule starts. `laraflow:schedules` lists every schedule with its last tick, lag, and next due instant — and exits non-zero when one is orphaned or stalled, so the same cron that runs your health checks can watch the scheduler itself. The full contract, missed-tick arithmetic and DST behaviour included, is [schedules.md](schedules.md).
 
 ## Triggers: signals over HTTP
 
@@ -308,11 +308,11 @@ A workflow parked on `Wait::forSignal('manager-approval')` is resumed from outsi
 Triggers::routes(); // POST {path}/executions/{id}/signals/{signal}
 ```
 
-Every request to the signed endpoint is verified **before anything is read**: HMAC-SHA256 over the timestamp, execution id, signal name, and body, under `LARAFLOW_TRIGGERS_KEY` (rotation via `LARAFLOW_TRIGGERS_PREVIOUS_KEYS`), within a clock tolerance. Every verification failure is the same `401` — a caller learns nothing from the answer, and there is no `local`-environment bypass. A verified request records the signal through the same `signal()` the console and dashboard use and answers in its words: `202 recorded` with what became of delivery, `404` only after verification, `409` when nothing is waiting on that name. `TriggerSignature::sign()` produces the headers for PHP callers; [docs/triggers.md](triggers.md) gives the three-line `openssl` recipe for everyone else, and `Triggers::register()` mounts named endpoints for providers that sign their own webhooks (Stripe, GitHub), behind your verifier and your mapping of their event to one signal.
+Every request to the signed endpoint is verified **before anything is read**: HMAC-SHA256 over the timestamp, execution id, signal name, and body, under `LARAFLOW_TRIGGERS_KEY` (rotation via `LARAFLOW_TRIGGERS_PREVIOUS_KEYS`), within a clock tolerance. Every verification failure is the same `401` — a caller learns nothing from the answer, and there is no `local`-environment bypass. A verified request records the signal through the same `signal()` the console and dashboard use and answers in its words: `202 recorded` with what became of delivery, `404` only after verification, `409` when nothing is waiting on that name. `TriggerSignature::sign()` produces the headers for PHP callers; [triggers.md](triggers.md) gives the three-line `openssl` recipe for everyone else, and `Triggers::register()` mounts named endpoints for providers that sign their own webhooks (Stripe, GitHub), behind your verifier and your mapping of their event to one signal.
 
 ## Tenant ceilings
 
-Multi-tenant applications already stamp executions with `tenantId`; ceilings make it load-bearing. `laraflow.tenants.max_concurrent` bounds how many of a tenant's executions may hold a worker at once, `max_claims_per_minute` bounds churn, `overrides` adjusts either per tenant — or bind your own `TenantPolicy` and answer from wherever a tenant's plan lives. Enforcement happens at the claim, the one gate every run passes, so a fresh dispatch, a retry, a resumed wait, and recovery are all bounded by one check. A claim a ceiling turns away is **deferred, not failed**: the status does not move, no attempt is recorded, the row says when delivery is next tried, and the queue job re-pushes itself for that instant without spending a try. The fairness rule is written down in [docs/tenancy.md](tenancy.md): a tenant whose ceiling is below the worker count can never hold every worker, so it cannot starve the rest — held by a test where a tenfold flood buys zero extra delay.
+Multi-tenant applications already stamp executions with `tenantId`; ceilings make it load-bearing. `laraflow.tenants.max_concurrent` bounds how many of a tenant's executions may hold a worker at once, `max_claims_per_minute` bounds churn, `overrides` adjusts either per tenant — or bind your own `TenantPolicy` and answer from wherever a tenant's plan lives. Enforcement happens at the claim, the one gate every run passes, so a fresh dispatch, a retry, a resumed wait, and recovery are all bounded by one check. A claim a ceiling turns away is **deferred, not failed**: the status does not move, no attempt is recorded, the row says when delivery is next tried, and the queue job re-pushes itself for that instant without spending a try. The fairness rule is written down in [tenancy.md](tenancy.md): a tenant whose ceiling is below the worker count can never hold every worker, so it cannot starve the rest — held by a test where a tenfold flood buys zero extra delay.
 
 ## Inspecting and correlating executions
 
@@ -339,7 +339,7 @@ foreach ($repository->attemptHistory($execution) as $attempt) {
 }
 ```
 
-From the terminal, `laraflow:list`, `laraflow:show`, and `laraflow:summary` read the same contract; `laraflow:children` lists a sub-workflow's child or a fan-out's members; `laraflow:signal` records a signal (and with `--deliver` hands the execution on); `laraflow:schedules` lists schedules and their health; and `laraflow:cancel` and `laraflow:execute` without an id act on every execution a filter matches — bulk cancel and re-run, oldest first, bounded by `--limit`, with `--dry-run`. Every operating command takes `--json` and prints one document with the human form's exit code. The commands and the JSON shapes are in [docs/inspection-and-observability.md](inspection-and-observability.md#the-console).
+From the terminal, `laraflow:list`, `laraflow:show`, and `laraflow:summary` read the same contract; `laraflow:children` lists a sub-workflow's child or a fan-out's members; `laraflow:signal` records a signal (and with `--deliver` hands the execution on); `laraflow:schedules` lists schedules and their health; and `laraflow:cancel` and `laraflow:execute` without an id act on every execution a filter matches — bulk cancel and re-run, oldest first, bounded by `--limit`, with `--dry-run`. Every operating command takes `--json` and prints one document with the human form's exit code. The commands and the JSON shapes are in [inspection-and-observability.md](inspection-and-observability.md#the-console).
 
 ### Listing and filtering
 
@@ -382,7 +382,7 @@ php artisan laraflow:list --tenant=acme --status=failed  # a tenant's failures
 php artisan laraflow:summary                             # counts by status; exits non-zero if anything needs attention
 ```
 
-Events carry `durationMs` (steps and executions) and `queueLagSeconds` (how long an execution waited for a worker, measured from when it became available rather than when it was dispatched, so a retry's own backoff is never counted). A listener turns those into whatever metrics your stack wants; Laraflow ships no vendor integration on purpose. The full contract, including how to correlate with requests, jobs, tenants, and provider calls, is in [docs/inspection-and-observability.md](inspection-and-observability.md).
+Events carry `durationMs` (steps and executions) and `queueLagSeconds` (how long an execution waited for a worker, measured from when it became available rather than when it was dispatched, so a retry's own backoff is never counted). A listener turns those into whatever metrics your stack wants; Laraflow ships no vendor integration on purpose. The full contract, including how to correlate with requests, jobs, tenants, and provider calls, is in [inspection-and-observability.md](inspection-and-observability.md).
 
 ## Retention
 
@@ -399,7 +399,7 @@ php artisan laraflow:prune --dry-run                              # what would h
 php artisan laraflow:prune --tenant=acme --scrub-after=1 --force  # a data-deletion request
 ```
 
-The command exits non-zero when no bound is configured — a scheduled prune that silently does nothing looks exactly like one that is working. The contract, including the trade-off in pruning failed executions' history and an archive-before-prune recipe, is in [docs/retention.md](retention.md).
+The command exits non-zero when no bound is configured — a scheduled prune that silently does nothing looks exactly like one that is working. The contract, including the trade-off in pruning failed executions' history and an archive-before-prune recipe, is in [retention.md](retention.md).
 
 ## The dashboard
 
@@ -434,4 +434,4 @@ An operator can also act: execute or recover a failed execution, cancel one, sig
 
 There is **no build step**: one hand-written stylesheet and one script, both served by the package, nothing published, no `npm`, no CDN. Filters apply as you type and pages refresh themselves; with JavaScript off, every page is a full render and the filter form is an ordinary one with a button. The dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`, which the package *suggests* rather than requires — any Laravel application has all three, and the mount says so by name if it does not.
 
-The contract, including what the dashboard deliberately does not do, is [docs/dashboard.md](dashboard.md).
+The contract, including what the dashboard deliberately does not do, is [dashboard.md](dashboard.md).

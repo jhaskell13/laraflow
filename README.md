@@ -31,7 +31,7 @@ The package is not yet published on Packagist. Add the repository to your applic
 ```
 
 ```bash
-composer require laraflow/laraflow:^0.6.0
+composer require laraflow/laraflow:^0.7.0
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:
@@ -40,7 +40,7 @@ Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvide
 php artisan laraflow:install
 ```
 
-That publishes `config/laraflow.php`, runs the migrations, and prints what to do next. It does nothing `vendor:publish` and `migrate` would not, so the two sections below are the same thing by hand.
+That publishes `config/laraflow.php`, runs the migrations, and prints what to do next. It does nothing `vendor:publish` and `migrate` would not, so [Getting started](docs/getting-started.md#database-tables) shows the same thing by hand.
 
 From there, the whole first workflow is three commands and one edit:
 

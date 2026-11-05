@@ -11,7 +11,7 @@ composer install
 composer playground     # creates a SQLite playground database and runs the migrations
 ```
 
-> Re-run `composer playground` after pulling changes: it resets the disposable playground database, which is quicker than reasoning about what a snapshot contains. (Your *application's* database needs no such thing — the schema is frozen and upgrades are ordinary `php artisan migrate` runs. See [docs/upgrading.md](upgrading.md).)
+> Re-run `composer playground` after pulling changes: it resets the disposable playground database, which is quicker than reasoning about what a snapshot contains. (Your *application's* database needs no such thing — the schema is frozen and upgrades are ordinary `php artisan migrate` runs. See [upgrading.md](upgrading.md).)
 
 The demo workflow simulates an order: **reserve inventory → charge payment → send receipt**. With `--fail`, the payment step throws on its first attempt only, so every failure path below recovers on the next attempt.
 
@@ -263,4 +263,4 @@ Note the message: the path, never the query string, and nothing the authenticato
 
 ---
 
-The `laraflow:*` commands are registered in any application that installs the package; they are experimental, and documented in [docs/public-api.md](public-api.md). The `playground:*` commands are **not** part of the package — they live in this repository's `workbench/` directory, because a traffic generator has no business being installable into an application.
+The `laraflow:*` commands are registered in any application that installs the package; they are experimental, and documented in [public-api.md](public-api.md). The `playground:*` commands are **not** part of the package — they live in this repository's `workbench/` directory, because a traffic generator has no business being installable into an application.

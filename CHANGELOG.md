@@ -8,6 +8,10 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-05
+
+Milestone 11: what an application needs to observe Laraflow, without Laraflow running the application's monitoring. An exact metrics snapshot for gauges, beside the lifecycle events for counters; a tracing hook in the core and one optional package, `laraflow/opentelemetry`, that joins an execution's runs into one trace across workers and days; a documentation site built from `docs/` with the README cut to a page; connector packages published and listed with the contract test as the review; issue forms, a maintainers file, and a release and support policy; and Horizon and Octane guidance held by tests. The milestone was narrowed partway ([decision 0011](docs/decisions/0011-one-optional-package.md)): metrics packages for Prometheus, StatsD, and Pulse were built and removed before release. Everything new is Experimental until 1.0. One additive migration, safe against live workers.
+
 ### Added
 
 - **Milestone 11's contracts, written before its code.** `docs/metrics.md` describes the metrics snapshot and how an application builds its own metrics from it and from the lifecycle events — Laraflow records none itself. `docs/tracing.md` fixes the spans, their nesting and attributes, what never appears on one, and how one execution's runs are joined across processes and days. Both are Experimental until 1.0, so real use decides what is frozen. `docs/community-connectors.md` says how a connector package is published and listed, with the contract test as the reviewer. `docs/decisions/` starts a decision record: six records backfilled from the changelog and contracts, and five for this milestone — including [0011](docs/decisions/0011-one-optional-package.md), which narrowed it: metrics bridges for Prometheus, StatsD, and Laravel Pulse, and a core metrics model they shared, were built and removed before release, because an application's monitoring is the application's to run.
@@ -35,6 +39,8 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 - **A custom `ExecutionStore` gains four methods and the trace context.** `retriesDue()` and `waitsDue()` — the attention scan's due retries and waits, scoped by a whole `ExecutionFilter` — and `countAttention()` and `countByWorkflowAndStatus()`, the snapshot's exact counts. Each count must share its predicate with the list it counts, as `docs/public-api.md` specifies. The store is experimental; the reader half of the repository is unchanged. It must also persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.
 
 ### Fixed
+
+- **The closing audit, scoped to Milestone 11, found documentation drift and no code defect.** The README still pointed at installation sections that had moved; `docs/limitations.md` still dated itself to Milestone 10 and said there were no per-workflow counts, which the metrics snapshot now provides, as did a note in `docs/inspection-and-observability.md`; the moved guides kept `docs/`-prefixed link labels. All fixed. One pre-existing cost is recorded rather than changed: the attention scan's overdue-step list reads each running execution's steps (up to one page), where the snapshot's count is one query.
 
 - **`laraflow:summary` and the dashboard overview ignored `--correlation`, `--since`, and `--until` for due retries and waits.** Those two lists came from the recovery scans, which take a workflow and a tenant and nothing else, so a correlation's or a time window's health check reported — and exited non-zero for — retries and waits outside its scope. They now come from `retriesDue()` and `waitsDue()`, scoped by the whole filter like every other number on the page. The per-workflow loop the old scans needed is gone with them.
 
@@ -653,7 +659,8 @@ Contracts in `docs/inspection-and-observability.md` and `docs/retention.md`.
 - `Workflow`, `Step`, `WorkflowContext`, `WorkflowRunner`, execution and step value objects, `ExecutionRepository` contract with an Eloquent implementation, and initial migrations.
 - Unit and feature tests for the above.
 
-[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/jhaskell13/laraflow/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jhaskell13/laraflow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jhaskell13/laraflow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jhaskell13/laraflow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jhaskell13/laraflow/compare/v0.3.0...v0.4.0
