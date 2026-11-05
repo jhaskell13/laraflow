@@ -1,6 +1,6 @@
 # 0003 — Lifecycle events are observational and fire after the write
 
-**Status:** Accepted (Milestone 4). Restated for the metrics bridges at Milestone 11.
+**Status:** Accepted (Milestone 4).
 
 ## Context
 
@@ -17,4 +17,4 @@ Every event fires strictly after the durable write it describes, and a listener 
 
 ## Consequences
 
-Events can be lost if a process dies between the write and the dispatch, which is why the metrics contract takes gauges from a database snapshot rather than from event counts ([metrics.md](../metrics.md)).
+Events can be lost if a process dies between the write and the dispatch, which is why [metrics.md](../metrics.md) takes gauges from a database snapshot rather than from event counts.

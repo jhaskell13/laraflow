@@ -8,7 +8,7 @@ Metrics ([metrics.md](metrics.md)) say how much and how often. A trace says what
 
 **The core package** records where a run, a step, and a connector call begin and end, and remembers the trace an execution was started in. It depends on no tracing library: the hooks call a `Laraflow\Observability\Tracing\Tracer`, and the binding that ships is a no-op.
 
-**`laraflow/opentelemetry`**, an optional bridge in `packages/` like the metrics bridges ([decision 0007](decisions/0007-bridges-live-in-this-repository.md)), implements that `Tracer` with the OpenTelemetry API. It depends on `open-telemetry/api` only. The application chooses the SDK, the sampler, and the exporter — Jaeger, Tempo, Honeycomb, Datadog, any OTLP endpoint — as it would for any other instrumentation; without an SDK configured, the API is a no-op and the bridge costs nothing.
+**`laraflow/opentelemetry`**, the one optional package, developed in `packages/` ([decision 0011](decisions/0011-one-optional-package.md)), implements that `Tracer` with the OpenTelemetry API. It depends on `open-telemetry/api` only. The application chooses the SDK, the sampler, and the exporter — Jaeger, Tempo, Honeycomb, Datadog, any OTLP endpoint — as it would for any other instrumentation; without an SDK configured, the API is a no-op and the bridge costs nothing.
 
 ## The spans
 
@@ -76,8 +76,4 @@ Like the event emitter, a tracer must never affect an execution: the core calls 
 
 ## Compatibility
 
-Span names, kinds, the parenting rules, and the attributes above are part of the compatibility promise from 0.7.0 ([compatibility.md](compatibility.md)): a saved trace query must keep working.
-
-- **Adding an attribute** or a value of `laraflow.run.outcome` or `laraflow.step.outcome` is not breaking, and is announced in the changelog.
-- **Renaming or removing an attribute, a span, or changing a span's name, kind, or parent** is breaking.
-- The `Tracer` hook itself is experimental until a second implementation exists.
+Everything here is **experimental until 1.0**: span names, kinds, the parenting rules, the attributes, and the `Tracer` hook may change in a 0.x minor, announced in the changelog. Real use decides what 1.0 freezes. From 1.0 the rules will be the usual ones for anything a saved query depends on: adding an attribute or an outcome value is not breaking; renaming or removing an attribute or a span, or changing a span's name, kind, or parent, is.

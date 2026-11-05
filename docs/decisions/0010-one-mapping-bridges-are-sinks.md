@@ -1,6 +1,6 @@
 # 0010 — One mapping in the core; a bridge is a sink
 
-**Status:** Accepted (Milestone 11, step 2).
+**Status:** Superseded by [0011](0011-one-optional-package.md) — the core metrics model and the bridges it served were removed before release.
 
 ## Context
 

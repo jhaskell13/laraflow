@@ -11,8 +11,10 @@ use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 
 /**
- * Takes a MetricsSnapshot: the one read a metrics bridge makes of the
- * database (docs/metrics.md).
+ * @experimental Until 1.0; see docs/metrics.md.
+ *
+ * Takes a MetricsSnapshot: the read an application makes to set its
+ * own gauges — on a schedule, or on each scrape (docs/metrics.md).
  *
  * **Exact, and a fixed cost.** Every field is counted in the database,
  * never by listing rows: the attention scan behind laraflow:summary

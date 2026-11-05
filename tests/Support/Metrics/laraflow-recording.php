@@ -1,8 +1,0 @@
-<?php
-
-declare(strict_types=1);
-
-return [
-    'enabled' => false,
-    'tenant_label' => false,
-];

@@ -100,7 +100,7 @@ php artisan laraflow:connectors --check
 - **A custom `ExecutionStore`** gains `retriesDue()`, `waitsDue()`, `countAttention()`, and `countByWorkflowAndStatus()` ([public-api.md](public-api.md#persistence)), and must persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.
 - **Code that constructs `ExecutionScope` or `ConnectorObserver` by hand** — both internal — passes a `Tracer`; resolved from the container, nothing changes.
 
-Nothing else needs doing. The metrics and tracing bridges are separate packages, installed only if you want them, and off until enabled.
+Nothing else needs doing. `laraflow/opentelemetry`, the optional tracing package, is installed only if you want it, and off until enabled.
 
 ## Rolling back
 

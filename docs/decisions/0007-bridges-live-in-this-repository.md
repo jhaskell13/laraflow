@@ -1,6 +1,6 @@
 # 0007 — Metrics bridges live in this repository and are split out to publish
 
-**Status:** Accepted (Milestone 11).
+**Status:** Superseded by [0011](0011-one-optional-package.md) — the metrics bridges were removed before release; the one remaining optional package, `laraflow/opentelemetry`, still lives in `packages/` as described here.
 
 ## Context
 

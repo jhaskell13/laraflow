@@ -30,7 +30,7 @@
 # the roadmap describes the project's plans, not the installed version.
 /ROADMAP.md          export-ignore
 /CODE_OF_CONDUCT.md  export-ignore
-# The metrics bridges are packages of their own, split to their own
-# repositories to publish (docs/decisions/0007): an application that
-# requires the core must not vendor three bridges it did not ask for.
+# The optional packages are packages of their own, split to their own
+# repositories to publish (docs/decisions/0011): an application that
+# requires the core must not vendor a package it did not ask for.
 /packages            export-ignore

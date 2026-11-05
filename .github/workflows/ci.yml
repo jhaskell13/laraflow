@@ -147,20 +147,19 @@ jobs:
         if: matrix.dependencies == 'prefer-lowest'
         run: composer analyse -- --no-progress
 
-  # The metrics bridges (packages/, docs/decisions/0007): each is its
+  # The optional packages (packages/, docs/decisions/0011): each is its
   # own Composer package, resolved here against the core in this same
   # commit through the path repository in its composer.json, so a
-  # change to an event and to the bridges that read it is tested
-  # together. Listed rather than discovered: adding a bridge is a
-  # decision, and a new directory should not quietly join the matrix.
-  # Two pairings per bridge, the ends of the dependency axis.
-  bridges:
-    name: Bridge (${{ matrix.bridge }}, PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }})
+  # change to the core and to the package that depends on it is tested
+  # together. Listed rather than discovered: adding a package is a
+  # decision. Two pairings, the ends of the dependency axis.
+  packages:
+    name: Package (${{ matrix.package }}, PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        bridge: [prometheus, statsd, pulse, opentelemetry]
+        package: [opentelemetry]
         pairing: [lowest, newest]
         include:
           - pairing: lowest
@@ -176,7 +175,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: packages/${{ matrix.bridge }}
+        working-directory: packages/${{ matrix.package }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -194,8 +193,8 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-bridge-${{ matrix.bridge }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles(format('packages/{0}/composer.json', matrix.bridge), 'composer.json') }}
-          restore-keys: composer-${{ runner.os }}-bridge-${{ matrix.bridge }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
+          key: composer-${{ runner.os }}-package-${{ matrix.package }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles(format('packages/{0}/composer.json', matrix.package), 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-package-${{ matrix.package }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
 
       - name: Pin the Laravel major via Testbench
         run: >
@@ -211,7 +210,7 @@ jobs:
         run: composer update --prefer-dist --prefer-lowest --prefer-stable --no-interaction --no-progress
 
       # The core must be this commit's, not a release from Packagist: a
-      # bridge that passes against yesterday's events proves nothing.
+      # package that passes against yesterday's core proves nothing.
       - name: The core resolved from this checkout
         run: |
           composer show laraflow/laraflow | grep -E '^dist +: \[path\] \.\./\.\.'

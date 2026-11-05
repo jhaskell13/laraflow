@@ -381,25 +381,25 @@ Released as **0.7.0**, the last minor before 1.0 ([decision 0009](docs/decisions
 
 #### Work
 
-0. **Contracts first.** [docs/metrics.md](docs/metrics.md) (series names, labels, cardinality rules, the snapshot, what every bridge must do); [docs/community-connectors.md](docs/community-connectors.md) (the template, the listing criteria); [docs/decisions/](docs/decisions/README.md), a decision record backfilled with the choices the contracts rest on and extended with this milestone's.
-1. **Core additions the contracts call for.** `MetricsSnapshot` and `Snapshots`, exact counts in a fixed number of queries; the store's count queries; a tenant id on the two connector events.
-2. **Bridge scaffolding.** `packages/` with one Composer package per bridge, a shared conformance kit that replays every event and a snapshot through a bridge and compares the result with docs/metrics.md, and a CI job per bridge against the core beside it ([decision 0007](docs/decisions/0007-bridges-live-in-this-repository.md)).
-3. **`laraflow/prometheus`** — counters and histograms in shared storage, a mountable scrape endpoint denied by default outside `local`, gauges read from the snapshot per scrape.
-4. **`laraflow/statsd`** — StatsD and DogStatsD over UDP, with a scheduled command pushing the snapshot.
-5. **`laraflow/pulse`** — recorders and cards; Pulse's support for both Laravel majors confirmed before building on it.
-6. **Tracing** — approved. [docs/tracing.md](docs/tracing.md) first, then `laraflow/opentelemetry`: spans for runs, step attempts, and connector calls, joined across queue workers and days by the trace context each execution remembers.
-7. **The documentation site.** VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)): a CI build with link checking, and a per-version deploy on tag that stays inactive until Pages is enabled.
-8. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial whose code CI executes; one upgrade guide per minor; a reference page per Public class and console command, generated and cross-checked by the contract tests.
-9. **The connector ecosystem.** `laraflow/connector-skeleton`, tested here by generating a connector and running its suite; a reusable contract workflow for connector repositories; the community list.
-10. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page, build-provenance attestations on releases. Discussions, Pages, the split repositories, Packagist entries, and tag signing are maintainer actions.
-11. **Horizon and Octane** — approved. Compatibility documentation and tests: Horizon's supervisor settings against the claim and timeout rules, job tags, and the queue stage under Horizon; per-request state under Octane — the dashboard's callbacks, the log context — reset and proved not to leak.
-12. **Hostile audit and release.** Every CI leg — each engine, the install walk, the lowest dependencies, the newest PHP — run locally before anything is declared done, then the audit, the closing record, and 0.7.0.
+Narrowed after step 6 to what only a Laravel package should do: emit what an application needs to observe it, and leave the monitoring itself to the application ([decision 0011](docs/decisions/0011-one-optional-package.md)). Metrics bridges for Prometheus, StatsD, and Pulse, and the core metrics model they shared, were built in steps 2–5 and removed before release.
+
+0. **Contracts first.** ✅ [docs/metrics.md](docs/metrics.md), [docs/tracing.md](docs/tracing.md), [docs/community-connectors.md](docs/community-connectors.md), and [docs/decisions/](docs/decisions/README.md).
+1. **The metrics snapshot.** ✅ `Snapshots` and `MetricsSnapshot`: exact counts of what is unfinished, due, overdue, deferred, and stalled, in a fixed number of queries; a tenant id on the connector events; and the scoping fix in `laraflow:summary` it surfaced. Metrics themselves are the application's, from the events and the snapshot, with documented recipes.
+2. **Tracing.** ✅ The `Tracer` hook and the trace context each execution remembers, in the core; `laraflow/opentelemetry`, the one optional package, depending on the OpenTelemetry API only.
+3. **The documentation site.** VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)), one version: a CI build that fails on a dead link, deployed to Pages from `main` once the maintainer enables it.
+4. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial; one upgrade guide per minor.
+5. **Contributing a connector.** A documentation page and the community list: a connector is a package that runs `ConnectorContract` in its own CI, and is listed by pull request. No template repository or reusable workflow.
+6. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
+7. **Horizon and Octane.** Horizon: a documentation section on matching its `timeout` to `stale_after`, no code. Octane: tests that no per-request state — the dashboard's callbacks, the log context — leaks between requests, and code only if one does.
+8. **Audit and release.** A hostile audit of the milestone; CI run by the maintainer, its failures addressed from the logs; the closing record, and 0.7.0.
+
+Everything new in this milestone — the snapshot, the tracing hook, the span names and attributes — is Experimental until 1.0, so real use decides what is frozen.
 
 #### Exit criteria
 
-- A new contributor opens a connector pull request following only the published docs, and the contract test is what reviews it.
-- Every public class and command has a documentation page that the contract tests cross-check.
-- Every bridge passes the conformance kit, and installing none of them changes nothing about the core package.
+- A new contributor can publish a connector following only the published docs, and the contract test is what reviews it.
+- The documentation site builds from `docs/` with no dead link, and the README fits on a screen or two.
+- Installing nothing optional changes nothing: the core records no metrics and no traces by itself.
 
 ### Milestone 12 — Production validation and 1.0
 
@@ -433,8 +433,8 @@ Released as **0.7.0**, the last minor before 1.0 ([decision 0009](docs/decisions
 13. ~~The inspection dashboard, over the contract the console already proves (Milestone 8.5).~~ Done.
 14. ~~Fan-out/fan-in, then compensation — semantics first (Milestone 9).~~ Done, and released as 0.5.0.
 15. ~~Schedules, signed triggers, tenant throttling (Milestone 10).~~ Done, and released as 0.6.0.
-16. Contracts, then the metrics bridges, the documentation site, the connector ecosystem, open-source practice (Milestone 11, 0.7.0).
-17. Soak, external review, the API freeze, 1.0 (Milestone 12, 1.0.0). The soak harness is built at the end of Milestone 11, because its exit criterion is a full support window of calendar time.
+16. Contracts, the metrics snapshot and the tracing hook, the documentation site, contributing connectors, open-source practice (Milestone 11, 0.7.0).
+17. Soak, external review, the API freeze, 1.0 (Milestone 12, 1.0.0).
 
 ## Out of scope through 1.0
 

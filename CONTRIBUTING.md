@@ -110,18 +110,18 @@ It checks the things that are easy to get subtly wrong: that the connector holds
 
 A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
 
-## Working on a metrics bridge
+## Working on the tracing package
 
-The bridges under `packages/` are Composer packages of their own, resolved against the core in this checkout through a path repository, and published by splitting each directory to its own repository ([decision 0007](docs/decisions/0007-bridges-live-in-this-repository.md)). Work on one from its directory:
+`packages/opentelemetry` is `laraflow/opentelemetry`, the one optional package ([decision 0011](docs/decisions/0011-one-optional-package.md)): a Composer package of its own, resolved against the core in this checkout through a path repository, and published by splitting the directory to its own repository. Work on it from its directory:
 
 ```bash
-cd packages/prometheus
+cd packages/opentelemetry
 composer install
 composer test
 composer analyse
 ```
 
-A bridge chooses none of the series it publishes. Names, types, and labels are defined in [docs/metrics.md](docs/metrics.md) and mapped once in the core (`Laraflow\Observability\Metrics`); a bridge implements `MetricsSink` for its backend and extends `MetricsBridgeServiceProvider`. A change to what is published is a change to the document and the core mapping, made in the same pull request as any bridge it affects — the conformance kit in each bridge's tests fails until all three agree ([decision 0010](docs/decisions/0010-one-mapping-bridges-are-sinks.md)).
+Its tests run against the real OpenTelemetry SDK with an in-memory exporter. What it records — span names, nesting, attributes, and what never appears on a span — is [docs/tracing.md](docs/tracing.md); a change there is a change to that document in the same pull request.
 
 ### Database migrations
 

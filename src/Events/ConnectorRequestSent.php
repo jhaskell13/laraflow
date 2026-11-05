@@ -18,8 +18,8 @@ namespace Laraflow\Events;
  * The tenant is the running execution's, read from the durable record
  * the tenant-scoped rate limit reads (docs/tenancy.md), and null for a
  * call made outside any execution or inside one created without a
- * tenant — so a metrics bridge can attribute a call without guessing
- * (docs/metrics.md). The correlation id is not here: it is unbounded,
+ * tenant — so a listener can attribute a call to a tenant without
+ * guessing. The correlation id is not here: it is unbounded,
  * never a metric label, and Laravel's log context already carries it
  * inside a run — read `Context::get('laraflow.correlation_id')`.
  */

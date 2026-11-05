@@ -8,14 +8,17 @@ use DateTimeImmutable;
 use Laraflow\Workflow\ExecutionStatus;
 
 /**
- * What is true of the executions at one instant, counted exactly: the
- * source of every gauge a metrics bridge publishes (docs/metrics.md).
+ * @experimental Until 1.0; see docs/metrics.md.
+ *
+ * What is true of the executions at one instant, counted exactly: what
+ * a gauge in the application's own metrics should be set from
+ * (docs/metrics.md).
  *
  * Events say what happened; this says what is. A gauge kept by counting
  * events up and down is wrong forever once one event is missed — a
- * worker killed between its write and its dispatch, a bridge installed
- * yesterday — so the gauges are read from the database each time
- * instead. Taken by Snapshots::take().
+ * worker killed between its write and its dispatch, a listener added
+ * yesterday — so a gauge is read from the database each time instead.
+ * Taken by Snapshots::take().
  *
  * Counts only: no ids, no payloads, nothing that grows with traffic
  * beyond the number of workflow classes an application declares.

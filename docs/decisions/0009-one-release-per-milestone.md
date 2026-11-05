@@ -12,7 +12,7 @@ One release per milestone, as every milestone since the MVP has been: Milestone 
 
 ## Rejected
 
-- **Splitting Milestone 11 into 0.7.0 and 0.8.0.** Earlier delivery of the bridges, at the price of a release whose documentation does not yet describe it.
+- **Splitting Milestone 11 into 0.7.0 and 0.8.0.** Earlier delivery of part of the milestone, at the price of a release whose documentation does not yet describe it.
 
 ## Consequences
 
