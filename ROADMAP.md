@@ -387,12 +387,12 @@ Released as **0.7.0**, the last minor before 1.0 ([decision 0009](docs/decisions
 3. **`laraflow/prometheus`** — counters and histograms in shared storage, a mountable scrape endpoint denied by default outside `local`, gauges read from the snapshot per scrape.
 4. **`laraflow/statsd`** — StatsD and DogStatsD over UDP, with a scheduled command pushing the snapshot.
 5. **`laraflow/pulse`** — recorders and cards; Pulse's support for both Laravel majors confirmed before building on it.
-6. **Tracing** — *awaiting decision.* An optional OpenTelemetry bridge (spans for executions, steps, and connector calls, linked across queue hops and waits); the reasoning was put to the maintainer before any contract is written.
+6. **Tracing** — approved. [docs/tracing.md](docs/tracing.md) first, then `laraflow/opentelemetry`: spans for runs, step attempts, and connector calls, joined across queue workers and days by the trace context each execution remembers.
 7. **The documentation site.** VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)): a CI build with link checking, and a per-version deploy on tag that stays inactive until Pages is enabled.
 8. **The documentation itself.** A short README; guides built from today's README sections; a guided tutorial whose code CI executes; one upgrade guide per minor; a reference page per Public class and console command, generated and cross-checked by the contract tests.
 9. **The connector ecosystem.** `laraflow/connector-skeleton`, tested here by generating a connector and running its suite; a reusable contract workflow for connector repositories; the community list.
 10. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page, build-provenance attestations on releases. Discussions, Pages, the split repositories, Packagist entries, and tag signing are maintainer actions.
-11. **Horizon and Octane** — *awaiting decision.* Compatibility documentation and tests; the reasoning was put to the maintainer first.
+11. **Horizon and Octane** — approved. Compatibility documentation and tests: Horizon's supervisor settings against the claim and timeout rules, job tags, and the queue stage under Horizon; per-request state under Octane — the dashboard's callbacks, the log context — reset and proved not to leak.
 12. **Hostile audit and release.** Every CI leg — each engine, the install walk, the lowest dependencies, the newest PHP — run locally before anything is declared done, then the audit, the closing record, and 0.7.0.
 
 #### Exit criteria

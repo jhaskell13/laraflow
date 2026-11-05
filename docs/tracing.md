@@ -57,7 +57,7 @@ An application can supply the origin itself: `ExecutionOptions::$traceContext` t
 | `url.path` | connector | The path **without the query string**, which may carry a credential |
 | `http.response.status_code` | connector | When a response arrived |
 | `laraflow.connector.attempts` | connector | Wire attempts, more than one when a transport retry policy repeated the call |
-| `error.type` | any | The exception class, on a failed span |
+| `error.type` | any | On a failed span: the exception class; for a connector call answered with an error status, the status code, as OpenTelemetry's HTTP conventions specify |
 
 **Status.** A failed step attempt, a failed run, and a connector call that got no response or was refused by the connector's error mapper end with status `ERROR` and `error.type`. The status description is the error message only when `laraflow.events.include_error_messages` is true, and then only as the configured `ErrorRedactor` rewrote it — the same text the lifecycle events carry. A step attempt that failed and will be retried is still `ERROR`: that attempt failed.
 

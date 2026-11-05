@@ -160,7 +160,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bridge: [prometheus, statsd, pulse]
+        bridge: [prometheus, statsd, pulse, opentelemetry]
         pairing: [lowest, newest]
         include:
           - pairing: lowest
