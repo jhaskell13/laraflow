@@ -31,6 +31,15 @@ final class InvalidExecutionOptionsException extends WorkflowException
         );
     }
 
+    public static function invalidTraceContext(): self
+    {
+        return new self(
+            'Execution option [traceContext] is not a W3C traceparent (version 00: '
+            .'00-<32 hex trace id>-<16 hex span id>-<2 hex flags>, neither id all zeros). '
+            .'A context a tracer cannot read would link the execution to nothing (docs/tracing.md).'
+        );
+    }
+
     public static function controlCharacters(string $name): self
     {
         return new self(

@@ -34,6 +34,8 @@ final readonly class ExecutionOptions
 
     public ?string $tenantId;
 
+    public ?string $traceContext;
+
     /**
      * @param  string|null  $correlationId  Ties this execution to the request,
      *                                      job, or external operation that caused it.
@@ -47,6 +49,12 @@ final readonly class ExecutionOptions
      *                                       the ids exist.
      * @param  int|null  $parentStepExecutionId  The exact parent step row waiting
      *                                           on this execution.
+     * @param  string|null  $traceContext  The trace this execution belongs to, as
+     *                                     a W3C `traceparent` (docs/tracing.md). Captured
+     *                                     from the active trace when omitted; given, it
+     *                                     joins an execution to a trace that arrived with
+     *                                     a request — a webhook, another service's call.
+     *                                     Added in 0.7.0.
      *
      * @throws InvalidExecutionOptionsException
      */
@@ -55,9 +63,46 @@ final readonly class ExecutionOptions
         ?string $tenantId = null,
         public ?int $parentExecutionId = null,
         public ?int $parentStepExecutionId = null,
+        ?string $traceContext = null,
     ) {
         $this->correlationId = self::normalize($correlationId, 'correlationId');
         $this->tenantId = self::normalize($tenantId, 'tenantId');
+
+        $traceContext = $traceContext === null || trim($traceContext) === '' ? null : strtolower(trim($traceContext));
+
+        if ($traceContext !== null && ! self::isTraceParent($traceContext)) {
+            throw InvalidExecutionOptionsException::invalidTraceContext();
+        }
+
+        $this->traceContext = $traceContext;
+    }
+
+    /**
+     * Whether $value is a version-00 W3C `traceparent` with a real trace
+     * and span id. Only version 00 is accepted: it is the only version
+     * defined, and the column holds exactly its 55 characters.
+     */
+    public static function isTraceParent(string $value): bool
+    {
+        return preg_match('/^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-9a-f]{2}$/', $value) === 1;
+    }
+
+    /**
+     * These options with the trace context set, unless one was given.
+     */
+    public function withTraceContextIfAbsent(?string $traceContext): self
+    {
+        if ($this->traceContext !== null || $traceContext === null) {
+            return $this;
+        }
+
+        return new self(
+            correlationId: $this->correlationId,
+            tenantId: $this->tenantId,
+            parentExecutionId: $this->parentExecutionId,
+            parentStepExecutionId: $this->parentStepExecutionId,
+            traceContext: $traceContext,
+        );
     }
 
     /**
@@ -69,7 +114,8 @@ final readonly class ExecutionOptions
         return $this->correlationId === null
             && $this->tenantId === null
             && $this->parentExecutionId === null
-            && $this->parentStepExecutionId === null;
+            && $this->parentStepExecutionId === null
+            && $this->traceContext === null;
     }
 
     /**

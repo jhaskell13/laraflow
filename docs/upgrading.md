@@ -87,6 +87,21 @@ php artisan laraflow:connectors --check
 - **Trigger routes are throttled by default.** `laraflow.triggers.middleware` defaults to `['api', 'throttle:60,1']`, and a body over `laraflow.triggers.max_body_bytes` (65536) is refused with `413`. An application that published its config keeps its own middleware list — add a throttle to it.
 - **Bulk `laraflow:cancel` and `laraflow:execute` select only what they can act on.** Completed and cancelled executions are never selected, `matched` counts the actionable set, a `--status` naming only those is refused, and the `--json` handoff outcomes are `push_failed` and `step_failed`. A script reading the old shapes should be checked against [inspection-and-observability.md](inspection-and-observability.md#machine-readable-output).
 
+## Upgrading to 0.7
+
+**The migration.**
+
+| Migration | What it does | Against live workers |
+|---|---|---|
+| `2026_11_05_000000_add_trace_context_to_laraflow_workflow_executions` | A nullable `trace_context` column on executions, no default, no index | Safe: metadata-only on every supported engine |
+
+**Breaking changes to check for.**
+
+- **A custom `ExecutionStore`** gains `retriesDue()`, `waitsDue()`, `countAttention()`, and `countByWorkflowAndStatus()` ([public-api.md](public-api.md#persistence)), and must persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.
+- **Code that constructs `ExecutionScope` or `ConnectorObserver` by hand** — both internal — passes a `Tracer`; resolved from the container, nothing changes.
+
+Nothing else needs doing. The metrics and tracing bridges are separate packages, installed only if you want them, and off until enabled.
+
 ## Rolling back
 
 ### Rolling back a schema change

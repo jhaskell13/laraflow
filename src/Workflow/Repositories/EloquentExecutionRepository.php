@@ -80,6 +80,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
                 'correlation_id' => $options?->correlationId,
                 'tenant_id' => $options?->tenantId,
+                'trace_context' => $options?->traceContext,
                 'parent_execution_id' => $options?->parentExecutionId,
                 'parent_step_execution_id' => $options?->parentStepExecutionId,
                 // Written rather than left to the column default, so the
@@ -1107,6 +1108,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             persistedDurationMs: $model->duration_ms,
             deferredUntil: $model->deferred_until?->toImmutable(),
             deferrals: $model->deferrals,
+            traceContext: $model->trace_context,
         );
     }
 

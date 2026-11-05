@@ -68,6 +68,7 @@ final class WorkflowExecution
         protected ?int $persistedDurationMs = null,
         public readonly ?DateTimeImmutable $deferredUntil = null,
         public readonly int $deferrals = 0,
+        public readonly ?string $traceContext = null,
     ) {}
 
     public function markRunning(DateTimeImmutable $at): void

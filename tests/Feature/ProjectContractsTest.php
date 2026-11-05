@@ -69,10 +69,16 @@ class ProjectContractsTest extends TestCase
 
         preg_match_all('/laraflow\.([a-z_]+)\.([a-z_]+)/', $docs, $matches, PREG_SET_ORDER);
 
+        // Span attributes are dotted too (`laraflow.step.attempt`), and
+        // docs/tracing.md's attribute table is where each is defined; a
+        // name in its first column is an attribute, not a key.
+        preg_match_all('/^\| (`laraflow\.[a-z_.]+`(?:, `laraflow\.[a-z_.]+`)*) \|/m', (string) file_get_contents($this->path('docs/tracing.md')), $rows);
+        preg_match_all('/`(laraflow\.[a-z_.]+)`/', implode(' ', $rows[1]), $attributes);
+
         $missing = [];
 
         foreach ($matches as [$full, $section, $key]) {
-            if (config()->has($full)) {
+            if (config()->has($full) || in_array($full, $attributes[1], true)) {
                 continue;
             }
 

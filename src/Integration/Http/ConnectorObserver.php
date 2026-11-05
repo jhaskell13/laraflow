@@ -10,6 +10,7 @@ use Laraflow\Events\EventEmitter;
 use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
+use Laraflow\Observability\Tracing\Tracer;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\ExecutionScope;
 use SensitiveParameter;
@@ -37,10 +38,21 @@ final class ConnectorObserver
         protected EventEmitter $events,
         ErrorRedactor $redactor,
         protected ExecutionScope $scope,
+        protected Tracer $tracer,
         protected bool $includeErrorMessages = true,
         protected int $maxErrorLength = 65535,
     ) {
         $this->redactor = $redactor;
+    }
+
+    /**
+     * The call is about to be sent: the tracer's span begins here, so
+     * it covers transport retries and throttle waits as the event's
+     * duration does.
+     */
+    public function starting(Connection $connection, #[SensitiveParameter] ConnectorRequest $request): void
+    {
+        $this->tracer->connectorCallStarted($connection, $request);
     }
 
     public function sent(Connection $connection, #[SensitiveParameter] ConnectorRequest $request, ConnectorResponse $response, int $durationMs): void
@@ -56,6 +68,9 @@ final class ConnectorObserver
             attempts: $response->attempts(),
             tenantId: $this->scope->tenantId(),
         ));
+
+        // After the event, which carries the outcome the span records.
+        $this->tracer->connectorCallEnded();
     }
 
     public function failed(Connection $connection, #[SensitiveParameter] ConnectorRequest $request, Throwable $exception, int $durationMs, int $attempts = 1): void
@@ -71,6 +86,8 @@ final class ConnectorObserver
             attempts: $attempts,
             tenantId: $this->scope->tenantId(),
         ));
+
+        $this->tracer->connectorCallEnded();
     }
 
     protected function message(Throwable $exception): ?string
