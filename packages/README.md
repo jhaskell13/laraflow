@@ -5,7 +5,7 @@ Each directory is one optional Composer package that renders Laraflow's metrics 
 | Package | Backend | Status |
 |---|---|---|
 | [`laraflow/prometheus`](prometheus/README.md) | Prometheus | Complete (Milestone 11, step 3); released with 0.7.0 |
-| [`laraflow/statsd`](statsd/README.md) | StatsD, DogStatsD | Under construction (Milestone 11, step 4) |
+| [`laraflow/statsd`](statsd/README.md) | StatsD, DogStatsD | Complete (Milestone 11, step 4); released with 0.7.0 |
 | [`laraflow/pulse`](pulse/README.md) | Laravel Pulse | Under construction (Milestone 11, step 5) |
 
 ## How a bridge is built

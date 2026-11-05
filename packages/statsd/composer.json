@@ -35,7 +35,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Laraflow\\StatsD\\Tests\\": "tests/"
+            "Laraflow\\StatsD\\Tests\\": "tests/",
+            "Laraflow\\Tests\\": "../../tests/"
         }
     },
     "extra": {

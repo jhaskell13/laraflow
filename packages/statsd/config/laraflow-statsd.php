@@ -12,11 +12,21 @@ return [
     'enabled' => (bool) env('LARAFLOW_STATSD_ENABLED', false),
 
     /*
-     * Add the `tenant` label to every execution, step, compensation, and
+     * Add the `tenant` tag to every execution, step, compensation, and
      * connector series. Off by default: a tenant id is bounded by your
-     * customer list, which may be ten or a hundred thousand, and every
-     * tenant multiplies every series it appears on (docs/metrics.md).
+     * customer list, and every tenant multiplies every series it
+     * appears on (docs/metrics.md).
      */
     'tenant_label' => (bool) env('LARAFLOW_STATSD_TENANT_LABEL', false),
+
+    // The collector: a Datadog agent, Telegraf, statsd, or StatsD Exporter.
+    'host' => env('LARAFLOW_STATSD_HOST', '127.0.0.1'),
+    'port' => (int) env('LARAFLOW_STATSD_PORT', 8125),
+
+    /*
+     * How labels travel: `dogstatsd` (`|#key:value`, the default) or
+     * `graphite` (`;key=value`, Graphite 1.1 tags).
+     */
+    'dialect' => env('LARAFLOW_STATSD_DIALECT', 'dogstatsd'),
 
 ];
