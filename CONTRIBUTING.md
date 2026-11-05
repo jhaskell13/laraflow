@@ -80,6 +80,16 @@ Releases are drafted by machinery and published by a person.
 
 The dist archive an application vendors is trimmed by `.gitattributes` `export-ignore` lines: source, config, migrations, `docs/`, and the top-level README, CHANGELOG, LICENSE, SECURITY, and CONTRIBUTING ship; tests, the workbench, CI configuration, and planning documents do not. Check it with `git archive HEAD | tar -t` after changing `.gitattributes`.
 
+### Database migrations
+
+**The schema is frozen.** Shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.
+
+`tests/Feature/Database/SchemaFreezeTest.php` enforces this — it fails if the schema the shipped migrations produce changes at all — and `UpgradePathTest` is the harness a new migration is tested through: it applies one to an already-populated database and asserts the data survives both the upgrade and its rollback. A schema change needs an explicit changelog entry describing its operational impact, and `docs/upgrading.md` is the contract it has to honour.
+
+### Commit messages
+
+Use the imperative mood ("Add claim token to executions"), explain *why* in the body when the diff does not make it obvious, and reference issues where relevant.
+
 ## Contributing a connector
 
 Connectors are the one area where new code is actively wanted, and the recipe is short because the extension points do the work. Nothing below requires touching Laraflow internals — a test enforces that the bundled connectors do not either.
@@ -110,6 +120,8 @@ It checks the things that are easy to get subtly wrong: that the connector holds
 
 A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
 
+**A connector for a service Laraflow does not ship** belongs in a package of your own rather than in this repository: [docs/community-connectors.md](docs/community-connectors.md) shows the package's shape and how it is listed, with the contract test as the review.
+
 ## Working on the documentation
 
 `docs/` is both the Markdown GitHub shows and the source of the documentation site, built with VitePress ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)). To preview it:
@@ -134,16 +146,6 @@ composer analyse
 ```
 
 Its tests run against the real OpenTelemetry SDK with an in-memory exporter. What it records — span names, nesting, attributes, and what never appears on a span — is [docs/tracing.md](docs/tracing.md); a change there is a change to that document in the same pull request.
-
-### Database migrations
-
-**The schema is frozen.** Shipped migrations are immutable: never edit them. A schema change arrives as a *new* dated migration, because an installed application must be able to reach the new schema by running `php artisan migrate` and must never be told to drop its tables.
-
-`tests/Feature/Database/SchemaFreezeTest.php` enforces this — it fails if the schema the shipped migrations produce changes at all — and `UpgradePathTest` is the harness a new migration is tested through: it applies one to an already-populated database and asserts the data survives both the upgrade and its rollback. A schema change needs an explicit changelog entry describing its operational impact, and `docs/upgrading.md` is the contract it has to honour.
-
-### Commit messages
-
-Use the imperative mood ("Add claim token to executions"), explain *why* in the body when the diff does not make it obvious, and reference issues where relevant.
 
 ## Pull requests
 

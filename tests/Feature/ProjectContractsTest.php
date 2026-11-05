@@ -78,7 +78,10 @@ class ProjectContractsTest extends TestCase
         $missing = [];
 
         foreach ($matches as [$full, $section, $key]) {
-            if (config()->has($full) || in_array($full, $attributes[1], true)) {
+            // Keys under `integrations` are connector names an
+            // application chooses (`laraflow.integrations.crm`); only the
+            // section itself is the package's.
+            if (config()->has($full) || in_array($full, $attributes[1], true) || ($section === 'integrations' && config()->has('laraflow.integrations'))) {
                 continue;
             }
 

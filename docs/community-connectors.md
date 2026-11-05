@@ -6,11 +6,41 @@ How to write a connector is in [connectors.md](connectors.md); the step-by-step 
 
 ## Publishing one
 
-A connector package needs nothing from this repository beyond `laraflow/laraflow` itself:
+A connector package needs nothing from this repository beyond `laraflow/laraflow` itself. The shape, for a package named `acme/laraflow-crm`:
 
-1. **Scaffold it** with `php artisan laraflow:make-connector`, in a package of your own named `vendor/laraflow-{service}`, and register it from your package's service provider with `LaraflowManager::register()`.
-2. **Test it without credentials or network.** Run `ConnectorContract::assertHeldBy()` against it with HTTP faked, alongside your own tests for whatever is specific to the provider ([connectors.md](connectors.md#testing-a-connector)).
-3. **Run those tests in your own CI** on the PHP and Laravel versions Laraflow supports ([compatibility.md](compatibility.md)).
+```text
+src/CrmConnector.php            extends Laraflow\Integration\HttpConnector
+src/CrmServiceProvider.php      registers the connector
+tests/ContractTest.php          runs ConnectorContract
+composer.json                   requires laraflow/laraflow, auto-discovers the provider
+```
+
+1. **Write the connector** as [connectors.md](connectors.md) describes. `php artisan laraflow:make-connector` writes one into an application's `app/Connectors`; generate it there and move it into your package's namespace, or write it by hand — it is one class.
+2. **Register it from your provider**, so an application that installs the package can configure connections for it under `laraflow.integrations.crm`:
+
+   ```php
+   public function boot(): void
+   {
+       $this->app->make(\Laraflow\Core\LaraflowManager::class)->register('crm', CrmConnector::class);
+   }
+   ```
+
+3. **Test it without credentials or network**, with Orchestra Testbench and the contract test, alongside your own tests for whatever is specific to the provider ([connectors.md](connectors.md#testing-a-connector)):
+
+   ```php
+   public function test_it_meets_the_connector_contract(): void
+   {
+       config(['laraflow.integrations.crm.connections.default.credentials.token' => 'secret-token']);
+
+       (new ConnectorContract)->assertHeldBy(
+           app(LaraflowManager::class)->connector('crm'),
+           credential: 'secret-token',
+           probe: new ConnectorRequest('GET', '/ping'),
+       );
+   }
+   ```
+
+4. **Run those tests in your own public CI** on the PHP and Laravel versions Laraflow supports ([compatibility.md](compatibility.md)). That run is what a listing below links to.
 
 ## What a listed connector must do
 

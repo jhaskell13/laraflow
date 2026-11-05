@@ -24,6 +24,8 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 - **The documentation, restructured.** The README is a page or two — what Laraflow is, its status, requirements, install, and where to read next — and the rest of it moved, nearly unchanged, into guides under `docs/`: Getting started, a playground tutorial, Configuration, Using Laraflow, Your first connector, and Limitations and design principles. The contract documents are untouched and remain the authority each guide links to. A broken anchor in `docs/compatibility.md` found on the way is fixed.
 
+- **Contributing a connector, as a package.** `docs/community-connectors.md` shows the shape of a connector package — the connector, a provider registering it with `LaraflowManager::register()`, and a Testbench test running `ConnectorContract` — and how one is listed by pull request with its passing CI run as the review. CONTRIBUTING points there for any service Laraflow does not ship.
+
 ### Breaking
 
 - **A custom `ExecutionStore` gains four methods and the trace context.** `retriesDue()` and `waitsDue()` — the attention scan's due retries and waits, scoped by a whole `ExecutionFilter` — and `countAttention()` and `countByWorkflowAndStatus()`, the snapshot's exact counts. Each count must share its predicate with the list it counts, as `docs/public-api.md` specifies. The store is experimental; the reader half of the repository is unchanged. It must also persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.
