@@ -128,6 +128,15 @@ Connectors talk to services Laraflow does not control, so a second compatibility
 - **"Tested" means tested against recorded shapes, not live.** Connector tests fake HTTP and run without credentials or network, so they prove the connector handles the responses the provider documented for that version. They cannot prove the provider still sends them. A provider changing its API under a pinned version is a defect report Laraflow wants, fixed in a patch release; a connector moving to a newer provider version is a minor release, noted in the changelog with what changed.
 - **Pre-1.0, bundled connectors are experimental**, and a provider's own deprecation may force a change that would otherwise be breaking. Those are announced in the changelog like any other breaking change.
 
+## Long-lived processes: Octane, Horizon, queue workers
+
+One PHP process serving many requests or jobs is the normal case for a queue worker, and Octane makes it the normal case for web requests too. Laraflow carries nothing from one request or job into the next:
+
+- **No mutable static state.** The dashboard's access rules live in the container, set by the application's provider each time it boots; the only static property in the package holds secrets weakly, keyed by the object that owns each. A contract test fails if another appears.
+- **A run cleans up after itself**, however it ends: the current execution and Laraflow's log-context keys are restored in a `finally`, so the next request's log lines and tenant-scoped rate limits never see the previous run's ids — tested for a step that throws, and for a child run inline that does.
+
+Under Horizon, see [queue-and-recovery.md](queue-and-recovery.md#under-horizon) for how its `timeout`, `tries`, and the connection's `retry_after` meet Laraflow's.
+
 ## Dropping support
 
 - A PHP or Laravel version is dropped only in a **minor** release before 1.0, or a **major** release after 1.0, and is announced in the changelog.

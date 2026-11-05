@@ -28,6 +28,8 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 - **Open-source practice.** Issue forms for bugs and features, with blank issues off, vulnerabilities routed to private reporting, and questions to Discussions; `MAINTAINERS.md`; and `docs/releases.md`, the release cadence and support window in one place, agreeing with SECURITY.md.
 
+- **Long-lived processes: Horizon and Octane.** `docs/queue-and-recovery.md` says how Horizon's settings meet Laraflow's — the job's own `tries` and `timeout` win over a supervisor's, and the connection's `retry_after` belongs between `laraflow.queue.timeout` and `stale_after`. For Octane and every queue worker, new tests hold that nothing in the package keeps mutable static state and that a run, however it ends — a child run inline included — leaves no execution current and no Laraflow keys in the log context; `docs/compatibility.md` states both. No runtime change: nothing leaked.
+
 ### Breaking
 
 - **A custom `ExecutionStore` gains four methods and the trace context.** `retriesDue()` and `waitsDue()` — the attention scan's due retries and waits, scoped by a whole `ExecutionFilter` — and `countAttention()` and `countByWorkflowAndStatus()`, the snapshot's exact counts. Each count must share its predicate with the list it counts, as `docs/public-api.md` specifies. The store is experimental; the reader half of the repository is unchanged. It must also persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.
