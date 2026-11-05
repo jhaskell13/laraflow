@@ -7,8 +7,11 @@ hero:
   tagline: Multi-step automation that survives crashes, retries what failed, waits days for an approval, and tells you exactly what happened — on your own database and queue.
   actions:
     - theme: brand
-      text: Read the lifecycle
-      link: /execution-lifecycle
+      text: Get started
+      link: /getting-started
+    - theme: alt
+      text: Tutorial
+      link: /playground
     - theme: alt
       text: Public API
       link: /public-api
@@ -35,4 +38,4 @@ php artisan laraflow:install
 php artisan laraflow:make-workflow FulfilOrder
 ```
 
-The [README](https://github.com/jhaskell13/laraflow#readme) walks through a first workflow, its failure, and its recovery.
+[Getting started](getting-started.md) walks through a first workflow, its failure, and its recovery.

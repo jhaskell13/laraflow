@@ -48,12 +48,24 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
-      { text: 'Guide', link: '/execution-lifecycle' },
+      { text: 'Get started', link: '/getting-started' },
+      { text: 'Guide', link: '/guide' },
       { text: 'Reference', link: '/public-api' },
       { text: 'Changelog', link: `${repository}/blob/main/CHANGELOG.md` },
     ],
 
     sidebar: [
+      {
+        text: 'Start here',
+        items: [
+          { text: 'Getting started', link: '/getting-started' },
+          { text: 'Tutorial: the playground', link: '/playground' },
+          { text: 'Configuration', link: '/configuration' },
+          { text: 'Using Laraflow', link: '/guide' },
+          { text: 'Your first connector', link: '/first-connector' },
+          { text: 'Limitations and design principles', link: '/limitations' },
+        ],
+      },
       {
         text: 'Workflows',
         items: [
