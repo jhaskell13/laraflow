@@ -43,6 +43,7 @@ use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
  * @property int $plan_version
  * @property Carbon|null $deferred_until
  * @property int $deferrals
+ * @property string|null $trace_context
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, StepExecutionModel> $steps
@@ -74,6 +75,7 @@ class WorkflowExecutionModel extends Model
         'cancel_reason',
         'correlation_id',
         'tenant_id',
+        'trace_context',
         'parent_execution_id',
         'parent_step_execution_id',
         'plan_version',

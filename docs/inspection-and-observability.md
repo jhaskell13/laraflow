@@ -175,7 +175,7 @@ Every dispatch records `dispatched_at` (handed to the queue) and `available_at` 
 
 ### Vendor-neutral by construction
 
-Laraflow ships no metrics integration and assumes no vendor. Events are plain readonly objects; a listener turns them into whatever your stack wants:
+Laraflow ships no metrics integration and assumes no vendor. Events are plain readonly objects; a listener turns them into whatever your stack wants — counters and histograms from events, and gauges from the snapshot described in [metrics.md](metrics.md):
 
 ```php
 // Prometheus (promphp/prometheus_client_php)
@@ -209,7 +209,7 @@ Every listener is observational: one that throws is logged and swallowed, and ca
 | `laraflow:children {id}` | The children of a sub-workflow or fan-out parent, as the listing prints them |
 | `laraflow:signal {id} {signal}` | Records a signal for a waiting execution, and with `--deliver` hands it on; a signal for an execution not yet parked on the name is buffered in its signal inbox, and said so |
 
-The summary deliberately has no per-workflow breakdown: that needs a `GROUP BY` the contract does not expose, and `--workflow=` scopes the same numbers through an indexed filter instead.
+The summary has no per-workflow breakdown: `--workflow=` scopes the same numbers through an indexed filter, and the metrics snapshot ([metrics.md](metrics.md)) counts every workflow by status in one grouped query, for a graph that needs the breakdown.
 
 Two commands act on many executions at once. `laraflow:cancel` and `laraflow:execute` without an id take the listing's filter options and act on what they match, oldest first, up to `--limit` (default 100) — the morning after an outage, `laraflow:execute --status=failed --since='-1 day' --queue --force` hands every failed execution of the last day back to the workers. A filter is required: there is no form of either command that acts on everything. `--dry-run` prints the rows and changes nothing; outside a dry run the production confirmation applies unless `--force`, exactly as `laraflow:prune` asks — and under `--json` **in production**, `--force` (or `--dry-run`) is required outright, because a machine cannot answer the prompt; outside production neither form asks and the exit codes stay identical. Only what the command can act on is selected — completed and cancelled executions never are, and a `--status` naming only those is refused. Each row is its own attempt — a refusal (not runnable, claimed by a worker) is a row, not a failure of the run, and a step that fails again is persisted on its execution and reported in the row while the rest of the batch goes on. The exit is non-zero when any row failed.
 
@@ -262,11 +262,11 @@ Instants are ISO 8601 with an offset (`2026-11-04T02:00:00+00:00`); enums are th
 
 ## Connector calls
 
-Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is the connector's verdict after its error mapper has run, so a `200` the mapper rejects (Slack's `ok: false`) is announced as a failure — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, and `attempts`. `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
+Two events describe outbound provider calls. `ConnectorRequestSent` fires for every response — `successful` is the connector's verdict after its error mapper has run, so a `200` the mapper rejects (Slack's `ok: false`) is announced as a failure — carrying `connector`, `connection`, `method`, `path`, `status`, `durationMs`, `attempts`, and `tenantId` (the running execution's, null outside one; added in 0.7.0). `ConnectorRequestFailed` fires when there was no response at all: a connection failure, or Laraflow's own rate limit refusing to send.
 
 Both carry identifiers and measurements only. The target is the **path**, never the query string, which may carry a token; there are no headers, options, or bodies on either; and the failure message passes through the configured `ErrorRedactor` and honours `events.include_error_messages`, exactly as workflow failure events do.
 
-Neither carries a correlation id, deliberately: a connector can be called from anywhere, including outside a workflow. When one is called from inside a step, Laravel's log context already holds the identifiers, so a listener reads them from there:
+Neither carries a correlation id, deliberately: it is unbounded, and a connector can be called from anywhere, including outside a workflow. When one is called from inside a step, Laravel's log context already holds the identifiers, so a listener reads them from there:
 
 ```php
 Event::listen(function (ConnectorRequestSent $event): void {

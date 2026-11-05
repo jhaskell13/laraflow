@@ -41,6 +41,8 @@ Milestone 9 is complete (November 2026) and released as **0.5.0**: parallelism a
 
 Milestone 10 is complete (November 2026) and released as **0.6.0**: schedules, triggers, and the operator's edge, each contract written before its code. A **tick is a row** — the unique `(schedule, instant)` index is the whole "exactly one execution per tick across any number of schedulers" guarantee, committed in one transaction with the execution it starts, with missed ticks a declared policy (skip and count, or catch up oldest-first under a bound and a window), overlap suppression opt-in and recorded, and the race proven at the claim in the suite and across three real `laraflow:schedule` processes per engine in CI. A **trigger is a signed POST**: HMAC-SHA256 over timestamp, execution, signal, and body, verified before any read, every refusal one `401`, no environment bypass, no inbox — plus named provider endpoints behind the provider's own verifier and the application's mapping to one signal. A **tenant ceiling lives in `claim()`** and nowhere else — concurrency and claims-per-minute, a refusal a recorded deferral rather than a failure, fairness stated as a sizing rule and held by a test where a two-hundred-execution flood delays the other tenant not one round more than a twenty-execution one. The console grew `laraflow:signal`, `laraflow:children`, bulk cancel and re-run by filter (a filter required — no form acts on everything), and `--json` on every operating command through one serializer and one envelope, which the install walk consumes with `jq`. Milestone 8's deferred per-tenant rate-limit bucket closed first, on a new ambient `ExecutionScope`. The closing audit — four hostile reviews scoped to the dashboard and Milestones 9–10 — produced findings in every category and fixed twelve defects with their regression tests, the worst three being schedule instants stored in UTC wall-clock that the rest of the package read in app time (every non-UTC application's schedules drifted by the offset), tenant ceilings consulted before claimability (a pinned tenant's duplicate deliveries were *deferred* — including a 15-second re-queue loop for a completed execution), and a parseable-but-impossible cron expression crashing the scheduler, the listing, the summary, and the overview at once. One boundary was documented rather than moved: tenant ids on case-insensitive engine collations, recorded in `docs/tenancy.md` the way the connector host guard's boundary is. The suite stands at 1311 tests.
 
+Milestone 11 is complete (November 2026) and released as **0.7.0**, narrowed partway to what only a Laravel package should do ([decision 0011](docs/decisions/0011-one-optional-package.md)): an exact metrics snapshot and the lifecycle events for an application's own metrics, a tracing hook with one optional OpenTelemetry package, a documentation site with the README cut to a page, connector packages listed by contract, the open-source files, and Horizon and Octane guidance held by tests.
+
 The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
 
 ## Product principles
@@ -375,19 +377,41 @@ Twenty-three steps on 3 November 2026, in the order planned at the milestone's s
 - ~~A signal arrives from an unauthenticated HTTP client and is refused; from a signed one, it resumes the execution.~~ Met: `tests/Feature/Triggers/SignedEndpointTest.php`, and over real HTTP in the install walk, where `openssl` computes the signature the way any non-PHP caller would.
 - ~~Two tenants share a worker pool and neither can starve the other under load, by test.~~ Met: `TenantThrottlingTest::test_two_tenants_share_a_pool_and_the_bounded_one_cannot_starve_the_other`, where the bound is asserted as *equality* across a tenfold flood, on every engine.
 
-### Milestone 11 — Ecosystem, observability, and documentation
+### Milestone 11 — Ecosystem, observability, and documentation ✅
+
+Released as **0.7.0**, the last minor before 1.0 ([decision 0009](docs/decisions/0009-one-release-per-milestone.md)). Planned November 2026; the contracts below were written first (step 0).
 
 #### Work
 
-- Optional packages, not dependencies: metrics bridges for Prometheus, StatsD, and Laravel Pulse built on the lifecycle events. (The inspection UI moved into the package itself at Milestone 8.5, where mounting it is the application's decision and reading only the public contract is enforced by test.)
-- A versioned documentation site generated from `docs/`, with the contracts as its spine, a guided tutorial, and an upgrade guide per minor.
-- Connector ecosystem: a `laraflow/connector-skeleton` template, the published contract test as its gate, and a curated list of community connectors — the bundled two stay examples, not a catalog.
-- Open-source practice complete: code of conduct, issue and pull-request templates, discussions, a maintainers file and decision record, a published release cadence and support window, and signed releases.
+Narrowed after step 6 to what only a Laravel package should do: emit what an application needs to observe it, and leave the monitoring itself to the application ([decision 0011](docs/decisions/0011-one-optional-package.md)). Metrics bridges for Prometheus, StatsD, and Pulse, and the core metrics model they shared, were built in steps 2–5 and removed before release.
+
+0. **Contracts first.** ✅ [docs/metrics.md](docs/metrics.md), [docs/tracing.md](docs/tracing.md), [docs/community-connectors.md](docs/community-connectors.md), and [docs/decisions/](docs/decisions/README.md).
+1. **The metrics snapshot.** ✅ `Snapshots` and `MetricsSnapshot`: exact counts of what is unfinished, due, overdue, deferred, and stalled, in a fixed number of queries; a tenant id on the connector events; and the scoping fix in `laraflow:summary` it surfaced. Metrics themselves are the application's, from the events and the snapshot, with documented recipes.
+2. **Bridge scaffolding.** Built, then removed before release ([decision 0011](docs/decisions/0011-one-optional-package.md)).
+3. **`laraflow/prometheus`.** Built, then removed before release (decision 0011).
+4. **`laraflow/statsd`.** Built, then removed before release (decision 0011).
+5. **`laraflow/pulse`.** Built, then removed before release (decision 0011).
+6. **Tracing.** ✅ The `Tracer` hook and the trace context each execution remembers, in the core; `laraflow/opentelemetry`, the one optional package, depending on the OpenTelemetry API only.
+7. **The documentation site.** ✅ VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)), one version: a CI build that fails on a dead link, deployed to Pages from `main` once the maintainer enables it.
+8. **The documentation itself.** ✅ A short README; guides built from today's README sections; a guided tutorial; one upgrade guide per minor.
+9. **Contributing a connector.** ✅ A documentation page and the community list: a connector is a package that runs `ConnectorContract` in its own CI, and is listed by pull request. No template repository or reusable workflow.
+10. **Open-source practice.** ✅ Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
+11. **Horizon and Octane.** ✅ Horizon: a documentation section on matching its `timeout` to `stale_after`, no code. Octane: tests that no per-request state — the dashboard's callbacks, the log context — leaks between requests, and code only if one does.
+12. **Audit and release.** ✅ A hostile audit of the milestone; CI run by the maintainer, its failures addressed from the logs; the closing record, and 0.7.0.
+
+Everything new in this milestone — the snapshot, the tracing hook, the span names and attributes — is Experimental until 1.0, so real use decides what is frozen.
+
+#### How it closed
+
+Fourteen commits on 4 and 5 November 2026. Steps 0, 1, and 6 landed as planned; steps 2–5 built three metrics packages and a core metrics model, and a review before release judged them the application's job rather than the package's — they were removed, about 4,100 lines, and the plan narrowed to the steps above (decision 0011). Steps 7–11 followed the narrowed plan. CI was run by the maintainer, not by the agent doing the work, from step 3 on.
+
+The closing audit — the milestone's net change, read for correctness, security, contract alignment, and over-engineering — found no code defect. It found documentation drift: the README pointing at sections that had moved, `docs/limitations.md` dated to Milestone 10 and denying per-workflow counts the snapshot now gives, the same claim in `docs/inspection-and-observability.md`, and stale link labels in the moved guides; all fixed. It recorded one pre-existing cost, the attention scan reading steps per running execution for its overdue list, as a candidate for later rather than a change now. On over-engineering it confirmed the narrowed scope: the core gained a snapshot, a six-method tracer hook behind a guard, and one column; the rest is documentation and one optional package.
 
 #### Exit criteria
 
-- A new contributor opens a connector pull request following only the published docs, and the contract test is what reviews it.
-- Every public class and command has a documentation page that the contract tests cross-check.
+- A new contributor can publish a connector following only the published docs, and the contract test is what reviews it.
+- The documentation site builds from `docs/` with no dead link, and the README fits on a screen or two.
+- Installing nothing optional changes nothing: the core records no metrics and no traces by itself.
 
 ### Milestone 12 — Production validation and 1.0
 
@@ -421,8 +445,8 @@ Twenty-three steps on 3 November 2026, in the order planned at the milestone's s
 13. ~~The inspection dashboard, over the contract the console already proves (Milestone 8.5).~~ Done.
 14. ~~Fan-out/fan-in, then compensation — semantics first (Milestone 9).~~ Done, and released as 0.5.0.
 15. ~~Schedules, signed triggers, tenant throttling (Milestone 10).~~ Done, and released as 0.6.0.
-16. Metrics bridges, the documentation site, the connector ecosystem (Milestone 11).
-17. Soak, external review, the API freeze, 1.0 (Milestone 12).
+16. ~~Contracts, the metrics snapshot and the tracing hook, the documentation site, contributing connectors, open-source practice (Milestone 11).~~ Done, and released as 0.7.0.
+17. Soak, external review, the API freeze, 1.0 (Milestone 12, 1.0.0).
 
 ## Out of scope through 1.0
 

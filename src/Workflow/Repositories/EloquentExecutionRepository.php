@@ -49,6 +49,7 @@ class EloquentExecutionRepository implements ExecutionRepository
     // group's shared invariants next to the methods that rely on them.
     use Concerns\AppliesRetention;
     use Concerns\QueriesExecutions;
+    use Concerns\ScansForAttention;
     use Concerns\ScansForRecovery;
 
     protected ClockInterface $clock;
@@ -79,6 +80,7 @@ class EloquentExecutionRepository implements ExecutionRepository
                 'context' => [],
                 'correlation_id' => $options?->correlationId,
                 'tenant_id' => $options?->tenantId,
+                'trace_context' => $options?->traceContext,
                 'parent_execution_id' => $options?->parentExecutionId,
                 'parent_step_execution_id' => $options?->parentStepExecutionId,
                 // Written rather than left to the column default, so the
@@ -665,12 +667,8 @@ class EloquentExecutionRepository implements ExecutionRepository
     public function deferred(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
     {
         return array_values($this->filtered($filter)
-            ->where('deferred_until', '>', $now)
-            // Terminal rows cannot be deferred, but a deferred pending
-            // execution an operator then cancelled still carries its
-            // stamp; what this answers is "what is a ceiling holding",
-            // and nothing holds finished work.
-            ->whereNotIn('status', [ExecutionStatus::Completed->value, ExecutionStatus::Cancelled->value])
+            // Shared with the snapshot's count (ScansForAttention).
+            ->tap(fn ($query) => $this->whereDeferred($query, $now))
             ->orderBy('deferred_until')
             ->limit(min(max(1, $limit), self::MAX_PAGE_SIZE))
             ->get()
@@ -1110,6 +1108,7 @@ class EloquentExecutionRepository implements ExecutionRepository
             persistedDurationMs: $model->duration_ms,
             deferredUntil: $model->deferred_until?->toImmutable(),
             deferrals: $model->deferrals,
+            traceContext: $model->trace_context,
         );
     }
 

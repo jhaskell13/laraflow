@@ -86,6 +86,16 @@ If you raise `tries` above 1, understand what you are buying: each queue retry r
 
 A killed or crashed worker never reaches any cleanup code. That is the point of claim-based recovery: the dead worker's claim simply stops being refreshed and ages out.
 
+### Under Horizon
+
+Laraflow needs nothing from Horizon and nothing changes under it, but three of Horizon's settings meet the two above:
+
+- **The job's own `tries` and `timeout` win.** `ExecuteWorkflowJob` sets both from `laraflow.queue.tries` and `laraflow.queue.timeout`, and a job's properties take precedence over a supervisor's `tries` and `timeout`. A supervisor configured with `tries => 3` does not give Laraflow three queue retries; leave Laraflow's at 1, for the reason above.
+- **The connection's `retry_after` must exceed `laraflow.queue.timeout`.** On Redis, a job still running after `retry_after` seconds is handed to another worker. Laraflow's claim turns that second delivery into a no-op while the first holds the claim, but it is a wasted delivery and, past `stale_after`, a takeover. Order the three: `laraflow.queue.timeout` < `retry_after` (in `config/queue.php`) < `laraflow.execution.stale_after`.
+- **Route workflows to their own queue** (`laraflow.queue.queue`) and give it its own supervisor when steps are slow, so a long step cannot hold a worker that latency-sensitive jobs need. Horizon's metrics then show Laraflow's throughput and wait time on their own line.
+
+Horizon lists Laraflow jobs as `Laraflow\Queue\ExecuteWorkflowJob`; the execution id is in the payload. Laraflow's own record — `laraflow:show`, the dashboard — is the place to read what a job did.
+
 ## Queue lag
 
 Every dispatch records two timestamps on the execution: `dispatched_at`, when it was handed to the queue, and `available_at`, when the queue was asked to make it runnable. They are the same instant for an ordinary push and differ for a delayed retry, where `available_at` is the retry's due time.

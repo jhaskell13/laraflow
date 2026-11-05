@@ -35,26 +35,13 @@ final class AttentionScan
 
     public function scan(ExecutionFilter $filter, DateTimeImmutable $now): AttentionReport
     {
-        $dueRetries = $this->acrossWorkflows($filter, fn (?string $workflow): array => $this->repository->dueForRetry(
-            $now,
-            ExecutionRepository::MAX_PAGE_SIZE,
-            $workflow,
-            $filter->tenantId,
-        ));
-
-        $dueWaits = $this->acrossWorkflows($filter, fn (?string $workflow): array => $this->repository->waitingDue(
-            $now,
-            ExecutionRepository::MAX_PAGE_SIZE,
-            $workflow,
-            $filter->tenantId,
-        ));
-
-        $unfinished = $this->repository->list(
-            $filter
-                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting, ExecutionStatus::Compensating])
-                ->withOldestFirst(),
-            limit: 1,
-        );
+        // Scoped by the whole filter, as every other number on the
+        // summary is. These once borrowed the recovery scans, which take
+        // a workflow and a tenant and nothing else, so --correlation,
+        // --since, and --until were silently ignored for due retries and
+        // waits (Milestone 11).
+        $dueRetries = $this->repository->retriesDue($filter, $now, ExecutionRepository::MAX_PAGE_SIZE);
+        $dueWaits = $this->repository->waitsDue($filter, $now, ExecutionRepository::MAX_PAGE_SIZE);
 
         return new AttentionReport(
             dueRetries: $dueRetries,
@@ -62,8 +49,25 @@ final class AttentionScan
             overdueSteps: $this->overdueSteps($filter, $now),
             stalledSchedules: $this->stalledSchedules($filter, $now),
             deferred: $this->repository->deferred($filter, $now, ExecutionRepository::MAX_PAGE_SIZE),
-            oldestUnfinished: $unfinished->isEmpty() ? null : $unfinished->executions[0],
+            oldestUnfinished: $this->oldestUnfinished($filter),
         );
+    }
+
+    /**
+     * The oldest execution in the filter's scope that has not finished,
+     * by creation order — one row, whatever the table holds. Shared
+     * with the metrics snapshot's age gauge.
+     */
+    public function oldestUnfinished(ExecutionFilter $filter): ?WorkflowExecution
+    {
+        $unfinished = $this->repository->list(
+            $filter
+                ->withStatus([ExecutionStatus::Pending, ExecutionStatus::Running, ExecutionStatus::Retrying, ExecutionStatus::Waiting, ExecutionStatus::Compensating])
+                ->withOldestFirst(),
+            limit: 1,
+        );
+
+        return $unfinished->isEmpty() ? null : $unfinished->executions[0];
     }
 
     /**
@@ -77,6 +81,38 @@ final class AttentionScan
         return $step->isRunning()
             && $step->timeoutAt !== null
             && $step->timeoutAt <= $now;
+    }
+
+    /**
+     * Schedules whose due ticks stand unclaimed — the scheduler stopped
+     * running. Scoped like everything else here: a tenant's health
+     * check must not fail for another tenant's schedule. Bounded by how
+     * many schedules exist, which is the registration count, not
+     * history.
+     *
+     * Public so the metrics snapshot counts exactly this list.
+     *
+     * @return list<ScheduledWorkflow>
+     */
+    public function stalledSchedules(ExecutionFilter $filter, DateTimeImmutable $now): array
+    {
+        $stalled = [];
+
+        foreach ($this->schedules->all() as $row) {
+            if ($filter->workflows !== null && ! in_array($row->workflow, $filter->workflows, true)) {
+                continue;
+            }
+
+            if ($filter->tenantId !== null && $row->tenantId !== $filter->tenantId) {
+                continue;
+            }
+
+            if (ScheduleStatus::stalled($row, $now)) {
+                $stalled[] = $row;
+            }
+        }
+
+        return $stalled;
     }
 
     /**
@@ -111,57 +147,5 @@ final class AttentionScan
         }
 
         return $overdue;
-    }
-
-    /**
-     * Schedules whose due ticks stand unclaimed — the scheduler stopped
-     * running. Scoped like everything else here: a tenant's health
-     * check must not fail for another tenant's schedule. Bounded by how
-     * many schedules exist, which is the registration count, not
-     * history.
-     *
-     * @return list<ScheduledWorkflow>
-     */
-    private function stalledSchedules(ExecutionFilter $filter, DateTimeImmutable $now): array
-    {
-        $stalled = [];
-
-        foreach ($this->schedules->all() as $row) {
-            if ($filter->workflows !== null && ! in_array($row->workflow, $filter->workflows, true)) {
-                continue;
-            }
-
-            if ($filter->tenantId !== null && $row->tenantId !== $filter->tenantId) {
-                continue;
-            }
-
-            if (ScheduleStatus::stalled($row, $now)) {
-                $stalled[] = $row;
-            }
-        }
-
-        return $stalled;
-    }
-
-    /**
-     * Run a per-workflow scan once per scoped workflow (or once,
-     * unscoped), merged most-overdue first.
-     *
-     * @param  callable(?string): array<WorkflowExecution>  $scan
-     * @return list<WorkflowExecution>
-     */
-    private function acrossWorkflows(ExecutionFilter $filter, callable $scan): array
-    {
-        $results = [];
-
-        foreach ($filter->workflows ?? [null] as $workflow) {
-            foreach ($scan($workflow) as $execution) {
-                $results[] = $execution;
-            }
-        }
-
-        usort($results, fn (WorkflowExecution $a, WorkflowExecution $b): int => ($a->nextRetryAt?->getTimestamp() ?? 0) <=> ($b->nextRetryAt?->getTimestamp() ?? 0));
-
-        return $results;
     }
 }

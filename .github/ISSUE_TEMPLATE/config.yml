@@ -1,0 +1,10 @@
+# Blank issues are off: every report goes through a form, and a
+# vulnerability never goes through one at all.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/jhaskell13/laraflow/security/advisories/new
+    about: Privately, through GitHub's vulnerability reporting — never in a public issue. See SECURITY.md.
+  - name: Ask a question
+    url: https://github.com/jhaskell13/laraflow/discussions
+    about: How to do something, or whether Laraflow fits — Discussions, not issues.

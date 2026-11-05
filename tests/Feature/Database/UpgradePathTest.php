@@ -112,20 +112,21 @@ class UpgradePathTest extends TestCase
 
     public function test_the_real_post_freeze_migrations_upgrade_an_installed_database(): void
     {
-        // The Milestone 7, 8, 9, and 10 migrations, exercised the way
+        // The Milestone 7 to 11 migrations, exercised the way
         // an installed application meets them: rows written under the
         // frozen schema, then the new migrations applied — simulated by
         // rolling them back first, since the harness installs every
         // migration up front. One rollback step per post-freeze
-        // migration — fourteen.
+        // migration — fifteen.
         $execution = $this->app->make(ExecutionRepository::class)->create(
             workflow: 'App\\Workflows\\SyncCustomer',
             input: ['customer_id' => 42],
             steps: ['App\\Steps\\LoadCustomer'],
         );
 
-        $this->command('migrate:rollback', ['--step' => 14, '--force' => true])->assertSuccessful();
+        $this->command('migrate:rollback', ['--step' => 15, '--force' => true])->assertSuccessful();
 
+        $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'trace_context'));
         $this->assertFalse(Schema::hasTable('laraflow_signal_inbox'));
         $this->assertTimestampColumns('timestamp', 'The UTC migration rolls MySQL and MariaDB back to timestamp columns.');
         $this->assertFalse(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
@@ -161,12 +162,16 @@ class UpgradePathTest extends TestCase
         $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'deferred_until'));
         $this->assertContains(['tenant_id', 'status', 'claimed_at'], $this->indexColumns('laraflow_workflow_executions'), 'The tenant slot index is back.');
         $this->assertTrue(Schema::hasTable('laraflow_signal_inbox'));
+        $this->assertTrue(Schema::hasColumn('laraflow_workflow_executions', 'trace_context'));
         $this->assertTimestampColumns('datetime', 'MySQL and MariaDB timestamps become datetime: no session-zone conversion, no 2038 overflow.');
 
         // A row that predates the columns was never deferred, and the
         // package reads it that way without a coalesce.
         $this->assertSame(0, $this->app->make(ExecutionRepository::class)->find($execution->id)->deferrals);
         $this->assertNull($this->app->make(ExecutionRepository::class)->find($execution->id)->deferredUntil);
+
+        // A row that predates the column was started in no known trace.
+        $this->assertNull($this->app->make(ExecutionRepository::class)->find($execution->id)->traceContext);
 
         // A row that predates the column is running plan version 1,
         // which is exactly what it is, and the package reads it so

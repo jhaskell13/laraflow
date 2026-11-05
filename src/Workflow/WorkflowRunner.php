@@ -152,6 +152,15 @@ final class WorkflowRunner
     ): WorkflowExecution {
         DurableValue::check($input, 'input', $this->options->maxPayloadBytes);
 
+        // The trace this execution belongs to: the one active now — the
+        // request starting it, the step fanning it out — unless the
+        // caller named one (docs/tracing.md). Every start passes here.
+        $traceContext = $this->scope->traceContext();
+
+        if ($traceContext !== null) {
+            $options = ($options ?? new ExecutionOptions)->withTraceContextIfAbsent($traceContext);
+        }
+
         return $this->repository->create(
             workflow: $workflow::class,
             input: $input,

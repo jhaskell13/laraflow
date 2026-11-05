@@ -15,7 +15,8 @@ namespace Laraflow\Events;
  * Carries the exception class and, unless
  * `laraflow.events.include_error_messages` is false, its message —
  * already passed through the configured `ErrorRedactor`. Never request
- * options or headers.
+ * options or headers. The tenant is the running execution's, as on
+ * ConnectorRequestSent (added in 0.7.0).
  */
 final readonly class ConnectorRequestFailed
 {
@@ -28,5 +29,6 @@ final readonly class ConnectorRequestFailed
         public ?string $error,
         public int $durationMs,
         public int $attempts = 1,
+        public ?string $tenantId = null,
     ) {}
 }

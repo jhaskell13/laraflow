@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Support;
 
+use Laraflow\Observability\Tracing\Tracer;
 use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
@@ -37,6 +38,7 @@ final class ExecutionScope
 
     public function __construct(
         private LoggingContext $logging,
+        private Tracer $tracer,
     ) {}
 
     /**
@@ -49,6 +51,7 @@ final class ExecutionScope
         $this->frames[] = $execution;
 
         $this->logging->enter($execution);
+        $this->tracer->runStarted($execution);
     }
 
     /**
@@ -59,6 +62,12 @@ final class ExecutionScope
     public function enterStep(StepExecution $step): void
     {
         $this->logging->enterStep($step);
+
+        $current = $this->current();
+
+        if ($current !== null) {
+            $this->tracer->stepStarted($current, $step);
+        }
     }
 
     /**
@@ -74,6 +83,7 @@ final class ExecutionScope
 
         array_pop($this->frames);
 
+        $this->tracer->runEnded();
         $this->logging->leave();
     }
 
@@ -97,6 +107,16 @@ final class ExecutionScope
     public function tenantId(): ?string
     {
         return $this->current()?->tenantId;
+    }
+
+    /**
+     * The trace context active now, as a W3C `traceparent`, for an
+     * execution created now to remember (docs/tracing.md); null when no
+     * tracer is bound or no trace is active.
+     */
+    public function traceContext(): ?string
+    {
+        return $this->tracer->capture();
     }
 
     /** Whether any execution is being run in this process right now. */

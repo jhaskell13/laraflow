@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Laraflow\Tests\Unit\Support;
 
+use Laraflow\Observability\Tracing\NullTracer;
 use Laraflow\Support\ExecutionScope;
 use Laraflow\Support\LoggingContext;
 use Laraflow\Workflow\WorkflowExecution;
@@ -13,7 +14,7 @@ class ExecutionScopeTest extends TestCase
 {
     public function test_nothing_is_current_outside_a_run(): void
     {
-        $scope = new ExecutionScope(new LoggingContext(null));
+        $scope = new ExecutionScope(new LoggingContext(null), new NullTracer);
 
         $this->assertFalse($scope->active());
         $this->assertNull($scope->current());
@@ -28,7 +29,7 @@ class ExecutionScopeTest extends TestCase
 
     public function test_the_entered_execution_is_current_until_left(): void
     {
-        $scope = new ExecutionScope(new LoggingContext(null));
+        $scope = new ExecutionScope(new LoggingContext(null), new NullTracer);
         $execution = $this->execution(1, 'acme');
 
         $scope->enter($execution);
@@ -45,7 +46,7 @@ class ExecutionScopeTest extends TestCase
 
     public function test_entries_nest_and_leaving_restores_the_outer_execution(): void
     {
-        $scope = new ExecutionScope(new LoggingContext(null));
+        $scope = new ExecutionScope(new LoggingContext(null), new NullTracer);
         $outer = $this->execution(1, 'acme');
         $inner = $this->execution(2, 'globex');
 
@@ -67,7 +68,7 @@ class ExecutionScopeTest extends TestCase
 
     public function test_an_execution_without_a_tenant_has_no_tenant_to_scope_by(): void
     {
-        $scope = new ExecutionScope(new LoggingContext(null));
+        $scope = new ExecutionScope(new LoggingContext(null), new NullTracer);
 
         $scope->enter($this->execution(1, null));
 

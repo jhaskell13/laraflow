@@ -141,6 +141,26 @@ class CrashingExecutionRepository implements ExecutionRepository
         return $this->call(__FUNCTION__, fn () => $this->inner->deferred($filter, $now, $limit));
     }
 
+    public function retriesDue(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->retriesDue($filter, $now, $limit));
+    }
+
+    public function waitsDue(ExecutionFilter $filter, DateTimeImmutable $now, int $limit = 100): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->waitsDue($filter, $now, $limit));
+    }
+
+    public function countAttention(ExecutionFilter $filter, DateTimeImmutable $now): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->countAttention($filter, $now));
+    }
+
+    public function countByWorkflowAndStatus(ExecutionFilter $filter): array
+    {
+        return $this->call(__FUNCTION__, fn () => $this->inner->countByWorkflowAndStatus($filter));
+    }
+
     public function saveStep(WorkflowExecution $execution, StepExecution $step, ?StepAttempt $attempt = null): void
     {
         $this->call(__FUNCTION__, function () use ($execution, $step, $attempt) {

@@ -170,6 +170,47 @@ class SummaryCommandTest extends TestCase
         $this->assertStringContainsString('1 retry is due now', $output);
     }
 
+    /**
+     * Every scope option narrows the attention section, not only the
+     * workflow and tenant: due retries and waits once came from the
+     * recovery scans, which take nothing else, so a correlation's or a
+     * time window's health check failed for work outside it
+     * (Milestone 11).
+     */
+    public function test_a_due_retry_or_wait_outside_the_correlation_or_window_is_not_reported(): void
+    {
+        Date::setTestNow('2026-10-01 08:00:00');
+        $retrying = $this->runner()->start(new DemoWorkflow, $this->input(), new ExecutionOptions(correlationId: 'order-1'));
+        $waiting = $this->runner()->start(new DemoWorkflow, $this->input(), new ExecutionOptions(correlationId: 'order-1'));
+
+        Date::setTestNow('2026-10-01 09:00:00');
+        $this->runner()->start(new DemoWorkflow, $this->input(), new ExecutionOptions(correlationId: 'order-2'));
+
+        // order-1's executions, created at 08:00, are the only ones due.
+        // By id: SQL Server's grammar drops the limit from an UPDATE.
+        WorkflowExecutionModel::query()->whereKey($retrying->id)->update([
+            'status' => ExecutionStatus::Retrying->value,
+            'next_retry_at' => '2026-10-01 08:59:00',
+        ]);
+        WorkflowExecutionModel::query()->whereKey($waiting->id)->update([
+            'status' => ExecutionStatus::Waiting->value,
+            'next_retry_at' => '2026-10-01 08:59:00',
+        ]);
+
+        foreach ([['--correlation' => 'order-2'], ['--since' => '2026-10-01 08:30:00']] as $scope) {
+            ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary', $scope);
+
+            $this->assertSame(CommandStatus::SUCCESS, $status, 'Scoped by '.json_encode($scope).':'.PHP_EOL.$output);
+            $this->assertStringNotContainsString('retry is due now', $output);
+            $this->assertStringNotContainsString('wait is due for delivery', $output);
+        }
+
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:summary', ['--correlation' => 'order-1']);
+        $this->assertSame(CommandStatus::FAILURE, $status);
+        $this->assertStringContainsString('1 retry is due now', $output);
+        $this->assertStringContainsString('1 wait is due for delivery', $output);
+    }
+
     public function test_a_step_past_its_deadline_is_surfaced_and_exits_non_zero(): void
     {
         Date::setTestNow('2026-10-01 09:00:00');

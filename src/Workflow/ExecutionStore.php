@@ -331,6 +331,68 @@ interface ExecutionStore
     ): array;
 
     /**
+     * Retrying executions whose backoff has elapsed by $now, within the
+     * whole filter's scope — the attention scan's due retries. Unlike
+     * dueForRetry(), which recovery scopes by workflow and tenant only
+     * and which can exclude pushes still in flight, this honours every
+     * field of the filter and reports in-flight rows: a retry a worker
+     * has not reached is still due. The filter's statuses are ignored;
+     * the predicate names its own. Executions a tenant ceiling is
+     * holding are reported by deferred(), not here. Added in 0.7.0.
+     *
+     * @return list<WorkflowExecution> most overdue first, at most $limit, bounded by MAX_PAGE_SIZE.
+     */
+    public function retriesDue(
+        ExecutionFilter $filter,
+        DateTimeImmutable $now,
+        int $limit = 100
+    ): array;
+
+    /**
+     * Waiting executions whose resume time or signal deadline has
+     * passed by $now, within the whole filter's scope — the attention
+     * scan's due waits, scoped and excluding deferred rows exactly as
+     * retriesDue() is. Indefinite signal waits are never due. Added in
+     * 0.7.0.
+     *
+     * @return list<WorkflowExecution> most overdue first, at most $limit, bounded by MAX_PAGE_SIZE.
+     */
+    public function waitsDue(
+        ExecutionFilter $filter,
+        DateTimeImmutable $now,
+        int $limit = 100
+    ): array;
+
+    /**
+     * Exact counts of what needs attention at $now within the filter's
+     * scope, for the metrics snapshot (docs/metrics.md). Each is the
+     * unbounded size of the list its counterpart returns, by the same
+     * predicate: `retries_due` of retriesDue(), `waits_due` of
+     * waitsDue(), `deferred` of deferred(), and `overdue` the running or
+     * compensating executions with a running step past its deadline —
+     * counted once per execution. A fixed number of queries, each a
+     * count, never a read of the rows. The filter's statuses are
+     * ignored. Added in 0.7.0.
+     *
+     * @return array{retries_due: int, waits_due: int, overdue: int, deferred: int}
+     */
+    public function countAttention(
+        ExecutionFilter $filter,
+        DateTimeImmutable $now
+    ): array;
+
+    /**
+     * Executions matching the filter, counted by workflow class and
+     * status in one grouped query. Workflows and statuses with no
+     * executions are absent, not zero. Added in 0.7.0.
+     *
+     * @return array<class-string|string, array<string, int>> workflow => status value => count, workflows sorted.
+     */
+    public function countByWorkflowAndStatus(
+        ExecutionFilter $filter
+    ): array;
+
+    /**
      * Waiting executions whose next event — a timed resume or a signal
      * deadline — is at or before the cutoff. Indefinite signal waits
      * (null next_retry_at) never appear; only a signal makes those

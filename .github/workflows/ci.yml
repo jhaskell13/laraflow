@@ -147,6 +147,80 @@ jobs:
         if: matrix.dependencies == 'prefer-lowest'
         run: composer analyse -- --no-progress
 
+  # The optional packages (packages/, docs/decisions/0011): each is its
+  # own Composer package, resolved here against the core in this same
+  # commit through the path repository in its composer.json, so a
+  # change to the core and to the package that depends on it is tested
+  # together. Listed rather than discovered: adding a package is a
+  # decision. Two pairings, the ends of the dependency axis.
+  packages:
+    name: Package (${{ matrix.package }}, PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [opentelemetry]
+        pairing: [lowest, newest]
+        include:
+          - pairing: lowest
+            php: '8.2'
+            laravel: '12'
+            testbench: '^10.0'
+            dependencies: prefer-lowest
+          - pairing: newest
+            php: '8.5'
+            laravel: '13'
+            testbench: '^11.0'
+            dependencies: prefer-stable
+
+    defaults:
+      run:
+        working-directory: packages/${{ matrix.package }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, json
+          coverage: none
+
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-package-${{ matrix.package }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-${{ hashFiles(format('packages/{0}/composer.json', matrix.package), 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-package-${{ matrix.package }}-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}-
+
+      - name: Pin the Laravel major via Testbench
+        run: >
+          composer require --dev --no-update --no-interaction
+          "orchestra/testbench:${{ matrix.testbench }}"
+
+      - name: Install dependencies (prefer-stable)
+        if: matrix.dependencies == 'prefer-stable'
+        run: composer update --prefer-dist --prefer-stable --no-interaction --no-progress
+
+      - name: Install dependencies (prefer-lowest)
+        if: matrix.dependencies == 'prefer-lowest'
+        run: composer update --prefer-dist --prefer-lowest --prefer-stable --no-interaction --no-progress
+
+      # The core must be this commit's, not a release from Packagist: a
+      # package that passes against yesterday's core proves nothing.
+      - name: The core resolved from this checkout
+        run: |
+          composer show laraflow/laraflow | grep -E '^dist +: \[path\] \.\./\.\.'
+
+      - name: Tests
+        run: composer test
+
+      - name: Static analysis
+        run: composer analyse -- --no-progress
+
   # The engine matrix: the whole suite against every database the
   # compatibility policy names, through the LARAFLOW_TEST_DB_* seam, at
   # both ends of the dependency axis — Laravel 13 on the lock file, and

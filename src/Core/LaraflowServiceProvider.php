@@ -41,6 +41,9 @@ use Laraflow\Integration\Http\HttpOptions;
 use Laraflow\Integration\Http\HttpTransport;
 use Laraflow\Integration\Http\LaravelHttpTransport;
 use Laraflow\Integration\Http\TransportPipeline;
+use Laraflow\Observability\Tracing\GuardedTracer;
+use Laraflow\Observability\Tracing\NullTracer;
+use Laraflow\Observability\Tracing\Tracer;
 use Laraflow\Queue\QueueChildDelivery;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Clock;
@@ -109,6 +112,8 @@ final class LaraflowServiceProvider extends ServiceProvider
             return new ConnectorObserver(
                 events: $app->make(EventEmitter::class),
                 redactor: $app->make(ErrorRedactor::class),
+                scope: $app->make(ExecutionScope::class),
+                tracer: $app->make(GuardedTracer::class),
                 includeErrorMessages: $options->includeErrorMessages,
                 maxErrorLength: $options->maxErrorLength,
             );
@@ -231,6 +236,17 @@ final class LaraflowServiceProvider extends ServiceProvider
         // in hand — the tenant-scoped connector rate limit, for one.
         $this->app->singleton(ExecutionScope::class, fn (Container $app): ExecutionScope => new ExecutionScope(
             $app->make(LoggingContext::class),
+            $app->make(GuardedTracer::class),
+        ));
+
+        // A bridge binds Tracer (docs/tracing.md); what the core calls is
+        // always the guarded form, so a throwing tracer is logged and
+        // never fails a run. bindIf, so a bridge registered before this
+        // provider keeps its binding.
+        $this->app->bindIf(Tracer::class, NullTracer::class);
+        $this->app->bind(GuardedTracer::class, fn (Container $app): GuardedTracer => new GuardedTracer(
+            $app->make(Tracer::class),
+            $app->make(LoggerInterface::class),
         ));
 
         $this->app->singleton(EventEmitter::class, fn (Container $app): EventEmitter => new EventEmitter(

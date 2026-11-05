@@ -41,6 +41,7 @@ final class ObservingTransport implements HttpTransport
     {
         $startedAt = $this->clock->now();
 
+        $this->observer->starting($this->connection, $request);
         $this->logging->enterConnector($this->connection);
 
         try {

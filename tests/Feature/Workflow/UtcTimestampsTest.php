@@ -10,6 +10,7 @@ use DateTimeZone;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
+use Laraflow\Observability\Snapshots;
 use Laraflow\Tests\Support\FixedClock;
 use Laraflow\Tests\Support\NightlyWorkflow;
 use Laraflow\Tests\TestCase;
@@ -17,11 +18,13 @@ use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\ExecutionStatus;
 use Laraflow\Workflow\Models\Concerns\StoresTimestampsInUtc;
 use Laraflow\Workflow\Models\ScheduleTickModel;
+use Laraflow\Workflow\Models\StepExecutionModel;
 use Laraflow\Workflow\Models\WorkflowExecutionModel;
 use Laraflow\Workflow\Scheduling\ScheduleAction;
 use Laraflow\Workflow\Scheduling\Scheduler;
 use Laraflow\Workflow\Scheduling\SchedulerOptions;
 use Laraflow\Workflow\Scheduling\SchedulerRun;
+use Laraflow\Workflow\StepStatus;
 use Psr\Clock\ClockInterface;
 
 /**
@@ -115,6 +118,40 @@ class UtcTimestampsTest extends TestCase
 
             $this->assertCount(1, $repository->dueForRetry($this->clock->now()));
             $this->assertSame(ExecutionStatus::Running, $repository->claim($execution->id, 'due', 300)->status);
+        });
+    }
+
+    /**
+     * The snapshot's counts compare instants inside a grouped count and
+     * an EXISTS subquery — bindings the model's own casts never see. The
+     * repeated hour is where a wall-clock comparison would be wrong.
+     */
+    public function test_the_metrics_snapshot_counts_by_instant_across_the_repeated_hour(): void
+    {
+        $this->inZone('America/New_York', function (): void {
+            $repository = $this->app->make(ExecutionRepository::class);
+            $retrying = $repository->create('App\\Workflows\\Sync', steps: ['App\\Steps\\One']);
+            $running = $repository->create('App\\Workflows\\Sync', steps: ['App\\Steps\\One']);
+
+            WorkflowExecutionModel::query()->whereKey($retrying->id)->update([
+                'status' => ExecutionStatus::Retrying->value,
+                'next_retry_at' => $this->newYork('2026-11-01 06:30:00'),
+            ]);
+            WorkflowExecutionModel::query()->whereKey($running->id)->update(['status' => ExecutionStatus::Running->value]);
+            StepExecutionModel::query()->where('workflow_execution_id', $running->id)->update([
+                'status' => StepStatus::Running->value,
+                'timeout_at' => $this->newYork('2026-11-01 06:30:00'),
+            ]);
+
+            $snapshots = $this->app->make(Snapshots::class);
+
+            $early = $snapshots->take($this->newYork('2026-11-01 05:45:00'));
+            $this->assertSame(0, $early->retriesDue, 'Due at 06:30Z, not at 05:45Z.');
+            $this->assertSame(0, $early->overdueSteps);
+
+            $due = $snapshots->take($this->newYork('2026-11-01 06:30:00'));
+            $this->assertSame(1, $due->retriesDue);
+            $this->assertSame(1, $due->overdueSteps);
         });
     }
 
