@@ -393,7 +393,7 @@ Narrowed after step 6 to what only a Laravel package should do: emit what an app
 7. **The documentation site.** ✅ VitePress over `docs/` ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)), one version: a CI build that fails on a dead link, deployed to Pages from `main` once the maintainer enables it.
 8. **The documentation itself.** ✅ A short README; guides built from today's README sections; a guided tutorial; one upgrade guide per minor.
 9. **Contributing a connector.** ✅ A documentation page and the community list: a connector is a package that runs `ConnectorContract` in its own CI, and is listed by pull request. No template repository or reusable workflow.
-10. **Open-source practice.** Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
+10. **Open-source practice.** ✅ Issue forms with security reports routed to SECURITY.md, a maintainers file, the release cadence and support window on one page. Discussions, Pages, Packagist, and tag signing are maintainer actions.
 11. **Horizon and Octane.** Horizon: a documentation section on matching its `timeout` to `stale_after`, no code. Octane: tests that no per-request state — the dashboard's callbacks, the log context — leaks between requests, and code only if one does.
 12. **Audit and release.** A hostile audit of the milestone; CI run by the maintainer, its failures addressed from the logs; the closing record, and 0.7.0.
 

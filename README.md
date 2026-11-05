@@ -72,7 +72,7 @@ The documentation lives in [`docs/`](docs/) and is published as a site from it.
 | [Execution lifecycle](docs/execution-lifecycle.md) · [Retries and failure](docs/retry-and-failure-policy.md) · [Advanced workflows](docs/advanced-workflows.md) · [Idempotency](docs/idempotency.md) · [Versioning](docs/workflow-versioning.md) | How a workflow runs and recovers |
 | [Queues and recovery](docs/queue-and-recovery.md) · [Inspection](docs/inspection-and-observability.md) · [Metrics](docs/metrics.md) · [Tracing](docs/tracing.md) · [Dashboard](docs/dashboard.md) · [Retention](docs/retention.md) | Running it in production |
 | [Schedules](docs/schedules.md) · [Triggers](docs/triggers.md) · [Tenancy](docs/tenancy.md) · [Connectors](docs/connectors.md) | Starting and feeding workflows |
-| [Public API](docs/public-api.md) · [Compatibility](docs/compatibility.md) · [Upgrading](docs/upgrading.md) · [Decisions](docs/decisions/README.md) | What is promised, and why |
+| [Public API](docs/public-api.md) · [Compatibility](docs/compatibility.md) · [Upgrading](docs/upgrading.md) · [Releases and support](docs/releases.md) · [Decisions](docs/decisions/README.md) | What is promised, and why |
 
 ## Compatibility and support
 
@@ -84,7 +84,7 @@ Security issues should be reported privately as described in [SECURITY.md](SECUR
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and the kind of changes most likely to be accepted at this stage. The development sequence is in [ROADMAP.md](ROADMAP.md).
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and the kind of changes most likely to be accepted at this stage, and [MAINTAINERS.md](MAINTAINERS.md) for who reviews them. The development sequence is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

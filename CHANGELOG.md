@@ -26,6 +26,8 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 - **Contributing a connector, as a package.** `docs/community-connectors.md` shows the shape of a connector package — the connector, a provider registering it with `LaraflowManager::register()`, and a Testbench test running `ConnectorContract` — and how one is listed by pull request with its passing CI run as the review. CONTRIBUTING points there for any service Laraflow does not ship.
 
+- **Open-source practice.** Issue forms for bugs and features, with blank issues off, vulnerabilities routed to private reporting, and questions to Discussions; `MAINTAINERS.md`; and `docs/releases.md`, the release cadence and support window in one place, agreeing with SECURITY.md.
+
 ### Breaking
 
 - **A custom `ExecutionStore` gains four methods and the trace context.** `retriesDue()` and `waitsDue()` — the attention scan's due retries and waits, scoped by a whole `ExecutionFilter` — and `countAttention()` and `countByWorkflowAndStatus()`, the snapshot's exact counts. Each count must share its predicate with the list it counts, as `docs/public-api.md` specifies. The store is experimental; the reader half of the repository is unchanged. It must also persist `ExecutionOptions::$traceContext` in `create()` and return it on `WorkflowExecution::$traceContext`.

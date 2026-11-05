@@ -89,6 +89,7 @@ export default defineConfig({
           { text: 'The dashboard', link: '/dashboard' },
           { text: 'Retention', link: '/retention' },
           { text: 'Upgrading', link: '/upgrading' },
+          { text: 'Releases and support', link: '/releases' },
         ],
       },
       {

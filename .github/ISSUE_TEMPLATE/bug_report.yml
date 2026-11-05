@@ -1,0 +1,60 @@
+name: Bug report
+description: Something durable did not stay durable, or a documented contract did not hold
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A security problem?** Do not file it here — report it privately ([SECURITY.md](https://github.com/jhaskell13/laraflow/blob/main/SECURITY.md)).
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: One or two sentences. If a contract document says one thing and the code did another, name the document and quote the line — that is the most useful kind of report.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest workflow, step, and command sequence that shows it. A failing test against `tests/TestCase.php` is ideal.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: laraflow
+    attributes:
+      label: Laraflow version
+      placeholder: 0.6.0
+    validations:
+      required: true
+  - type: input
+    id: laravel
+    attributes:
+      label: Laravel and PHP versions
+      placeholder: Laravel 13.4, PHP 8.4
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database engine
+      options: [SQLite, MySQL, MariaDB, PostgreSQL, SQL Server]
+    validations:
+      required: true
+  - type: input
+    id: queue
+    attributes:
+      label: Queue driver
+      placeholder: redis (Horizon), database, sqs, sync
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: "`php artisan laraflow:show <id> --attempts` output, relevant log lines, and the exception with its chain. Redact credentials: the package redacts its own, your application's logs may not."
+      render: text
