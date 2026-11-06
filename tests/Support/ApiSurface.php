@@ -63,6 +63,17 @@ use UnitEnum;
  *   diff is what makes someone write the note.
  * - **Enum cases with their backing values.** Those strings are in the
  *   database and in every `--json` document; they are the contract.
+ * - **A relative type is rendered relatively.** PHP 8.5 resolves `self`
+ *   to the fully qualified class name, and `parent` to the parent's,
+ *   where 8.2 to 8.4 report the keyword — so the same source produced
+ *   two different baselines and the newest supported PHP failed this
+ *   test against one generated on an older version (found by CI,
+ *   Milestone 12). A type naming the class it is declared on is
+ *   recorded as `self` and one naming that class's parent as `parent`,
+ *   on every version; the keyword and the name mean the same thing,
+ *   and `extends` is recorded separately, so a parent that changes is
+ *   still caught. `static` is reported as `static` everywhere and
+ *   needs no help; so do constant defaults.
  */
 final class ApiSurface
 {
@@ -148,9 +159,10 @@ final class ApiSurface
     private static function describe(ReflectionClass $class, string $srcPath): array
     {
         $shape = ['kind' => self::kindOf($class)];
+        $parentName = ($parent = $class->getParentClass()) === false ? null : $parent->getName();
 
-        if (($parent = $class->getParentClass()) !== false) {
-            $shape['extends'] = $parent->getName();
+        if ($parentName !== null) {
+            $shape['extends'] = $parentName;
         }
 
         $interfaces = $class->getInterfaceNames();
@@ -175,7 +187,7 @@ final class ApiSurface
                 continue;
             }
 
-            $methods[$method->getName()] = self::signature($method);
+            $methods[$method->getName()] = self::signature($method, $class->getName(), $parentName);
         }
 
         ksort($methods);
@@ -222,7 +234,7 @@ final class ApiSurface
 
             $properties[$property->getName()] = ($property->isReadOnly() ? 'readonly ' : '')
                 .($property->isStatic() ? 'static ' : '')
-                .self::type($property->getType());
+                .self::type($property->getType(), $class->getName(), $parentName);
         }
 
         ksort($properties);
@@ -304,20 +316,23 @@ final class ApiSurface
         };
     }
 
-    private static function signature(ReflectionMethod $method): string
+    private static function signature(ReflectionMethod $method, string $declaredOn, ?string $parentOf): string
     {
-        $parameters = array_map(self::parameter(...), $method->getParameters());
+        $parameters = array_map(
+            static fn (ReflectionParameter $parameter): string => self::parameter($parameter, $declaredOn, $parentOf),
+            $method->getParameters(),
+        );
 
         return ($method->isProtected() ? 'protected ' : '')
             .($method->isStatic() ? 'static ' : '')
             .($method->isAbstract() && ! $method->getDeclaringClass()->isInterface() ? 'abstract ' : '')
             .($method->isFinal() ? 'final ' : '')
-            .$method->getName().'('.implode(', ', $parameters).'): '.self::type($method->getReturnType());
+            .$method->getName().'('.implode(', ', $parameters).'): '.self::type($method->getReturnType(), $declaredOn, $parentOf);
     }
 
-    private static function parameter(ReflectionParameter $parameter): string
+    private static function parameter(ReflectionParameter $parameter, string $declaredOn, ?string $parentOf): string
     {
-        $rendered = self::type($parameter->getType()).' '
+        $rendered = self::type($parameter->getType(), $declaredOn, $parentOf).' '
             .($parameter->isPassedByReference() ? '&' : '')
             .($parameter->isVariadic() ? '...' : '')
             .'$'.$parameter->getName();
@@ -335,28 +350,33 @@ final class ApiSurface
         return $rendered.' = '.self::render($parameter->getDefaultValue());
     }
 
-    private static function type(?ReflectionType $type): string
+    private static function type(?ReflectionType $type, string $declaredOn, ?string $parentOf = null): string
     {
         if ($type === null) {
             return 'mixed';
         }
 
         if ($type instanceof ReflectionNamedType) {
-            return ($type->allowsNull() && $type->getName() !== 'null' && $type->getName() !== 'mixed' ? '?' : '').$type->getName();
+            // PHP 8.5 hands back the resolved class name where earlier
+            // versions hand back the keyword. They mean the same
+            // thing, so the keyword is recorded on every version.
+            $name = match ($type->getName()) {
+                $declaredOn => 'self',
+                $parentOf => 'parent',
+                default => $type->getName(),
+            };
+
+            return ($type->allowsNull() && $name !== 'null' && $name !== 'mixed' ? '?' : '').$name;
         }
 
-        if ($type instanceof ReflectionUnionType) {
-            $parts = array_map(self::type(...), $type->getTypes());
+        if ($type instanceof ReflectionUnionType || $type instanceof ReflectionIntersectionType) {
+            $parts = array_map(
+                static fn (ReflectionType $part): string => self::type($part, $declaredOn, $parentOf),
+                $type->getTypes(),
+            );
             sort($parts);
 
-            return implode('|', $parts);
-        }
-
-        if ($type instanceof ReflectionIntersectionType) {
-            $parts = array_map(self::type(...), $type->getTypes());
-            sort($parts);
-
-            return implode('&', $parts);
+            return implode($type instanceof ReflectionUnionType ? '|' : '&', $parts);
         }
 
         return (string) $type;
