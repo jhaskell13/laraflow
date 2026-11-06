@@ -1438,25 +1438,11 @@
             "handle": "handle(Laraflow\\Workflow\\WorkflowRunner $runner, Laraflow\\Workflow\\ExecutionRepository $repository, Laraflow\\Workflow\\WorkflowResolver $resolver, Psr\\Log\\LoggerInterface $logger, Laraflow\\Queue\\WorkflowDispatcher $dispatcher, Illuminate\\Contracts\\Config\\Repository $config): void"
         },
         "properties": {
-            "afterCommit": "mixed",
             "backoff": "int",
-            "chainCatchCallbacks": "mixed",
-            "chainConnection": "mixed",
-            "chainQueue": "mixed",
-            "chained": "mixed",
-            "connection": "mixed",
-            "debounceOwner": "mixed",
-            "deduplicator": "mixed",
-            "delay": "mixed",
             "executionId": "readonly int",
-            "job": "mixed",
-            "messageGroup": "mixed",
-            "middleware": "mixed",
-            "queue": "mixed",
             "reexecuteFailedAt": "readonly ?string",
             "timeout": "int",
-            "tries": "int",
-            "uniqueLockOwner": "mixed"
+            "tries": "int"
         }
     },
     "Laraflow\\Queue\\WorkflowDispatcher": {

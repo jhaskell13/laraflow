@@ -39,8 +39,13 @@ use UnitEnum;
  *   so `ExecuteWorkflowJob` appeared to declare Laravel's `onQueue()`
  *   and `withDeduplicator()` — which would have frozen the framework's
  *   API as this package's and failed this test the next time Laravel
- *   changed one. Members whose file lies outside `src/` are therefore
- *   skipped.
+ *   changed one. Methods whose file lies outside `src/` are therefore
+ *   skipped. Properties have no file of their own, so the traits the
+ *   class uses are walked instead and any property one of them
+ *   declares from outside `src/` is skipped: `Queueable`'s
+ *   `$deduplicator` and `$messageGroup` exist on Laravel 13 and not on
+ *   12, and recording them made the baseline pass on one framework
+ *   version and fail on the other (found by CI, Milestone 12).
  * - **Protected members only on classes that are not final.** On a
  *   final class nothing outside can see them; on a base designed for
  *   extension they are the extension contract.
@@ -200,6 +205,7 @@ final class ApiSurface
         }
 
         $properties = [];
+        $foreign = self::foreignTraitProperties($class, $srcPath);
 
         foreach ($class->getProperties(ReflectionProperty::IS_PUBLIC | ($class->isFinal() ? 0 : ReflectionProperty::IS_PROTECTED)) as $property) {
             if ($property->getDeclaringClass()->getName() !== $class->getName()) {
@@ -210,7 +216,7 @@ final class ApiSurface
                 continue;
             }
 
-            if (! self::declaredIn($property->getDeclaringClass()->getFileName(), $srcPath)) {
+            if (isset($foreign[$property->getName()])) {
                 continue;
             }
 
@@ -240,6 +246,38 @@ final class ApiSurface
         }
 
         return $shape;
+    }
+
+    /**
+     * The names of every property a class receives from a trait that
+     * is not this package's, walking traits that use traits. A trait
+     * property reports the using class as its declarer and has no file
+     * of its own, so this is the only way to tell it from one the class
+     * declares itself.
+     *
+     * @param  ReflectionClass<object>  $class
+     * @return array<string, true>
+     */
+    private static function foreignTraitProperties(ReflectionClass $class, string $srcPath): array
+    {
+        $names = [];
+        $pending = array_values($class->getTraits());
+
+        while (($trait = array_pop($pending)) !== null) {
+            foreach ($trait->getTraits() as $nested) {
+                $pending[] = $nested;
+            }
+
+            if (self::declaredIn($trait->getFileName(), $srcPath)) {
+                continue;
+            }
+
+            foreach ($trait->getProperties() as $property) {
+                $names[$property->getName()] = true;
+            }
+        }
+
+        return $names;
     }
 
     /**
