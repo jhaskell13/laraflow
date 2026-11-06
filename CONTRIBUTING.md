@@ -122,6 +122,22 @@ A connector in a third-party package registers itself from that package's own se
 
 **A connector for a service Laraflow does not ship** belongs in a package of your own rather than in this repository: [docs/community-connectors.md](docs/community-connectors.md) shows the package's shape and how it is listed, with the contract test as the review.
 
+## Running the soak
+
+The soak ([docs/soak.md](docs/soak.md)) is the suite that runs for a long time under load while workers are killed and containers are stopped, and then checks the invariants. It is not part of `composer test`.
+
+```bash
+composer soak                                  # five minutes of load on SQLite, then settling; worker kills only
+composer soak -- --duration=120 --workers=2    # shorter, for a change to the soak itself
+LARAFLOW_TEST_DB_DRIVER=pgsql composer soak    # an engine, through the suite's own variables
+```
+
+Settling stops when nothing is unfinished, or when the unfinished count has stopped falling (`--stall-after`, 180s) — not on a fixed clock, because a healthy drain can be slow. Each run writes `storage/soak/<timestamp>/` — every process's log, the timing records, the ledger of executions created, and `report.json` with `report.md` beside it — and exits non-zero if an invariant was violated or the run did not settle. `vendor/bin/testbench soak:verify --run-dir=storage/soak/<timestamp>` re-runs the invariant checks against the database as it stands.
+
+In CI the `Soak` workflow runs nightly on every engine with the database and Redis containers stopped and started under load, and a person can start a longer run from the Actions tab with a duration. Its results are the job summary and an artifact per engine; nothing in it gates a pull request.
+
+**Maintainer steps.** Scheduled workflows run only from the default branch, so the soak starts running the night after it lands on `main`; GitHub pauses a schedule after sixty days without a commit, and the Actions tab offers to re-enable it. To accept a run's numbers as the baseline, copy the `benchmarks` object from its `report.json` under the engine's driver name in `workbench/soak/baseline.json` and commit it with a note of which run it came from; the comparison is advisory, so a baseline that is never updated costs only an unhelpful sentence in the summary.
+
 ## Working on the documentation
 
 `docs/` is both the Markdown GitHub shows and the source of the documentation site, built with VitePress ([decision 0008](docs/decisions/0008-documentation-site-on-vitepress.md)). To preview it:

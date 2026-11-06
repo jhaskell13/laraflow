@@ -16,6 +16,7 @@ use Laraflow\Exceptions\Workflow\ExecutionNotRunnableException;
 use Laraflow\Exceptions\Workflow\ExecutionStillWaitingException;
 use Laraflow\Exceptions\Workflow\RetryNotDueException;
 use Laraflow\Exceptions\Workflow\TenantThrottledException;
+use Laraflow\Support\ErrorMessage;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\ExecutionRepository;
 use Laraflow\Workflow\WorkflowExecution;
@@ -177,7 +178,7 @@ final class ExecuteWorkflowJob implements ShouldQueue
         $message = null;
 
         if ($exception !== null) {
-            $message = $exception->getMessage();
+            $message = ErrorMessage::of($exception);
 
             // The configured redactor governs every sink Laraflow writes
             // to; this log line is no exception. The job may fail with a

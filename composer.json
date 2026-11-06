@@ -70,6 +70,7 @@
             "@analyse",
             "@test"
         ],
+        "soak": "@php vendor/bin/testbench soak:run",
         "playground": [
             "@php vendor/bin/testbench package:create-sqlite-db",
             "@php vendor/bin/testbench migrate:fresh",

@@ -88,7 +88,7 @@ These are the statements a finding would falsify:
 1. One execution is run by at most one worker at a time, decided by the claim and nothing else.
 2. A credential never reaches a `laraflow_*` table, a log line, an event, or an exception message produced by Laraflow.
 3. A reserved `laraflow.` signal name cannot be reached through the public signal entry, in any casing.
-4. No lifecycle event carries workflow input, step output, or context.
+4. No lifecycle event carries workflow input, step output, or context — including by way of an error message: a database exception's message is retained without its bound values, since those *are* the payload when a checkpoint fails.
 5. A trigger request that does not verify changes nothing and reveals nothing but `401`.
 6. A dashboard action cannot be performed without a session and a matching CSRF token.
 7. A next-page link is followed only to the host, scheme, and port the connection named.

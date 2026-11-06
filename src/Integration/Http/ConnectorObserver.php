@@ -11,6 +11,7 @@ use Laraflow\Integration\Connection;
 use Laraflow\Integration\ConnectorRequest;
 use Laraflow\Integration\ConnectorResponse;
 use Laraflow\Observability\Tracing\Tracer;
+use Laraflow\Support\ErrorMessage;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\ExecutionScope;
 use SensitiveParameter;
@@ -96,6 +97,6 @@ final class ConnectorObserver
             return null;
         }
 
-        return mb_substr($this->redactor->redact($exception, $exception->getMessage()), 0, $this->maxErrorLength);
+        return mb_substr($this->redactor->redact($exception, ErrorMessage::of($exception)), 0, $this->maxErrorLength);
     }
 }

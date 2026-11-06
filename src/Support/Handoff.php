@@ -97,7 +97,7 @@ final readonly class Handoff
                     $after,
                     $exception,
                     Outcome::ERROR,
-                    'The execution could not be queued: '.$exception->getMessage()
+                    'The execution could not be queued: '.ErrorMessage::of($exception)
                         ." Execution [{$id}] is persisted and pending; run it here with: laraflow:execute {$id}",
                     false,
                 );
@@ -109,7 +109,7 @@ final readonly class Handoff
                 $exception,
                 Outcome::ERROR,
                 'The queue connection ran the job in this process (sync driver) and a step failed: '
-                    .$exception->getMessage(),
+                    .ErrorMessage::of($exception),
                 false,
             );
         }
