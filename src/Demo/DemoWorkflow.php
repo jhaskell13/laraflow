@@ -7,7 +7,7 @@ namespace Laraflow\Demo;
 use Laraflow\Workflow\Workflow;
 
 /**
- * @experimental Ships for the `laraflow:demo` command; not a stable API.
+ * @internal Ships for the `laraflow:demo` command; never build on it.
  *
  * A small order-processing workflow that exercises the durable runtime:
  * context passing, persisted outputs, attempt metadata, idempotency keys,

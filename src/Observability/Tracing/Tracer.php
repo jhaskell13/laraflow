@@ -10,9 +10,6 @@ use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
- * @experimental The tracing hook is settled by its first implementation
- * (laraflow/opentelemetry); see docs/tracing.md.
- *
  * Where the core reports the boundaries a trace is built from: a run, a
  * step attempt's start, a connector call, and the trace context to
  * remember with an execution created now. The ends of step attempts and

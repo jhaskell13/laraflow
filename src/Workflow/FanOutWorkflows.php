@@ -46,6 +46,8 @@ final class FanOutWorkflows
     ) {}
 
     /**
+     * @internal The fan-out step calls this through its final handle(); public-api.md: its methods beyond construction are not a contract.
+     *
      * The step's outcome: a Wait on the join, or — when every member
      * already finished, as they do inline on the sync queue driver —
      * the outcome itself, completing or failing the step without a park.

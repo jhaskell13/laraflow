@@ -1,0 +1,2358 @@
+{
+    "Laraflow\\Auth\\Authenticator": {
+        "kind": "interface",
+        "methods": {
+            "authenticate": "authenticate(array $requestOptions, Laraflow\\Integration\\Credentials $credentials): array"
+        }
+    },
+    "Laraflow\\Auth\\BearerTokenAuthenticator": {
+        "kind": "final class",
+        "implements": [
+            "Laraflow\\Auth\\Authenticator"
+        ],
+        "methods": {
+            "__construct": "__construct(string $credential = \"token\", ?string $environmentVariable = null): mixed",
+            "authenticate": "authenticate(array $requestOptions, Laraflow\\Integration\\Credentials $credentials): array"
+        }
+    },
+    "Laraflow\\Core\\LaraflowManager": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Integration\\ConnectorRegistry $registry): mixed",
+            "connection": "connection(string $name, ?string $connection = null): Laraflow\\Integration\\Connection",
+            "connections": "connections(string $name): array",
+            "connector": "connector(string $name, ?string $connection = null): Laraflow\\Integration\\Connector",
+            "connectors": "connectors(): array",
+            "forget": "forget(?string $name = null, ?string $connection = null): void",
+            "has": "has(string $name): bool",
+            "register": "register(string $name, callable|string $factory): void"
+        }
+    },
+    "Laraflow\\Core\\LaraflowServiceProvider": {
+        "kind": "final class",
+        "extends": "Illuminate\\Support\\ServiceProvider",
+        "methods": {
+            "boot": "boot(): void",
+            "register": "register(): void"
+        }
+    },
+    "Laraflow\\Dashboard\\Dashboard": {
+        "kind": "final class",
+        "methods": {
+            "auth": "static auth(Closure $callback): void",
+            "authActions": "static authActions(Closure $callback): void",
+            "check": "static check(Illuminate\\Http\\Request $request): bool",
+            "routes": "static routes(?string $path = null, ?array $middleware = null): void"
+        },
+        "constants": {
+            "ACT_AUTH": "\"laraflow.dashboard.act_auth\"",
+            "AUTH": "\"laraflow.dashboard.auth\"",
+            "GATE": "\"viewLaraflow\""
+        }
+    },
+    "Laraflow\\Events\\ConnectorRequestFailed": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $connector, string $connection, string $method, string $path, string $errorClass, ?string $error, int $durationMs, int $attempts = 1, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "attempts": "readonly int",
+            "connection": "readonly string",
+            "connector": "readonly string",
+            "durationMs": "readonly int",
+            "error": "readonly ?string",
+            "errorClass": "readonly string",
+            "method": "readonly string",
+            "path": "readonly string",
+            "tenantId": "readonly ?string"
+        }
+    },
+    "Laraflow\\Events\\ConnectorRequestSent": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $connector, string $connection, string $method, string $path, int $status, bool $successful, int $durationMs, int $attempts = 1, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "attempts": "readonly int",
+            "connection": "readonly string",
+            "connector": "readonly string",
+            "durationMs": "readonly int",
+            "method": "readonly string",
+            "path": "readonly string",
+            "status": "readonly int",
+            "successful": "readonly bool",
+            "tenantId": "readonly ?string"
+        }
+    },
+    "Laraflow\\Events\\TriggerAccepted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $trigger, int $executionId, string $signal): mixed"
+        },
+        "properties": {
+            "executionId": "readonly int",
+            "signal": "readonly string",
+            "trigger": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\TriggerRefused": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $trigger, Laraflow\\Triggers\\TriggerRefusalReason $reason, ?int $executionId, ?string $signal): mixed"
+        },
+        "properties": {
+            "executionId": "readonly ?int",
+            "reason": "readonly Laraflow\\Triggers\\TriggerRefusalReason",
+            "signal": "readonly ?string",
+            "trigger": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowCompensated": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, int $undone, int $remaining, bool $complete): mixed"
+        },
+        "properties": {
+            "complete": "readonly bool",
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "remaining": "readonly int",
+            "tenantId": "readonly ?string",
+            "undone": "readonly int",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowCompensationStarted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, int $steps, string $failure): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "failure": "readonly string",
+            "steps": "readonly int",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionCancelled": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, DateTimeImmutable $cancelledAt, ?string $reason = null, ?string $correlationId = null, ?string $tenantId = null, ?int $durationMs = null): mixed"
+        },
+        "properties": {
+            "cancelledAt": "readonly DateTimeImmutable",
+            "correlationId": "readonly ?string",
+            "durationMs": "readonly ?int",
+            "executionId": "readonly int",
+            "reason": "readonly ?string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionCompleted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, DateTimeImmutable $completedAt, ?string $correlationId = null, ?string $tenantId = null, ?int $durationMs = null): mixed"
+        },
+        "properties": {
+            "completedAt": "readonly DateTimeImmutable",
+            "correlationId": "readonly ?string",
+            "durationMs": "readonly ?int",
+            "executionId": "readonly int",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionDeferred": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, Laraflow\\Workflow\\Tenancy\\TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $deferredUntil): mixed"
+        },
+        "properties": {
+            "ceiling": "readonly Laraflow\\Workflow\\Tenancy\\TenantCeiling",
+            "correlationId": "readonly ?string",
+            "count": "readonly int",
+            "deferredUntil": "readonly DateTimeImmutable",
+            "executionId": "readonly int",
+            "limit": "readonly int",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionDispatched": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $connection = null, ?string $queue = null, ?string $correlationId = null, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "connection": "readonly ?string",
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "queue": "readonly ?string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionFailed": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, string $errorClass, ?string $error, DateTimeImmutable $failedAt, ?string $correlationId = null, ?string $tenantId = null, ?int $durationMs = null): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "durationMs": "readonly ?int",
+            "error": "readonly ?string",
+            "errorClass": "readonly string",
+            "executionId": "readonly int",
+            "failedAt": "readonly DateTimeImmutable",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionRetryScheduled": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, Laraflow\\Workflow\\RecoveryReason $reason, int $attempts, ?string $correlationId = null, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "attempts": "readonly int",
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "reason": "readonly Laraflow\\Workflow\\RecoveryReason",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionSignalled": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, string $signal): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "signal": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowExecutionStarted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, DateTimeImmutable $startedAt, ?string $correlationId = null, ?string $tenantId = null, ?int $queueLagSeconds = null): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "queueLagSeconds": "readonly ?int",
+            "startedAt": "readonly DateTimeImmutable",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowFanOutStarted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, string $step, int $position, int $members, array $memberIds): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "memberIds": "readonly array",
+            "members": "readonly int",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowPlanMigrated": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, int $fromVersion, int $toVersion, int $steps, ?string $correlationId = null, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "fromVersion": "readonly int",
+            "steps": "readonly int",
+            "tenantId": "readonly ?string",
+            "toVersion": "readonly int",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowScheduleSkipped": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $workflow, ?string $correlationId, ?string $tenantId, DateTimeImmutable $tickAt, int $overlappedExecutionId): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "overlappedExecutionId": "readonly int",
+            "tenantId": "readonly ?string",
+            "tickAt": "readonly DateTimeImmutable",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowScheduleTicked": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, DateTimeImmutable $tickAt, int $missed, bool $caughtUp): mixed"
+        },
+        "properties": {
+            "caughtUp": "readonly bool",
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "missed": "readonly int",
+            "tenantId": "readonly ?string",
+            "tickAt": "readonly DateTimeImmutable",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepCompleted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, string $step, int $position, int $attempt, DateTimeImmutable $completedAt, ?string $correlationId = null, ?string $tenantId = null, ?int $durationMs = null): mixed"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "completedAt": "readonly DateTimeImmutable",
+            "correlationId": "readonly ?string",
+            "durationMs": "readonly ?int",
+            "executionId": "readonly int",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepFailed": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, string $step, int $position, int $attempt, string $errorClass, ?string $error = null, ?string $correlationId = null, ?string $tenantId = null, ?int $durationMs = null): mixed"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "correlationId": "readonly ?string",
+            "durationMs": "readonly ?int",
+            "error": "readonly ?string",
+            "errorClass": "readonly string",
+            "executionId": "readonly int",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepRetryScheduled": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, string $step, int $position, int $attempt, int $maxAttempts, string $errorClass, ?string $error, DateTimeImmutable $nextRetryAt, int $delaySeconds, ?string $correlationId = null, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "correlationId": "readonly ?string",
+            "delaySeconds": "readonly int",
+            "error": "readonly ?string",
+            "errorClass": "readonly string",
+            "executionId": "readonly int",
+            "maxAttempts": "readonly int",
+            "nextRetryAt": "readonly DateTimeImmutable",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepSkipped": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, string $step, int $position): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepStarted": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, string $step, int $position, int $attempt, ?string $correlationId = null, ?string $tenantId = null): mixed"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "position": "readonly int",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Events\\WorkflowStepWaiting": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $workflow, ?string $correlationId, ?string $tenantId, string $step, int $position, ?string $signal, ?DateTimeImmutable $resumeAt, ?DateTimeImmutable $timeoutAt): mixed"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "executionId": "readonly int",
+            "position": "readonly int",
+            "resumeAt": "readonly ?DateTimeImmutable",
+            "signal": "readonly ?string",
+            "step": "readonly string",
+            "tenantId": "readonly ?string",
+            "timeoutAt": "readonly ?DateTimeImmutable",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Exceptions\\ConnectionNotConfiguredException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "named": "static named(string $connector, string $connection, array $configured): self"
+        }
+    },
+    "Laraflow\\Exceptions\\ConnectorConfigurationException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "invalidName": "static invalidName(string $name, string $kind): self",
+            "malformedConnections": "static malformedConnections(string $connector): self",
+            "missing": "static missing(Laraflow\\Integration\\Connection $connection, string $key, ?string $environmentVariable): self",
+            "unexpectedKey": "static unexpectedKey(string $connector, string $key, array $recognised, string $defaultConnection): self"
+        }
+    },
+    "Laraflow\\Exceptions\\ConnectorException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\LaraflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\ConnectorNotRegisteredException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "named": "static named(string $name): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Connector\\AuthenticationFailedException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\Connector\\RequestFailedException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\Connector\\ClientErrorException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\Connector\\RequestFailedException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\Connector\\NotFoundException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\Connector\\RequestFailedException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\Connector\\PaginationException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "foreignHost": "static foreignHost(Laraflow\\Integration\\Connection $connection, string $expected, string $found): self",
+            "invalidLimit": "static invalidLimit(Laraflow\\Integration\\Connection $connection, int $maxPages): self",
+            "limitReached": "static limitReached(Laraflow\\Integration\\Connection $connection, int $maxPages): self",
+            "notAdvancing": "static notAdvancing(Laraflow\\Integration\\Connection $connection, int $page): self",
+            "notPaginated": "static notPaginated(Laraflow\\Integration\\Connection $connection): self",
+            "unverifiableHost": "static unverifiableHost(Laraflow\\Integration\\Connection $connection, string $found): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Connector\\RateLimitedException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\Connector\\RequestFailedException",
+        "implements": [
+            "Laraflow\\Exceptions\\SuggestsRetryDelay",
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "retryAfter": "retryAfter(): ?string",
+            "retryAfterSeconds": "retryAfterSeconds(DateTimeInterface $now): ?int",
+            "suggestedRetryDelaySeconds": "suggestedRetryDelaySeconds(DateTimeInterface $now): ?int"
+        }
+    },
+    "Laraflow\\Exceptions\\Connector\\RequestFailedException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "__construct": "final __construct(string $message, Laraflow\\Integration\\ConnectorResponse $response): mixed",
+            "forStatus": "static forStatus(Laraflow\\Integration\\ConnectorResponse $response): self",
+            "fromResponse": "static fromResponse(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\Connection $connection, ?string $detail = null): static",
+            "status": "status(): int",
+            "truncate": "protected static truncate(string $detail): string"
+        },
+        "properties": {
+            "response": "readonly Laraflow\\Integration\\ConnectorResponse"
+        }
+    },
+    "Laraflow\\Exceptions\\Connector\\ResponseDecodingException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "invalidJson": "static invalidJson(Laraflow\\Integration\\ConnectorResponse $response, Throwable $previous): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Connector\\ServerErrorException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\Connector\\RequestFailedException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\Connector\\ThrottledException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Laraflow\\Exceptions\\SuggestsRetryDelay",
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "__construct": "__construct(string $message, int $availableInSeconds): mixed",
+            "for": "static for(Laraflow\\Integration\\Connection $connection, Laraflow\\Integration\\Http\\RateLimitPolicy $policy, int $availableInSeconds): self",
+            "suggestedRetryDelaySeconds": "suggestedRetryDelaySeconds(DateTimeInterface $now): int"
+        },
+        "properties": {
+            "availableInSeconds": "readonly int"
+        }
+    },
+    "Laraflow\\Exceptions\\IndicatesUncertainOutcome": {
+        "kind": "interface"
+    },
+    "Laraflow\\Exceptions\\InvalidConnectorException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forClass": "static forClass(string $name, string $class): self",
+            "forFactory": "static forFactory(string $name, mixed $returned): self"
+        }
+    },
+    "Laraflow\\Exceptions\\LaraflowException": {
+        "kind": "class",
+        "extends": "Exception",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\SecretRedactedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\LaraflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\SuggestsRetryDelay": {
+        "kind": "interface",
+        "methods": {
+            "suggestedRetryDelaySeconds": "suggestedRetryDelaySeconds(DateTimeInterface $now): ?int"
+        }
+    },
+    "Laraflow\\Exceptions\\TransportException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\ConnectorException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "afterAttempts": "afterAttempts(int $attempts): static",
+            "attempts": "attempts(): int",
+            "connecting": "static connecting(string $host, Throwable $previous): self"
+        }
+    },
+    "Laraflow\\Exceptions\\TriggerRefusedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\LaraflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "__construct": "__construct(string $message = \"The trigger request was refused.\", Laraflow\\Triggers\\TriggerRefusalReason $reason = Laraflow\\Triggers\\TriggerRefusalReason::InvalidSignature, ?Throwable $previous = null): mixed",
+            "invalidSignature": "static invalidSignature(string $message = \"The signature does not verify.\"): self",
+            "stale": "static stale(string $message = \"The request timestamp is outside the tolerance.\"): self",
+            "unsigned": "static unsigned(string $message = \"The request carries no usable signature.\"): self"
+        },
+        "properties": {
+            "reason": "readonly Laraflow\\Triggers\\TriggerRefusalReason"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ChildWorkflowFailedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forOutcome": "static forOutcome(string $step, int $position, int $childId, string $status): self",
+            "malformedSignal": "static malformedSignal(string $step, int $position, string $signal): self",
+            "missing": "static missing(string $step, int $position, int $childId): self",
+            "workflowMissing": "static workflowMissing(string $step, int $position, int $childId, string $workflow): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ClaimLostException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forId": "static forId(int $id): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\CompensationFailedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "noLongerCompensatable": "static noLongerCompensatable(string $step, int $position): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ExecutionAlreadyClaimedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forId": "static forId(int $id, Laraflow\\Workflow\\ExecutionStatus $status = Laraflow\\Workflow\\ExecutionStatus::Running): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ExecutionNotCancellableException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forStatus": "static forStatus(int $id, Laraflow\\Workflow\\ExecutionStatus $status): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ExecutionNotFoundException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forId": "static forId(int $id): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ExecutionNotRunnableException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forStatus": "static forStatus(int $id, Laraflow\\Workflow\\ExecutionStatus $status): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ExecutionStillWaitingException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forId": "static forId(int $id, ?DateTimeImmutable $nextEventAt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\FanOutFailedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forOutcome": "static forOutcome(string $step, int $position, Laraflow\\Workflow\\ChildProgress $progress, array $notCompleted): self",
+            "malformedSignal": "static malformedSignal(string $step, int $position, string $signal): self",
+            "noMembers": "static noMembers(string $step, int $position, string $signal): self",
+            "notDeclared": "static notDeclared(string $step, int $position): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\FanOutTooWideException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forCount": "static forCount(string $step, int $position, int $declared, int $max): self",
+            "notAMember": "static notAMember(string $step, int $position, string $type): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\IdempotencyStoreUnavailableException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forContext": "static forContext(): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\IdempotentOutcomeUncertainException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "contended": "static contended(string $step, int $position, string $key): self",
+            "forKey": "static forKey(string $step, int $position, string $key, DateTimeImmutable $startedAt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidExecutionOptionsException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "controlCharacters": "static controlCharacters(string $name): self",
+            "invalidEncoding": "static invalidEncoding(string $name): self",
+            "invalidTraceContext": "static invalidTraceContext(): self",
+            "tooLong": "static tooLong(string $name, int $length, int $max): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidIdempotencyKeyException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "collides": "static collides(string $key, string $existing): self",
+            "controlCharacters": "static controlCharacters(string $key): self",
+            "empty": "static empty(): self",
+            "notUtf8": "static notUtf8(): self",
+            "surroundingWhitespace": "static surroundingWhitespace(string $key): self",
+            "tooLong": "static tooLong(string $key, int $length, int $max): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidScheduleException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "invalid": "static invalid(string $workflow, Throwable $previous): self",
+            "missing": "static missing(string $workflow): self",
+            "notAWorkflow": "static notAWorkflow(string $workflow): self",
+            "notScheduled": "static notScheduled(string $workflow): self",
+            "unresolvable": "static unresolvable(string $workflow, Throwable $previous): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidSignalException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "empty": "static empty(): self",
+            "reserved": "static reserved(string $name): self",
+            "tooLong": "static tooLong(int $length): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidStateTransitionException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "between": "static between(string $subject, BackedEnum $from, BackedEnum $to): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\InvalidWorkflowDefinitionException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "invalidStep": "static invalidStep(string $workflow, int|string $position, mixed $step): self",
+            "noSteps": "static noSteps(string $workflow): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\PayloadTooLargeException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "at": "static at(string $path, int $bytes, int $maxBytes): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\PlanMigrationRefusedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "doesNotProduceDefinition": "static doesNotProduceDefinition(string $workflow, array $migrated, array $defined): self",
+            "duplicateStep": "static duplicateStep(string $workflow, string $step): self",
+            "frozenByLaterStep": "static frozenByLaterStep(string $workflow, string $step, string $operation, string $decided, string $decidedStatus): self",
+            "frozenStep": "static frozenStep(string $workflow, string $step, string $operation, string $status): self",
+            "insertionInFrozenPrefix": "static insertionInFrozenPrefix(string $workflow, string $step, string $decided, string $decidedStatus): self",
+            "missingMigration": "static missingMigration(string $workflow, int $from, int $to): self",
+            "notACallable": "static notACallable(string $workflow, int $from): self",
+            "unknownStep": "static unknownStep(string $workflow, string $step): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\RetryNotDueException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forId": "static forId(int $id, ?DateTimeImmutable $nextRetryAt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\ScheduleNotFoundException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forWorkflow": "static forWorkflow(string $workflow): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\SignalRefusedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forSignal": "static forSignal(int $executionId, string $signal): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\StepPreviouslyFailedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forStep": "static forStep(string $step, int $position, ?string $error): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\StepTimeoutException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forStep": "static forStep(string $step, int $position, DateTimeImmutable $timeoutAt, int $attempt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\TenantThrottledException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Laraflow\\Exceptions\\SuggestsRetryDelay",
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "__construct": "__construct(string $message, int $executionId, string $workflow, ?string $correlationId, string $tenantId, Laraflow\\Workflow\\Tenancy\\TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $deferredUntil, int $delaySeconds): mixed",
+            "atCeiling": "static atCeiling(int $executionId, string $workflow, ?string $correlationId, string $tenantId, Laraflow\\Workflow\\Tenancy\\TenantCeiling $ceiling, int $limit, int $count, DateTimeImmutable $deferredUntil, int $delaySeconds): self",
+            "suggestedRetryDelaySeconds": "suggestedRetryDelaySeconds(DateTimeInterface $now): int"
+        },
+        "properties": {
+            "ceiling": "readonly Laraflow\\Workflow\\Tenancy\\TenantCeiling",
+            "correlationId": "readonly ?string",
+            "count": "readonly int",
+            "deferredUntil": "readonly DateTimeImmutable",
+            "delaySeconds": "readonly int",
+            "executionId": "readonly int",
+            "limit": "readonly int",
+            "tenantId": "readonly string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\TickAlreadyClaimedException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "for": "static for(string $workflow, DateTimeImmutable $tickAt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\TooManyIdempotencyKeysException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forExecution": "static forExecution(int $executionId, int $max): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\UnserializableValueException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "at": "static at(string $path, mixed $value): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\WaitTimedOutException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forSignal": "static forSignal(string $step, int $position, string $signal, DateTimeImmutable $deadline, int $attempt): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\WorkflowDefinitionMismatchException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Exceptions\\Workflow\\WorkflowDepthExceededException": {
+        "kind": "final class",
+        "extends": "Laraflow\\Exceptions\\Workflow\\WorkflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ],
+        "methods": {
+            "forDepth": "static forDepth(string $workflow, int $depth, int $max): self"
+        }
+    },
+    "Laraflow\\Exceptions\\Workflow\\WorkflowException": {
+        "kind": "class",
+        "extends": "Laraflow\\Exceptions\\LaraflowException",
+        "implements": [
+            "Stringable",
+            "Throwable"
+        ]
+    },
+    "Laraflow\\Integration\\Connection": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $connector, string $name, array $config = []): mixed",
+            "get": "get(string $key, mixed $default = null): mixed",
+            "has": "has(string $key): bool",
+            "key": "key(): string",
+            "path": "path(): string",
+            "require": "require(string $key, ?string $environmentVariable = null): mixed"
+        },
+        "constants": {
+            "DEFAULT": "\"default\""
+        },
+        "properties": {
+            "config": "readonly array",
+            "connector": "readonly string",
+            "name": "readonly string"
+        }
+    },
+    "Laraflow\\Integration\\Connector": {
+        "kind": "interface",
+        "methods": {
+            "name": "name(): string",
+            "request": "request(Laraflow\\Integration\\ConnectorRequest $request): Laraflow\\Integration\\ConnectorResponse"
+        }
+    },
+    "Laraflow\\Integration\\ConnectorRequest": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(string $method, string $uri, array $options = [], ?bool $idempotent = null): mixed",
+            "asIdempotent": "asIdempotent(bool $idempotent = true): self",
+            "isIdempotent": "isIdempotent(): bool",
+            "path": "path(): string",
+            "withHeaders": "withHeaders(array $headers): self",
+            "withOptions": "withOptions(array $options): self"
+        },
+        "constants": {
+            "IDEMPOTENT_METHODS": "[\"GET\",\"HEAD\",\"OPTIONS\",\"PUT\",\"DELETE\"]"
+        },
+        "properties": {
+            "idempotent": "readonly ?bool",
+            "method": "readonly string",
+            "options": "readonly array",
+            "uri": "readonly string"
+        }
+    },
+    "Laraflow\\Integration\\ConnectorResponse": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $status, array $headers = [], string $raw = \"\", ?Laraflow\\Exceptions\\Connector\\RequestFailedException $error = null, int $attempts = 1): mixed",
+            "attempts": "attempts(): int",
+            "body": "body(): mixed",
+            "error": "error(): ?Laraflow\\Exceptions\\Connector\\RequestFailedException",
+            "failed": "failed(): bool",
+            "fake": "static fake(int $status = 200, mixed $json = null, array $headers = []): self",
+            "header": "header(string $name): ?string",
+            "headers": "headers(): array",
+            "isJson": "isJson(): bool",
+            "json": "json(?string $key = null, mixed $default = null): mixed",
+            "raw": "raw(): string",
+            "retryAfterSeconds": "retryAfterSeconds(DateTimeInterface $now): ?int",
+            "status": "status(): int",
+            "successful": "successful(): bool",
+            "throw": "throw(): self",
+            "toArray": "toArray(): array",
+            "withAttempts": "withAttempts(int $attempts): self",
+            "withError": "withError(?Laraflow\\Exceptions\\Connector\\RequestFailedException $error): self"
+        }
+    },
+    "Laraflow\\Integration\\CredentialProvider": {
+        "kind": "interface",
+        "methods": {
+            "credentials": "credentials(Laraflow\\Integration\\Connection $connection): Laraflow\\Integration\\Credentials"
+        }
+    },
+    "Laraflow\\Integration\\Credentials": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Integration\\Connection $connection, array $secrets = []): mixed",
+            "get": "get(string $key): ?Laraflow\\Support\\Secret",
+            "has": "has(string $key): bool",
+            "keys": "keys(): array",
+            "none": "static none(Laraflow\\Integration\\Connection $connection): self",
+            "require": "require(string $key, ?string $environmentVariable = null): Laraflow\\Support\\Secret"
+        },
+        "properties": {
+            "connection": "readonly Laraflow\\Integration\\Connection"
+        }
+    },
+    "Laraflow\\Integration\\Github\\GithubConnector": {
+        "kind": "class",
+        "extends": "Laraflow\\Integration\\HttpConnector",
+        "implements": [
+            "Laraflow\\Integration\\Connector"
+        ],
+        "methods": {
+            "apiVersion": "protected apiVersion(): ?string",
+            "apiVersionHeader": "protected apiVersionHeader(): ?string",
+            "authenticator": "protected authenticator(): Laraflow\\Auth\\Authenticator",
+            "baseUrl": "protected baseUrl(): ?string",
+            "errorMapper": "protected errorMapper(): Laraflow\\Integration\\Http\\ErrorMapper",
+            "headers": "protected headers(): array",
+            "paginator": "protected paginator(): ?Laraflow\\Integration\\Pagination\\Paginator"
+        },
+        "constants": {
+            "API_VERSION": "\"2022-11-28\"",
+            "BASE_URL": "\"https:\\/\\/api.github.com\""
+        }
+    },
+    "Laraflow\\Integration\\Github\\GithubErrorMapper": {
+        "kind": "class",
+        "extends": "Laraflow\\Integration\\Http\\StatusErrorMapper",
+        "implements": [
+            "Laraflow\\Integration\\Http\\ErrorMapper"
+        ],
+        "methods": {
+            "map": "map(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\Connection $connection): ?Laraflow\\Exceptions\\Connector\\RequestFailedException"
+        }
+    },
+    "Laraflow\\Integration\\HttpConnector": {
+        "kind": "abstract class",
+        "implements": [
+            "Laraflow\\Integration\\Connector"
+        ],
+        "methods": {
+            "__construct": "__construct(Laraflow\\Integration\\Connection $connection, Laraflow\\Integration\\CredentialProvider $credentials, Laraflow\\Integration\\Http\\HttpTransport $transport, Laraflow\\Integration\\Http\\HttpOptions $defaults, Laraflow\\Integration\\Http\\TransportPipeline $pipeline): mixed",
+            "absolute": "protected absolute(Laraflow\\Integration\\ConnectorRequest $request): Laraflow\\Integration\\ConnectorRequest",
+            "apiVersion": "protected apiVersion(): ?string",
+            "apiVersionHeader": "protected apiVersionHeader(): ?string",
+            "assertSameHost": "protected assertSameHost(Laraflow\\Integration\\ConnectorRequest $request): void",
+            "authenticator": "protected authenticator(): Laraflow\\Auth\\Authenticator",
+            "baseUrl": "protected abstract baseUrl(): ?string",
+            "connection": "connection(): Laraflow\\Integration\\Connection",
+            "errorMapper": "protected errorMapper(): Laraflow\\Integration\\Http\\ErrorMapper",
+            "headers": "protected headers(): array",
+            "items": "items(Laraflow\\Integration\\ConnectorRequest $request, ?int $maxPages = null, ?Laraflow\\Integration\\Pagination\\Paginator $paginator = null): Generator",
+            "name": "name(): string",
+            "options": "options(): Laraflow\\Integration\\Http\\HttpOptions",
+            "pages": "pages(Laraflow\\Integration\\ConnectorRequest $request, ?int $maxPages = null, ?Laraflow\\Integration\\Pagination\\Paginator $paginator = null): Generator",
+            "paginator": "protected paginator(): ?Laraflow\\Integration\\Pagination\\Paginator",
+            "providerApiVersion": "providerApiVersion(): ?string",
+            "request": "request(Laraflow\\Integration\\ConnectorRequest $request): Laraflow\\Integration\\ConnectorResponse",
+            "throwsOnError": "protected throwsOnError(): bool",
+            "transport": "protected transport(): Laraflow\\Integration\\Http\\HttpTransport"
+        },
+        "properties": {
+            "apiVersion": "?string",
+            "authenticator": "Laraflow\\Auth\\Authenticator",
+            "connection": "Laraflow\\Integration\\Connection",
+            "credentials": "Laraflow\\Integration\\CredentialProvider",
+            "errors": "Laraflow\\Integration\\Http\\ErrorMapper",
+            "options": "Laraflow\\Integration\\Http\\HttpOptions",
+            "pipeline": "Laraflow\\Integration\\Http\\TransportPipeline",
+            "transport": "Laraflow\\Integration\\Http\\HttpTransport"
+        }
+    },
+    "Laraflow\\Integration\\Http\\ErrorMapper": {
+        "kind": "interface",
+        "methods": {
+            "map": "map(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\Connection $connection): ?Laraflow\\Exceptions\\Connector\\RequestFailedException"
+        }
+    },
+    "Laraflow\\Integration\\Http\\HttpOptions": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(?string $baseUrl = null, float $timeoutSeconds = 30, float $connectTimeoutSeconds = 10, array $headers = [], Laraflow\\Integration\\Http\\TransportPolicy $retries = {\"maxAttempts\":1,\"baseDelayMs\":200,\"multiplier\":2,\"maxDelayMs\":2000,\"jitter\":0.2,\"statuses\":[429,500,502,503,504],\"retryTransportFailures\":true,\"maxRetryAfterSeconds\":5}, ?Laraflow\\Integration\\Http\\RateLimitPolicy $rateLimit = null, int $maxPages = 100): mixed",
+            "forConnection": "forConnection(Laraflow\\Integration\\Connection $connection): self",
+            "fromConfig": "static fromConfig(Illuminate\\Contracts\\Config\\Repository $config): self",
+            "host": "host(): ?string",
+            "withBaseUrl": "withBaseUrl(?string $baseUrl): self",
+            "withHeaders": "withHeaders(array $headers): self",
+            "withRateLimit": "withRateLimit(?Laraflow\\Integration\\Http\\RateLimitPolicy $rateLimit): self",
+            "withRetries": "withRetries(Laraflow\\Integration\\Http\\TransportPolicy $retries): self"
+        },
+        "properties": {
+            "baseUrl": "readonly ?string",
+            "connectTimeoutSeconds": "readonly float",
+            "headers": "readonly array",
+            "maxPages": "readonly int",
+            "rateLimit": "readonly ?Laraflow\\Integration\\Http\\RateLimitPolicy",
+            "retries": "readonly Laraflow\\Integration\\Http\\TransportPolicy",
+            "timeoutSeconds": "readonly float"
+        }
+    },
+    "Laraflow\\Integration\\Http\\HttpTransport": {
+        "kind": "interface",
+        "methods": {
+            "send": "send(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\Http\\HttpOptions $options): Laraflow\\Integration\\ConnectorResponse"
+        }
+    },
+    "Laraflow\\Integration\\Http\\RateLimitPolicy": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $maxRequests, int $perSeconds = 60, int $maxWaitSeconds = 0, Laraflow\\Integration\\Http\\RateLimitScope $scope = Laraflow\\Integration\\Http\\RateLimitScope::Connection): mixed",
+            "fromArray": "static fromArray(array|false|null $config, ?self $base = null): ?self"
+        },
+        "properties": {
+            "maxRequests": "readonly int",
+            "maxWaitSeconds": "readonly int",
+            "perSeconds": "readonly int",
+            "scope": "readonly Laraflow\\Integration\\Http\\RateLimitScope"
+        }
+    },
+    "Laraflow\\Integration\\Http\\RateLimitScope": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "methods": {
+            "fromConfig": "static fromConfig(mixed $value): self"
+        },
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Connection": "\"connection\"",
+            "Tenant": "\"tenant\""
+        }
+    },
+    "Laraflow\\Integration\\Http\\StatusErrorMapper": {
+        "kind": "class",
+        "implements": [
+            "Laraflow\\Integration\\Http\\ErrorMapper"
+        ],
+        "methods": {
+            "detail": "protected detail(Laraflow\\Integration\\ConnectorResponse $response): ?string",
+            "map": "map(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\Connection $connection): ?Laraflow\\Exceptions\\Connector\\RequestFailedException"
+        },
+        "constants": {
+            "DETAIL_FIELDS": "[\"message\",\"error_description\",\"error.message\",\"error\",\"detail\",\"title\"]"
+        }
+    },
+    "Laraflow\\Integration\\Http\\TransportPipeline": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Support\\Sleeper $sleeper, Psr\\Clock\\ClockInterface $clock, Illuminate\\Cache\\RateLimiter $limiter, Laraflow\\Integration\\Http\\ConnectorObserver $observer, Laraflow\\Support\\LoggingContext $logging, Laraflow\\Support\\ExecutionScope $scope): mixed",
+            "through": "through(Laraflow\\Integration\\Http\\HttpTransport $base, Laraflow\\Integration\\Http\\HttpOptions $options, Laraflow\\Integration\\Connection $connection, ?Closure $map = null): Laraflow\\Integration\\Http\\HttpTransport"
+        }
+    },
+    "Laraflow\\Integration\\Http\\TransportPolicy": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $maxAttempts = 1, int $baseDelayMs = 200, float $multiplier = 2, int $maxDelayMs = 2000, float $jitter = 0.2, array $statuses = self::DEFAULT_STATUSES, bool $retryTransportFailures = true, int $maxRetryAfterSeconds = 5): mixed",
+            "delayMs": "delayMs(int $attempt, ?int $retryAfterSeconds, string $seed = \"\"): int",
+            "enabled": "enabled(): bool",
+            "fromArray": "static fromArray(array $config, ?self $base = null): self",
+            "shouldRetryFailure": "shouldRetryFailure(Laraflow\\Integration\\ConnectorRequest $request, int $attempt): bool",
+            "shouldRetryResponse": "shouldRetryResponse(Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\ConnectorRequest $request, int $attempt, ?int $retryAfterSeconds): bool"
+        },
+        "constants": {
+            "DEFAULT_STATUSES": "[429,500,502,503,504]"
+        },
+        "properties": {
+            "baseDelayMs": "readonly int",
+            "jitter": "readonly float",
+            "maxAttempts": "readonly int",
+            "maxDelayMs": "readonly int",
+            "maxRetryAfterSeconds": "readonly int",
+            "multiplier": "readonly float",
+            "retryTransportFailures": "readonly bool",
+            "statuses": "readonly array"
+        }
+    },
+    "Laraflow\\Integration\\Pagination\\CursorPaginator": {
+        "kind": "final class",
+        "implements": [
+            "Laraflow\\Integration\\Pagination\\Paginator"
+        ],
+        "methods": {
+            "__construct": "__construct(string $cursorPath = \"response_metadata.next_cursor\", string $parameter = \"cursor\", ?string $itemsPath = null): mixed",
+            "items": "items(Laraflow\\Integration\\ConnectorResponse $response): array",
+            "next": "next(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response): ?Laraflow\\Integration\\ConnectorRequest"
+        }
+    },
+    "Laraflow\\Integration\\Pagination\\LinkHeaderPaginator": {
+        "kind": "final class",
+        "implements": [
+            "Laraflow\\Integration\\Pagination\\Paginator"
+        ],
+        "methods": {
+            "__construct": "__construct(string $relation = \"next\", ?string $itemsPath = null): mixed",
+            "items": "items(Laraflow\\Integration\\ConnectorResponse $response): array",
+            "next": "next(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response): ?Laraflow\\Integration\\ConnectorRequest"
+        }
+    },
+    "Laraflow\\Integration\\Pagination\\PagePaginator": {
+        "kind": "final class",
+        "implements": [
+            "Laraflow\\Integration\\Pagination\\Paginator"
+        ],
+        "methods": {
+            "__construct": "__construct(string $parameter = \"page\", int $firstPage = 1, ?string $itemsPath = null): mixed",
+            "items": "items(Laraflow\\Integration\\ConnectorResponse $response): array",
+            "next": "next(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response): ?Laraflow\\Integration\\ConnectorRequest"
+        }
+    },
+    "Laraflow\\Integration\\Pagination\\Paginator": {
+        "kind": "interface",
+        "methods": {
+            "items": "items(Laraflow\\Integration\\ConnectorResponse $response): array",
+            "next": "next(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response): ?Laraflow\\Integration\\ConnectorRequest"
+        }
+    },
+    "Laraflow\\Integration\\Slack\\SlackConnector": {
+        "kind": "class",
+        "extends": "Laraflow\\Integration\\HttpConnector",
+        "implements": [
+            "Laraflow\\Integration\\Connector"
+        ],
+        "methods": {
+            "apiVersion": "protected apiVersion(): ?string",
+            "authenticator": "protected authenticator(): Laraflow\\Auth\\Authenticator",
+            "baseUrl": "protected baseUrl(): ?string",
+            "errorMapper": "protected errorMapper(): Laraflow\\Integration\\Http\\ErrorMapper",
+            "headers": "protected headers(): array",
+            "listing": "listing(string $itemsKey): Laraflow\\Integration\\Pagination\\Paginator",
+            "paginator": "protected paginator(): ?Laraflow\\Integration\\Pagination\\Paginator",
+            "read": "read(string $method, array $arguments = []): Laraflow\\Integration\\ConnectorRequest",
+            "write": "write(string $method, array $arguments = []): Laraflow\\Integration\\ConnectorRequest"
+        },
+        "constants": {
+            "BASE_URL": "\"https:\\/\\/slack.com\\/api\""
+        }
+    },
+    "Laraflow\\Integration\\Slack\\SlackErrorMapper": {
+        "kind": "class",
+        "extends": "Laraflow\\Integration\\Http\\StatusErrorMapper",
+        "implements": [
+            "Laraflow\\Integration\\Http\\ErrorMapper"
+        ],
+        "methods": {
+            "describe": "protected describe(Laraflow\\Integration\\ConnectorResponse $response, string $code): string",
+            "map": "map(Laraflow\\Integration\\ConnectorRequest $request, Laraflow\\Integration\\ConnectorResponse $response, Laraflow\\Integration\\Connection $connection): ?Laraflow\\Exceptions\\Connector\\RequestFailedException"
+        },
+        "constants": {
+            "AUTHENTICATION": "[\"invalid_auth\",\"not_authed\",\"account_inactive\",\"token_revoked\",\"token_expired\",\"missing_scope\",\"not_allowed_token_type\",\"no_permission\"]",
+            "NOT_FOUND": "[\"channel_not_found\",\"user_not_found\",\"users_not_found\",\"message_not_found\",\"file_not_found\",\"team_not_found\",\"thread_not_found\"]",
+            "SERVER": "[\"internal_error\",\"fatal_error\",\"service_unavailable\",\"request_timeout\"]"
+        }
+    },
+    "Laraflow\\Observability\\MetricsSnapshot": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(array $executions, ?int $oldestUnfinishedAgeSeconds, int $retriesDue, int $waitsDue, int $overdueSteps, int $deferred, int $stalledSchedules, DateTimeImmutable $takenAt): mixed",
+            "count": "count(Laraflow\\Workflow\\ExecutionStatus $status, ?string $workflow = null): int",
+            "workflows": "workflows(): array"
+        },
+        "constants": {
+            "STATUSES": "[\"pending\",\"running\",\"retrying\",\"waiting\",\"compensating\",\"failed\"]"
+        },
+        "properties": {
+            "deferred": "readonly int",
+            "executions": "readonly array",
+            "oldestUnfinishedAgeSeconds": "readonly ?int",
+            "overdueSteps": "readonly int",
+            "retriesDue": "readonly int",
+            "stalledSchedules": "readonly int",
+            "takenAt": "readonly DateTimeImmutable",
+            "waitsDue": "readonly int"
+        }
+    },
+    "Laraflow\\Observability\\Snapshots": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\ExecutionRepository $repository, Laraflow\\Workflow\\AttentionScan $attention): mixed",
+            "take": "take(DateTimeImmutable $now, ?Laraflow\\Workflow\\ExecutionFilter $scope = null): Laraflow\\Observability\\MetricsSnapshot"
+        }
+    },
+    "Laraflow\\Observability\\Tracing\\NullTracer": {
+        "kind": "final class",
+        "implements": [
+            "Laraflow\\Observability\\Tracing\\Tracer"
+        ],
+        "methods": {
+            "capture": "capture(): ?string",
+            "connectorCallEnded": "connectorCallEnded(): void",
+            "connectorCallStarted": "connectorCallStarted(Laraflow\\Integration\\Connection $connection, Laraflow\\Integration\\ConnectorRequest $request): void",
+            "runEnded": "runEnded(): void",
+            "runStarted": "runStarted(Laraflow\\Workflow\\WorkflowExecution $execution): void",
+            "stepStarted": "stepStarted(Laraflow\\Workflow\\WorkflowExecution $execution, Laraflow\\Workflow\\StepExecution $step): void"
+        }
+    },
+    "Laraflow\\Observability\\Tracing\\Tracer": {
+        "kind": "interface",
+        "methods": {
+            "capture": "capture(): ?string",
+            "connectorCallEnded": "connectorCallEnded(): void",
+            "connectorCallStarted": "connectorCallStarted(Laraflow\\Integration\\Connection $connection, Laraflow\\Integration\\ConnectorRequest $request): void",
+            "runEnded": "runEnded(): void",
+            "runStarted": "runStarted(Laraflow\\Workflow\\WorkflowExecution $execution): void",
+            "stepStarted": "stepStarted(Laraflow\\Workflow\\WorkflowExecution $execution, Laraflow\\Workflow\\StepExecution $step): void"
+        }
+    },
+    "Laraflow\\Queue\\ExecuteWorkflowJob": {
+        "kind": "final class",
+        "implements": [
+            "Illuminate\\Contracts\\Queue\\ShouldQueue"
+        ],
+        "methods": {
+            "__construct": "__construct(int $executionId, ?string $reexecuteFailedAt = null): mixed",
+            "failed": "failed(?Throwable $exception): void",
+            "handle": "handle(Laraflow\\Workflow\\WorkflowRunner $runner, Laraflow\\Workflow\\ExecutionRepository $repository, Laraflow\\Workflow\\WorkflowResolver $resolver, Psr\\Log\\LoggerInterface $logger, Laraflow\\Queue\\WorkflowDispatcher $dispatcher, Illuminate\\Contracts\\Config\\Repository $config): void"
+        },
+        "properties": {
+            "afterCommit": "mixed",
+            "backoff": "int",
+            "chainCatchCallbacks": "mixed",
+            "chainConnection": "mixed",
+            "chainQueue": "mixed",
+            "chained": "mixed",
+            "connection": "mixed",
+            "debounceOwner": "mixed",
+            "deduplicator": "mixed",
+            "delay": "mixed",
+            "executionId": "readonly int",
+            "job": "mixed",
+            "messageGroup": "mixed",
+            "middleware": "mixed",
+            "queue": "mixed",
+            "reexecuteFailedAt": "readonly ?string",
+            "timeout": "int",
+            "tries": "int",
+            "uniqueLockOwner": "mixed"
+        }
+    },
+    "Laraflow\\Queue\\WorkflowDispatcher": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\WorkflowRunner $runner, Laraflow\\Workflow\\ExecutionRepository $repository, Illuminate\\Contracts\\Bus\\Dispatcher $bus, Illuminate\\Contracts\\Config\\Repository $config, Laraflow\\Events\\EventEmitter $events, Psr\\Clock\\ClockInterface $clock, Illuminate\\Database\\DatabaseTransactionsManager $transactions): mixed",
+            "dispatch": "dispatch(Laraflow\\Workflow\\Workflow $workflow, array $input = [], ?string $connection = null, ?string $queue = null, ?Laraflow\\Workflow\\ExecutionOptions $options = null): Laraflow\\Workflow\\WorkflowExecution",
+            "dispatchExecution": "dispatchExecution(int $executionId, ?string $connection = null, ?string $queue = null, ?DateTimeInterface $availableAt = null, bool $reexecuteFailed = false): Laraflow\\Workflow\\WorkflowExecution"
+        }
+    },
+    "Laraflow\\Support\\ErrorRedactor": {
+        "kind": "interface",
+        "methods": {
+            "redact": "redact(Throwable $exception, string $message): string"
+        }
+    },
+    "Laraflow\\Support\\Secret": {
+        "kind": "final class",
+        "implements": [
+            "JsonSerializable",
+            "Stringable"
+        ],
+        "methods": {
+            "__construct": "__construct(string $value): mixed",
+            "__debugInfo": "__debugInfo(): array",
+            "__serialize": "__serialize(): array",
+            "__toString": "__toString(): string",
+            "__unserialize": "__unserialize(array $data): void",
+            "equals": "equals(self $other): bool",
+            "from": "static from(mixed $value): ?self",
+            "jsonSerialize": "jsonSerialize(): string",
+            "reveal": "reveal(): string"
+        },
+        "constants": {
+            "REDACTED": "\"[redacted]\""
+        }
+    },
+    "Laraflow\\Testing\\ConnectorContract": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(?array $statuses = null): mixed",
+            "assertClassifiesErrors": "assertClassifiesErrors(Laraflow\\Integration\\HttpConnector $connector, Laraflow\\Integration\\ConnectorRequest $probe): void",
+            "assertHeldBy": "assertHeldBy(Laraflow\\Integration\\HttpConnector $connector, string $credential, Laraflow\\Integration\\ConnectorRequest $probe): void",
+            "assertHidesCredentialsInErrors": "assertHidesCredentialsInErrors(Laraflow\\Integration\\HttpConnector $connector, string $credential): void",
+            "assertHoldsNoCredentials": "assertHoldsNoCredentials(Laraflow\\Integration\\HttpConnector $connector, string $credential): void",
+            "assertIsInterceptable": "assertIsInterceptable(Laraflow\\Integration\\HttpConnector $connector, Laraflow\\Integration\\ConnectorRequest $probe): void",
+            "assertIsNamed": "assertIsNamed(Laraflow\\Integration\\HttpConnector $connector): void",
+            "assertReturnsErrorsRatherThanThrowing": "assertReturnsErrorsRatherThanThrowing(Laraflow\\Integration\\HttpConnector $connector, Laraflow\\Integration\\ConnectorRequest $probe): void"
+        },
+        "constants": {
+            "STATUSES": "{\"401\":\"Laraflow\\\\Exceptions\\\\Connector\\\\AuthenticationFailedException\",\"403\":\"Laraflow\\\\Exceptions\\\\Connector\\\\AuthenticationFailedException\",\"404\":\"Laraflow\\\\Exceptions\\\\Connector\\\\NotFoundException\",\"422\":\"Laraflow\\\\Exceptions\\\\Connector\\\\ClientErrorException\",\"429\":\"Laraflow\\\\Exceptions\\\\Connector\\\\RateLimitedException\",\"500\":\"Laraflow\\\\Exceptions\\\\Connector\\\\ServerErrorException\",\"503\":\"Laraflow\\\\Exceptions\\\\Connector\\\\ServerErrorException\"}"
+        }
+    },
+    "Laraflow\\Testing\\IdempotencyStoreContract": {
+        "kind": "final class",
+        "methods": {
+            "assertHeldBy": "assertHeldBy(Laraflow\\Workflow\\IdempotencyStore $store, int $executionId, int $stepPosition = 0): void"
+        }
+    },
+    "Laraflow\\Triggers\\SignalIntent": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, string $signal, array $payload = []): mixed"
+        },
+        "properties": {
+            "executionId": "readonly int",
+            "payload": "readonly array",
+            "signal": "readonly string"
+        }
+    },
+    "Laraflow\\Triggers\\TriggerRefusalReason": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "BodyTooLarge": "\"body_too_large\"",
+            "InvalidPayload": "\"invalid_payload\"",
+            "InvalidSignature": "\"invalid_signature\"",
+            "NotWaiting": "\"not_waiting\"",
+            "ResolverFailed": "\"resolver_failed\"",
+            "Stale": "\"stale\"",
+            "TooLarge": "\"too_large\"",
+            "UnknownExecution": "\"unknown_execution\"",
+            "Unsigned": "\"unsigned\""
+        }
+    },
+    "Laraflow\\Triggers\\TriggerSignature": {
+        "kind": "final class",
+        "methods": {
+            "compute": "static compute(string $key, int $timestamp, int $executionId, string $signal, string $body): string",
+            "keys": "static keys(Illuminate\\Contracts\\Config\\Repository $config): array",
+            "matches": "static matches(string $presented, array $keys, int $timestamp, int $executionId, string $signal, string $body): ?int",
+            "parse": "static parse(string $header): ?string",
+            "sign": "static sign(int $executionId, string $signal, string $body = \"\", ?int $timestamp = null): array",
+            "signedString": "static signedString(int $timestamp, int $executionId, string $signal, string $body): string"
+        },
+        "constants": {
+            "MIN_KEY_BYTES": "32",
+            "SIGNATURE_HEADER": "\"X-Laraflow-Signature\"",
+            "TIMESTAMP_HEADER": "\"X-Laraflow-Timestamp\"",
+            "VERSION": "\"v1\""
+        }
+    },
+    "Laraflow\\Triggers\\TriggerVerifier": {
+        "kind": "interface",
+        "methods": {
+            "verify": "verify(Illuminate\\Http\\Request $request): void"
+        }
+    },
+    "Laraflow\\Triggers\\Triggers": {
+        "kind": "final class",
+        "methods": {
+            "register": "static register(string $name, string $verifier, Closure $resolver): void",
+            "routes": "static routes(?string $path = null, ?array $middleware = null): void"
+        }
+    },
+    "Laraflow\\Workflow\\ChildDelivery": {
+        "kind": "interface",
+        "methods": {
+            "deliver": "deliver(int $executionId): void"
+        }
+    },
+    "Laraflow\\Workflow\\ChildProgress": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $parentStepExecutionId, array $counts): mixed",
+            "allCompleted": "allCompleted(): bool",
+            "allFinished": "allFinished(): bool",
+            "cancelled": "cancelled(): int",
+            "completed": "completed(): int",
+            "failed": "failed(): int",
+            "finished": "finished(): int",
+            "none": "static none(int $parentStepExecutionId): self",
+            "of": "of(Laraflow\\Workflow\\ExecutionStatus $status): int",
+            "total": "total(): int",
+            "unfinished": "unfinished(): int"
+        },
+        "properties": {
+            "counts": "readonly array",
+            "parentStepExecutionId": "readonly int"
+        }
+    },
+    "Laraflow\\Workflow\\ChildWorkflows": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\ExecutionRepository $repository, Illuminate\\Contracts\\Container\\Container $container, Laraflow\\Workflow\\ChildDelivery $delivery, int $maxDepth = 8): mixed"
+        }
+    },
+    "Laraflow\\Workflow\\CompensatableStep": {
+        "kind": "interface",
+        "methods": {
+            "compensate": "compensate(Laraflow\\Workflow\\Compensation $compensation): void"
+        }
+    },
+    "Laraflow\\Workflow\\Compensation": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\WorkflowContext $context, int $executionId, string $step, int $position, mixed $output, string $failure, ?string $failureClass, int $attempt): mixed",
+            "context": "context(): Laraflow\\Workflow\\WorkflowContext",
+            "failure": "failure(): string",
+            "output": "output(): mixed"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "executionId": "readonly int",
+            "failure": "readonly string",
+            "failureClass": "readonly ?string",
+            "output": "readonly mixed",
+            "position": "readonly int",
+            "step": "readonly string"
+        }
+    },
+    "Laraflow\\Workflow\\ConditionalStep": {
+        "kind": "interface",
+        "methods": {
+            "shouldRun": "shouldRun(Laraflow\\Workflow\\WorkflowContext $context): bool"
+        }
+    },
+    "Laraflow\\Workflow\\ExecutionFilter": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(array|null|string $workflow = null, Laraflow\\Workflow\\ExecutionStatus|array|null $status = null, ?string $correlationId = null, ?string $tenantId = null, ?DateTimeImmutable $createdAfter = null, ?DateTimeImmutable $createdBefore = null, ?DateTimeImmutable $finishedAfter = null, ?DateTimeImmutable $finishedBefore = null, bool $oldestFirst = false, ?int $parentId = null): mixed",
+            "all": "static all(): self",
+            "isEmpty": "isEmpty(): bool",
+            "withOldestFirst": "withOldestFirst(bool $oldestFirst = true): self",
+            "withStatus": "withStatus(Laraflow\\Workflow\\ExecutionStatus|array|null $status): self"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "createdAfter": "readonly ?DateTimeImmutable",
+            "createdBefore": "readonly ?DateTimeImmutable",
+            "finishedAfter": "readonly ?DateTimeImmutable",
+            "finishedBefore": "readonly ?DateTimeImmutable",
+            "oldestFirst": "readonly bool",
+            "parentId": "readonly ?int",
+            "statuses": "readonly ?array",
+            "tenantId": "readonly ?string",
+            "workflows": "readonly ?array"
+        }
+    },
+    "Laraflow\\Workflow\\ExecutionOptions": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(?string $correlationId = null, ?string $tenantId = null, ?int $parentExecutionId = null, ?int $parentStepExecutionId = null, ?string $traceContext = null): mixed",
+            "isEmpty": "isEmpty(): bool"
+        },
+        "constants": {
+            "MAX_LENGTH": "255"
+        },
+        "properties": {
+            "correlationId": "readonly ?string",
+            "parentExecutionId": "readonly ?int",
+            "parentStepExecutionId": "readonly ?int",
+            "tenantId": "readonly ?string",
+            "traceContext": "readonly ?string"
+        }
+    },
+    "Laraflow\\Workflow\\ExecutionPage": {
+        "kind": "final class",
+        "implements": [
+            "Countable",
+            "IteratorAggregate",
+            "Traversable"
+        ],
+        "methods": {
+            "__construct": "__construct(array $executions, ?string $nextCursor, int $limit): mixed",
+            "count": "count(): int",
+            "getIterator": "getIterator(): Traversable",
+            "hasMore": "hasMore(): bool",
+            "isEmpty": "isEmpty(): bool"
+        },
+        "properties": {
+            "executions": "readonly array",
+            "limit": "readonly int",
+            "nextCursor": "readonly ?string"
+        }
+    },
+    "Laraflow\\Workflow\\ExecutionReader": {
+        "kind": "interface",
+        "methods": {
+            "attemptHistory": "attemptHistory(Laraflow\\Workflow\\WorkflowExecution $execution): array",
+            "attempts": "attempts(Laraflow\\Workflow\\StepExecution $step): array",
+            "childProgress": "childProgress(int $parentStepExecutionId): Laraflow\\Workflow\\ChildProgress",
+            "count": "count(Laraflow\\Workflow\\ExecutionFilter $filter): int",
+            "find": "find(int $id): Laraflow\\Workflow\\WorkflowExecution",
+            "list": "list(Laraflow\\Workflow\\ExecutionFilter $filter, int $limit = 50, ?string $cursor = null): Laraflow\\Workflow\\ExecutionPage",
+            "stepProgress": "stepProgress(array $ids): array",
+            "steps": "steps(Laraflow\\Workflow\\WorkflowExecution $execution): array"
+        },
+        "constants": {
+            "MAX_PAGE_SIZE": "500"
+        }
+    },
+    "Laraflow\\Workflow\\ExecutionRepository": {
+        "kind": "interface",
+        "implements": [
+            "Laraflow\\Workflow\\ExecutionReader",
+            "Laraflow\\Workflow\\ExecutionStore"
+        ]
+    },
+    "Laraflow\\Workflow\\ExecutionStatus": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "methods": {
+            "isFinished": "isFinished(): bool"
+        },
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Cancelled": "\"cancelled\"",
+            "Compensating": "\"compensating\"",
+            "Completed": "\"completed\"",
+            "Failed": "\"failed\"",
+            "Pending": "\"pending\"",
+            "Retrying": "\"retrying\"",
+            "Running": "\"running\"",
+            "Waiting": "\"waiting\""
+        }
+    },
+    "Laraflow\\Workflow\\FanOut": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\Workflow $workflow, array $input = []): mixed",
+            "declaration": "declaration(): array"
+        },
+        "properties": {
+            "input": "readonly array",
+            "workflow": "readonly Laraflow\\Workflow\\Workflow"
+        }
+    },
+    "Laraflow\\Workflow\\FanOutStep": {
+        "kind": "abstract class",
+        "implements": [
+            "Laraflow\\Workflow\\Step"
+        ],
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\FanOutWorkflows $fanOut): mixed",
+            "handle": "final handle(Laraflow\\Workflow\\WorkflowContext $context): mixed",
+            "joinPolicy": "joinPolicy(): Laraflow\\Workflow\\JoinPolicy",
+            "members": "abstract members(Laraflow\\Workflow\\WorkflowContext $context): iterable"
+        },
+        "properties": {
+            "fanOut": "Laraflow\\Workflow\\FanOutWorkflows"
+        }
+    },
+    "Laraflow\\Workflow\\FanOutWorkflows": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\ExecutionRepository $repository, Illuminate\\Contracts\\Container\\Container $container, Laraflow\\Workflow\\ChildDelivery $delivery, Laraflow\\Events\\EventEmitter $events, Psr\\Log\\LoggerInterface $logger, int $maxDepth = 8, int $maxMembers = 1000): mixed"
+        }
+    },
+    "Laraflow\\Workflow\\IdempotencyRecord": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, int $stepPosition, string $key, Laraflow\\Workflow\\IdempotencyStatus $status, mixed $value, ?string $errorClass, DateTimeImmutable $startedAt, ?DateTimeImmutable $settledAt): mixed"
+        },
+        "properties": {
+            "errorClass": "readonly ?string",
+            "executionId": "readonly int",
+            "key": "readonly string",
+            "settledAt": "readonly ?DateTimeImmutable",
+            "startedAt": "readonly DateTimeImmutable",
+            "status": "readonly Laraflow\\Workflow\\IdempotencyStatus",
+            "stepPosition": "readonly int",
+            "value": "readonly mixed"
+        }
+    },
+    "Laraflow\\Workflow\\IdempotencyResolver": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\IdempotencyStore $store, Psr\\Clock\\ClockInterface $clock, Laraflow\\Workflow\\RunnerOptions $options): mixed",
+            "remember": "remember(int $executionId, int $stepPosition, string $step, string $key, Closure $work, ?Closure $reconcile = null): mixed"
+        },
+        "constants": {
+            "MAX_KEY_LENGTH": "255"
+        }
+    },
+    "Laraflow\\Workflow\\IdempotencyStatus": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Failed": "\"failed\"",
+            "Pending": "\"pending\"",
+            "Settled": "\"settled\""
+        }
+    },
+    "Laraflow\\Workflow\\IdempotencyStore": {
+        "kind": "interface",
+        "methods": {
+            "begin": "begin(int $executionId, int $stepPosition, string $key, DateTimeImmutable $at): ?Laraflow\\Workflow\\IdempotencyRecord",
+            "count": "count(int $executionId): int",
+            "fail": "fail(int $executionId, int $stepPosition, string $key, string $errorClass, DateTimeImmutable $at): void",
+            "records": "records(int $executionId): array",
+            "release": "release(int $executionId, int $stepPosition, string $key): bool",
+            "settle": "settle(int $executionId, int $stepPosition, string $key, mixed $value, DateTimeImmutable $at): void"
+        }
+    },
+    "Laraflow\\Workflow\\JoinPolicy": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "WaitAll": "\"wait_all\""
+        }
+    },
+    "Laraflow\\Workflow\\MissedTickPolicy": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "CatchUp": "\"catch_up\"",
+            "Skip": "\"skip\""
+        }
+    },
+    "Laraflow\\Workflow\\PlanDraft": {
+        "kind": "final class",
+        "methods": {
+            "append": "append(string $step): self",
+            "frozenBefore": "frozenBefore(): int",
+            "insertAfter": "insertAfter(string $existing, string $step): self",
+            "insertBefore": "insertBefore(string $existing, string $step): self",
+            "of": "static of(string $workflow, array $steps, int $frozenBefore = 0, array $statuses = []): self",
+            "operations": "operations(): array",
+            "remove": "remove(string $step): self",
+            "replace": "replace(string $old, string $new): self",
+            "steps": "steps(): array",
+            "tail": "tail(): array"
+        }
+    },
+    "Laraflow\\Workflow\\Policy\\FailurePolicy": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Continue": "\"continue\"",
+            "Stop": "\"stop\""
+        }
+    },
+    "Laraflow\\Workflow\\Policy\\HasStepPolicy": {
+        "kind": "interface",
+        "methods": {
+            "stepPolicy": "stepPolicy(): Laraflow\\Workflow\\Policy\\StepPolicy"
+        }
+    },
+    "Laraflow\\Workflow\\Policy\\StepPolicy": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $maxAttempts = 1, int $baseDelaySeconds = 5, float $multiplier = 2, int $maxDelaySeconds = 300, float $jitter = 0.2, array $retryOn = [], array $dontRetryOn = [], ?int $timeoutSeconds = null): mixed",
+            "delaySeconds": "delaySeconds(int $attempt, string $seed = \"\"): int"
+        },
+        "constants": {
+            "NEVER_RETRY": "[\"Laraflow\\\\Exceptions\\\\Workflow\\\\UnserializableValueException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\PayloadTooLargeException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\WorkflowDefinitionMismatchException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\InvalidWorkflowDefinitionException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\InvalidStateTransitionException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\ClaimLostException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\IdempotentOutcomeUncertainException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\InvalidIdempotencyKeyException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\TooManyIdempotencyKeysException\",\"Laraflow\\\\Exceptions\\\\Workflow\\\\IdempotencyStoreUnavailableException\"]"
+        },
+        "properties": {
+            "baseDelaySeconds": "readonly int",
+            "dontRetryOn": "readonly array",
+            "jitter": "readonly float",
+            "maxAttempts": "readonly int",
+            "maxDelaySeconds": "readonly int",
+            "multiplier": "readonly float",
+            "retryOn": "readonly array",
+            "timeoutSeconds": "readonly ?int"
+        }
+    },
+    "Laraflow\\Workflow\\RecoveryReason": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "methods": {
+            "isInterruption": "isInterruption(): bool",
+            "label": "label(): string"
+        },
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "NeverDispatched": "\"never_dispatched\"",
+            "RetryDue": "\"retry_due\"",
+            "StaleClaim": "\"stale_claim\"",
+            "StepTimeout": "\"step_timeout\"",
+            "WaitDue": "\"wait_due\""
+        }
+    },
+    "Laraflow\\Workflow\\RetentionPolicy": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(?int $scrubAfterDays = null, ?int $pruneAttemptsAfterDays = null, ?int $deleteAfterDays = null, ?int $deleteFailedAfterDays = null, ?int $pruneTicksAfterDays = null, int $limit = 1000, int $chunk = 100): mixed",
+            "cutoff": "cutoff(Laraflow\\Workflow\\RetentionTier $tier, DateTimeImmutable $now, bool $failed = false): ?DateTimeImmutable",
+            "fromArray": "static fromArray(array $config): self",
+            "isEnabled": "isEnabled(): bool",
+            "warnings": "warnings(): array"
+        },
+        "constants": {
+            "MAX_CHUNK": "500"
+        },
+        "properties": {
+            "chunk": "readonly int",
+            "deleteAfterDays": "readonly ?int",
+            "deleteFailedAfterDays": "readonly ?int",
+            "limit": "readonly int",
+            "pruneAttemptsAfterDays": "readonly ?int",
+            "pruneTicksAfterDays": "readonly ?int",
+            "scrubAfterDays": "readonly ?int"
+        }
+    },
+    "Laraflow\\Workflow\\RetentionTier": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Delete": "\"delete\"",
+            "PruneAttempts": "\"prune_attempts\"",
+            "ScrubPayloads": "\"scrub_payloads\""
+        }
+    },
+    "Laraflow\\Workflow\\Schedule": {
+        "kind": "final class",
+        "methods": {
+            "cron": "static cron(string $expression): self",
+            "input": "input(Closure|array $input): self",
+            "onMissedTicks": "onMissedTicks(Laraflow\\Workflow\\MissedTickPolicy $policy): self",
+            "tenant": "tenant(string $tenantId): self",
+            "timezone": "timezone(string $timezone): self",
+            "withoutOverlapping": "withoutOverlapping(bool $withoutOverlapping = true): self"
+        },
+        "properties": {
+            "expression": "readonly string",
+            "missedTickPolicy": "readonly Laraflow\\Workflow\\MissedTickPolicy",
+            "tenantId": "readonly ?string",
+            "timezone": "readonly ?string",
+            "withoutOverlapping": "readonly bool"
+        }
+    },
+    "Laraflow\\Workflow\\Scheduling\\ScheduleRegistry": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Illuminate\\Contracts\\Container\\Container $container, Illuminate\\Contracts\\Config\\Repository $config): mixed",
+            "classes": "classes(): array",
+            "register": "register(string $workflow): void"
+        }
+    },
+    "Laraflow\\Workflow\\Scheduling\\ScheduleRepository": {
+        "kind": "interface",
+        "methods": {
+            "all": "all(): array",
+            "claimTick": "claimTick(Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow $schedule, DateTimeImmutable $tickAt, Laraflow\\Workflow\\Scheduling\\TickOutcome $outcome, ?Closure $start, DateTimeImmutable $claimedAt, int $missed = 0, ?DateTimeImmutable $missedFrom = null, ?int $overlappedExecutionId = null): Laraflow\\Workflow\\Scheduling\\ScheduleTick",
+            "countTicksBefore": "countTicksBefore(DateTimeImmutable $before): int",
+            "find": "find(string $workflow): ?Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow",
+            "forget": "forget(string $workflow): void",
+            "lastFiredTick": "lastFiredTick(int $scheduleId): ?Laraflow\\Workflow\\Scheduling\\ScheduleTick",
+            "lastTick": "lastTick(int $scheduleId): ?Laraflow\\Workflow\\Scheduling\\ScheduleTick",
+            "pause": "pause(string $workflow, DateTimeImmutable $at): Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow",
+            "pruneTicks": "pruneTicks(DateTimeImmutable $before, int $limit): int",
+            "redispatchCandidates": "redispatchCandidates(DateTimeImmutable $before, int $limit): array",
+            "resume": "resume(string $workflow, DateTimeImmutable $at): Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow",
+            "sync": "sync(Laraflow\\Workflow\\Scheduling\\ScheduleDefinition $definition, DateTimeImmutable $now): Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow",
+            "tickForExecution": "tickForExecution(int $executionId): ?Laraflow\\Workflow\\Scheduling\\ScheduleTick"
+        }
+    },
+    "Laraflow\\Workflow\\Scheduling\\ScheduleTick": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $id, int $scheduleId, DateTimeImmutable $tickAt, Laraflow\\Workflow\\Scheduling\\TickOutcome $outcome, ?int $workflowExecutionId, int $missed, ?DateTimeImmutable $missedFrom, ?int $overlappedExecutionId, ?DateTimeImmutable $createdAt): mixed"
+        },
+        "properties": {
+            "createdAt": "readonly ?DateTimeImmutable",
+            "id": "readonly int",
+            "missed": "readonly int",
+            "missedFrom": "readonly ?DateTimeImmutable",
+            "outcome": "readonly Laraflow\\Workflow\\Scheduling\\TickOutcome",
+            "overlappedExecutionId": "readonly ?int",
+            "scheduleId": "readonly int",
+            "tickAt": "readonly DateTimeImmutable",
+            "workflowExecutionId": "readonly ?int"
+        }
+    },
+    "Laraflow\\Workflow\\Scheduling\\ScheduledWorkflow": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $id, string $workflow, string $cron, string $timezone, Laraflow\\Workflow\\MissedTickPolicy $missedTickPolicy, bool $withoutOverlapping, ?string $tenantId, ?DateTimeImmutable $lastTickAt, ?DateTimeImmutable $pausedAt, ?DateTimeImmutable $declaredAt, ?DateTimeImmutable $createdAt = null): mixed",
+            "isPaused": "isPaused(): bool"
+        },
+        "properties": {
+            "createdAt": "readonly ?DateTimeImmutable",
+            "cron": "readonly string",
+            "declaredAt": "readonly ?DateTimeImmutable",
+            "id": "readonly int",
+            "lastTickAt": "readonly ?DateTimeImmutable",
+            "missedTickPolicy": "readonly Laraflow\\Workflow\\MissedTickPolicy",
+            "pausedAt": "readonly ?DateTimeImmutable",
+            "tenantId": "readonly ?string",
+            "timezone": "readonly string",
+            "withoutOverlapping": "readonly bool",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Workflow\\Scheduling\\TickOutcome": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "CaughtUp": "\"caught_up\"",
+            "SkippedOverlap": "\"skipped_overlap\"",
+            "Started": "\"started\""
+        }
+    },
+    "Laraflow\\Workflow\\SignalReceipt": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\WorkflowExecution $execution, bool $buffered): mixed",
+            "resumed": "resumed(): bool"
+        },
+        "properties": {
+            "buffered": "readonly bool",
+            "execution": "readonly Laraflow\\Workflow\\WorkflowExecution"
+        }
+    },
+    "Laraflow\\Workflow\\Step": {
+        "kind": "interface",
+        "methods": {
+            "handle": "handle(Laraflow\\Workflow\\WorkflowContext $context): mixed"
+        }
+    },
+    "Laraflow\\Workflow\\StepAttempt": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $executionId, int $stepExecutionId, int $attempt, Laraflow\\Workflow\\StepAttemptStatus $status, ?string $error = null, ?string $errorClass = null, ?DateTimeImmutable $startedAt = null, ?DateTimeImmutable $endedAt = null, ?DateTimeImmutable $nextRetryAt = null): mixed",
+            "durationMs": "durationMs(): ?int"
+        },
+        "properties": {
+            "attempt": "readonly int",
+            "endedAt": "readonly ?DateTimeImmutable",
+            "error": "readonly ?string",
+            "errorClass": "readonly ?string",
+            "executionId": "readonly int",
+            "nextRetryAt": "readonly ?DateTimeImmutable",
+            "startedAt": "readonly ?DateTimeImmutable",
+            "status": "readonly Laraflow\\Workflow\\StepAttemptStatus",
+            "stepExecutionId": "readonly int"
+        }
+    },
+    "Laraflow\\Workflow\\StepAttemptStatus": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Completed": "\"completed\"",
+            "Failed": "\"failed\"",
+            "Interrupted": "\"interrupted\"",
+            "TimedOut": "\"timed_out\""
+        }
+    },
+    "Laraflow\\Workflow\\StepExecution": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $id, int $executionId, string $step, int $position, ?int $compensatesStepExecutionId = null, Laraflow\\Workflow\\StepStatus $status = Laraflow\\Workflow\\StepStatus::Pending, int $attempts = 0, mixed $input = null, mixed $output = null, ?string $error = null, ?string $errorClass = null, ?DateTimeImmutable $startedAt = null, ?DateTimeImmutable $completedAt = null, ?DateTimeImmutable $failedAt = null, ?DateTimeImmutable $timeoutAt = null, ?DateTimeImmutable $nextRetryAt = null, ?string $waitSignal = null): mixed",
+            "declare": "declare(mixed $input): void",
+            "isCompensation": "isCompensation(): bool",
+            "isCompleted": "isCompleted(): bool",
+            "isFailed": "isFailed(): bool",
+            "isPending": "isPending(): bool",
+            "isRetrying": "isRetrying(): bool",
+            "isRunning": "isRunning(): bool",
+            "isSkipped": "isSkipped(): bool",
+            "isWaiting": "isWaiting(): bool",
+            "markCompleted": "markCompleted(mixed $output, DateTimeImmutable $at): void",
+            "markFailed": "markFailed(string $error, string $errorClass, DateTimeImmutable $at): void",
+            "markRetrying": "markRetrying(string $error, string $errorClass, DateTimeImmutable $at, DateTimeImmutable $nextRetryAt): void",
+            "markRunning": "markRunning(DateTimeImmutable $at, ?DateTimeImmutable $timeoutAt = null): void",
+            "markSkipped": "markSkipped(DateTimeImmutable $at): void",
+            "markWaiting": "markWaiting(?string $signal, ?DateTimeImmutable $resumeAt, ?DateTimeImmutable $timeoutAt): void"
+        },
+        "properties": {
+            "attempts": "int",
+            "compensatesStepExecutionId": "readonly ?int",
+            "completedAt": "?DateTimeImmutable",
+            "error": "?string",
+            "errorClass": "?string",
+            "executionId": "readonly int",
+            "failedAt": "?DateTimeImmutable",
+            "id": "readonly int",
+            "input": "mixed",
+            "nextRetryAt": "?DateTimeImmutable",
+            "output": "mixed",
+            "position": "readonly int",
+            "startedAt": "?DateTimeImmutable",
+            "status": "Laraflow\\Workflow\\StepStatus",
+            "step": "readonly string",
+            "timeoutAt": "?DateTimeImmutable",
+            "waitSignal": "?string"
+        }
+    },
+    "Laraflow\\Workflow\\StepStatus": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Completed": "\"completed\"",
+            "Failed": "\"failed\"",
+            "Pending": "\"pending\"",
+            "Retrying": "\"retrying\"",
+            "Running": "\"running\"",
+            "Skipped": "\"skipped\"",
+            "Waiting": "\"waiting\""
+        }
+    },
+    "Laraflow\\Workflow\\SubWorkflowStep": {
+        "kind": "abstract class",
+        "implements": [
+            "Laraflow\\Workflow\\Step"
+        ],
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\ChildWorkflows $children): mixed",
+            "handle": "final handle(Laraflow\\Workflow\\WorkflowContext $context): mixed",
+            "input": "input(Laraflow\\Workflow\\WorkflowContext $context): array",
+            "workflow": "abstract workflow(Laraflow\\Workflow\\WorkflowContext $context): Laraflow\\Workflow\\Workflow"
+        },
+        "properties": {
+            "children": "Laraflow\\Workflow\\ChildWorkflows"
+        }
+    },
+    "Laraflow\\Workflow\\Tenancy\\TenantCeiling": {
+        "kind": "enum",
+        "implements": [
+            "BackedEnum",
+            "UnitEnum"
+        ],
+        "properties": {
+            "name": "readonly string",
+            "value": "readonly string"
+        },
+        "cases": {
+            "Concurrency": "\"concurrency\"",
+            "Rate": "\"rate\""
+        }
+    },
+    "Laraflow\\Workflow\\Tenancy\\TenantLimits": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(?int $maxConcurrent = null, ?int $maxClaimsPerMinute = null): mixed",
+            "bounded": "bounded(): bool",
+            "none": "static none(): self"
+        },
+        "properties": {
+            "maxClaimsPerMinute": "readonly ?int",
+            "maxConcurrent": "readonly ?int"
+        }
+    },
+    "Laraflow\\Workflow\\Tenancy\\TenantPolicy": {
+        "kind": "interface",
+        "methods": {
+            "limitsFor": "limitsFor(string $tenantId): Laraflow\\Workflow\\Tenancy\\TenantLimits"
+        }
+    },
+    "Laraflow\\Workflow\\Wait": {
+        "kind": "final class",
+        "methods": {
+            "forSignal": "static forSignal(string $name): self",
+            "timeoutAfterSeconds": "timeoutAfterSeconds(int $seconds): self",
+            "until": "static until(DateTimeImmutable $instant): self",
+            "untilSeconds": "static untilSeconds(int $seconds): self"
+        },
+        "constants": {
+            "CHILD_PREFIX": "\"laraflow.child.\"",
+            "JOIN_PREFIX": "\"laraflow.join.\"",
+            "MAX_SIGNAL_LENGTH": "255",
+            "RESERVED_PREFIX": "\"laraflow.\""
+        },
+        "properties": {
+            "resumeAfterSeconds": "readonly ?int",
+            "resumeAt": "readonly ?DateTimeImmutable",
+            "signal": "readonly ?string",
+            "timeoutAfterSeconds": "readonly ?int"
+        }
+    },
+    "Laraflow\\Workflow\\Workflow": {
+        "kind": "abstract class",
+        "methods": {
+            "defaultStepPolicy": "defaultStepPolicy(): ?Laraflow\\Workflow\\Policy\\StepPolicy",
+            "failurePolicy": "failurePolicy(): Laraflow\\Workflow\\Policy\\FailurePolicy",
+            "planMigrations": "planMigrations(): array",
+            "schedule": "schedule(): ?Laraflow\\Workflow\\Schedule",
+            "steps": "abstract steps(): array",
+            "version": "version(): int"
+        }
+    },
+    "Laraflow\\Workflow\\WorkflowContext": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(array $data = [], ?int $executionId = null, ?string $correlationId = null, ?string $tenantId = null, ?Laraflow\\Workflow\\IdempotencyResolver $idempotency = null): mixed",
+            "all": "all(): array",
+            "attempt": "attempt(): int",
+            "correlationId": "correlationId(): ?string",
+            "deadline": "deadline(): ?DateTimeImmutable",
+            "executionId": "executionId(): ?int",
+            "forget": "forget(string $key): void",
+            "get": "get(string $key, mixed $default = null): mixed",
+            "has": "has(string $key): bool",
+            "idempotencyKey": "idempotencyKey(): string",
+            "remainingSeconds": "remainingSeconds(?DateTimeImmutable $now = null): ?int",
+            "remember": "remember(string $key, Closure $work, ?Closure $reconcile = null): mixed",
+            "set": "set(string $key, mixed $value): void",
+            "stepPosition": "stepPosition(): ?int",
+            "tenantId": "tenantId(): ?string"
+        }
+    },
+    "Laraflow\\Workflow\\WorkflowExecution": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(int $id, string $workflow, array $input = [], Laraflow\\Workflow\\ExecutionStatus $status = Laraflow\\Workflow\\ExecutionStatus::Pending, array $context = [], ?string $error = null, ?string $errorClass = null, ?string $claimToken = null, ?DateTimeImmutable $claimedAt = null, ?DateTimeImmutable $createdAt = null, ?DateTimeImmutable $startedAt = null, ?DateTimeImmutable $completedAt = null, ?DateTimeImmutable $failedAt = null, ?DateTimeImmutable $nextRetryAt = null, ?DateTimeImmutable $cancelRequestedAt = null, ?DateTimeImmutable $cancelledAt = null, ?string $cancelReason = null, ?string $correlationId = null, ?string $tenantId = null, int $planVersion = 1, ?int $parentExecutionId = null, ?int $parentStepExecutionId = null, ?DateTimeImmutable $dispatchedAt = null, ?DateTimeImmutable $availableAt = null, ?DateTimeImmutable $finishedAt = null, ?DateTimeImmutable $payloadsScrubbedAt = null, int $fruitlessClaims = 0, ?int $persistedDurationMs = null, ?DateTimeImmutable $deferredUntil = null, int $deferrals = 0, ?string $traceContext = null): mixed",
+            "durationMs": "durationMs(): ?int",
+            "isCancelled": "isCancelled(): bool",
+            "isCompensating": "isCompensating(): bool",
+            "isCompleted": "isCompleted(): bool",
+            "isFailed": "isFailed(): bool",
+            "isFinished": "isFinished(): bool",
+            "isPending": "isPending(): bool",
+            "isRetrying": "isRetrying(): bool",
+            "isRunning": "isRunning(): bool",
+            "isWaiting": "isWaiting(): bool",
+            "markCancelled": "markCancelled(DateTimeImmutable $at, ?string $reason = null): void",
+            "markCompensating": "markCompensating(string $error, string $errorClass): void",
+            "markCompleted": "markCompleted(DateTimeImmutable $at): void",
+            "markFailed": "markFailed(string $error, string $errorClass, DateTimeImmutable $at): void",
+            "markRetrying": "markRetrying(string $error, string $errorClass, DateTimeImmutable $nextRetryAt): void",
+            "markRunning": "markRunning(DateTimeImmutable $at): void",
+            "markWaiting": "markWaiting(?DateTimeImmutable $nextEventAt): void",
+            "queueLagSeconds": "queueLagSeconds(DateTimeImmutable $claimedAt): ?int"
+        },
+        "properties": {
+            "availableAt": "?DateTimeImmutable",
+            "cancelReason": "?string",
+            "cancelRequestedAt": "?DateTimeImmutable",
+            "cancelledAt": "?DateTimeImmutable",
+            "claimToken": "?string",
+            "claimedAt": "?DateTimeImmutable",
+            "completedAt": "?DateTimeImmutable",
+            "context": "array",
+            "correlationId": "readonly ?string",
+            "createdAt": "readonly ?DateTimeImmutable",
+            "deferrals": "readonly int",
+            "deferredUntil": "readonly ?DateTimeImmutable",
+            "dispatchedAt": "?DateTimeImmutable",
+            "error": "?string",
+            "errorClass": "?string",
+            "failedAt": "?DateTimeImmutable",
+            "finishedAt": "?DateTimeImmutable",
+            "fruitlessClaims": "readonly int",
+            "id": "readonly int",
+            "input": "readonly array",
+            "nextRetryAt": "?DateTimeImmutable",
+            "parentExecutionId": "readonly ?int",
+            "parentStepExecutionId": "readonly ?int",
+            "payloadsScrubbedAt": "?DateTimeImmutable",
+            "planVersion": "int",
+            "resumedFrom": "?Laraflow\\Workflow\\ExecutionStatus",
+            "startedAt": "?DateTimeImmutable",
+            "status": "Laraflow\\Workflow\\ExecutionStatus",
+            "tenantId": "readonly ?string",
+            "traceContext": "readonly ?string",
+            "workflow": "readonly string"
+        }
+    },
+    "Laraflow\\Workflow\\WorkflowRunner": {
+        "kind": "final class",
+        "methods": {
+            "__construct": "__construct(Laraflow\\Workflow\\ExecutionRepository $repository, Illuminate\\Contracts\\Container\\Container $container, Psr\\Log\\LoggerInterface $logger, Laraflow\\Workflow\\RunnerOptions $options, Laraflow\\Events\\EventEmitter $events, Psr\\Clock\\ClockInterface $clock, Laraflow\\Workflow\\Policy\\PolicyResolver $policies, Laraflow\\Support\\ErrorRedactor $redactor, Laraflow\\Support\\ExecutionScope $scope, Laraflow\\Workflow\\ChildDelivery $childDelivery, Laraflow\\Workflow\\IdempotencyResolver $idempotency): mixed",
+            "cancel": "cancel(int $executionId, ?string $reason = null): Laraflow\\Workflow\\WorkflowExecution",
+            "execute": "execute(int $executionId, Laraflow\\Workflow\\Workflow $workflow, bool $ignoreRetrySchedule = false, bool $reexecuteFailed = true): Laraflow\\Workflow\\WorkflowExecution",
+            "recordSignal": "recordSignal(int $executionId, string $signal, array $payload = []): Laraflow\\Workflow\\SignalReceipt",
+            "run": "run(Laraflow\\Workflow\\Workflow $workflow, array $input = [], ?Laraflow\\Workflow\\ExecutionOptions $options = null): Laraflow\\Workflow\\WorkflowExecution",
+            "signal": "signal(int $executionId, string $signal, array $payload = []): Laraflow\\Workflow\\WorkflowExecution",
+            "start": "start(Laraflow\\Workflow\\Workflow $workflow, array $input = [], ?Laraflow\\Workflow\\ExecutionOptions $options = null): Laraflow\\Workflow\\WorkflowExecution"
+        }
+    }
+}

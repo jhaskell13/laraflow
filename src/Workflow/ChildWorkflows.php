@@ -32,6 +32,8 @@ final class ChildWorkflows
     ) {}
 
     /**
+     * @internal The sub-workflow step calls this through its final handle(); public-api.md: its methods beyond construction are not a contract.
+     *
      * The parent step's outcome: a Wait on the child's reserved signal,
      * or — when the child already finished, as it does inline on the
      * sync queue driver — the outcome itself, completing or failing the

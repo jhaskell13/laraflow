@@ -49,6 +49,8 @@ final class PlanDraft
     }
 
     /**
+     * @internal How PlanMigrator builds the draft it hands a migration.
+     *
      * Build a draft from the execution's persisted step rows.
      *
      * @param  StepExecution[]  $stepExecutions  In position order.

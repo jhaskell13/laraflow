@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Laraflow\Triggers;
 
 /**
- * @experimental Triggers are new in Milestone 10; see docs/triggers.md.
- *
  * Why a trigger request was refused — carried on the TriggerRefused
  * event and written to the log, never to the response. Every
  * verification failure answers the same 401 so a caller learns nothing

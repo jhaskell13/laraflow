@@ -11,8 +11,6 @@ use Laraflow\Workflow\ExecutionFilter;
 use Laraflow\Workflow\ExecutionRepository;
 
 /**
- * @experimental Until 1.0; see docs/metrics.md.
- *
  * Takes a MetricsSnapshot: the read an application makes to set its
  * own gauges — on a schedule, or on each scrape (docs/metrics.md).
  *

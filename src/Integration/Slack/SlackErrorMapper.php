@@ -23,8 +23,6 @@ use Laraflow\Integration\Http\StatusErrorMapper;
  * The error codes are grouped into the same types any other connector
  * produces, so an application can catch AuthenticationFailedException
  * without knowing which provider raised it.
- *
- * @experimental With the connector it belongs to.
  */
 class SlackErrorMapper extends StatusErrorMapper
 {

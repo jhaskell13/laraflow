@@ -8,8 +8,6 @@ use Illuminate\Http\Request;
 use Laraflow\Exceptions\TriggerRefusedException;
 
 /**
- * @experimental Triggers are new in Milestone 10; see docs/triggers.md.
- *
  * How a named trigger decides a provider's request is genuine. The
  * provider signs its own way — Stripe's header, GitHub's, a shared
  * token — and the application already knows how to check it; this is

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Laraflow\Workflow;
 
 /**
- * @experimental What recording a signal did: resumed a step parked on
+ * What recording a signal did: resumed a step parked on
  * that name (the execution is due now), or buffered it in the signal
  * inbox until a step parks on the name. Callers that report the outcome
  * — the console, the dashboard, the trigger endpoint — read this rather
