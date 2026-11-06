@@ -1,10 +1,13 @@
 # Dependencies
 /vendor/
 
-# Environment / local configuration
+# Environment / local configuration. There is no tracked .env.example:
+# the package has no application environment of its own, the playground
+# gets its variables from testbench.yaml, and the test database is
+# configured through the LARAFLOW_TEST_DB_* variables CONTRIBUTING
+# documents.
 .env
 .env.*
-!.env.example
 
 # IDEs / editors
 .idea/

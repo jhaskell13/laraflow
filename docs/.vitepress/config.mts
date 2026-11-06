@@ -90,6 +90,7 @@ export default defineConfig({
           { text: 'Retention', link: '/retention' },
           { text: 'Upgrading', link: '/upgrading' },
           { text: 'Releases and support', link: '/releases' },
+          { text: 'The soak and benchmark suite', link: '/soak' },
         ],
       },
       {
@@ -104,6 +105,7 @@ export default defineConfig({
         items: [
           { text: 'Public API and stability', link: '/public-api' },
           { text: 'Compatibility', link: '/compatibility' },
+          { text: 'Threat model', link: '/threat-model' },
           { text: 'Decision records', link: '/decisions/README' },
         ],
       },

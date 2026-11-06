@@ -40,8 +40,9 @@ runs:
     # Counted from the package rather than written down: the laraflow:*
     # commands are the classes directly under src/Console plus the three
     # laraflow:make-* generators under src/Console/Generators. The old
-    # make:* names survive only as hidden deprecated commands, which `list
-    # --raw` does not print, so they are not counted here.
+    # pre-0.6.0 make:* names were hidden deprecated forwarders and were
+    # removed in 1.0, so every command the package registers is now
+    # named under the laraflow: prefix and every one is counted here.
     - name: Auto-discovery registered the provider and every command
       shell: bash
       working-directory: ${{ inputs.app }}

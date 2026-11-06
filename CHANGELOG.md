@@ -8,6 +8,24 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
+Milestone 12, in progress: production validation and 1.0.
+
+### Added
+
+- **Milestone 12's contracts, written before its code.** [docs/threat-model.md](docs/threat-model.md) is what the milestone's security review is conducted *against*: the eight trust boundaries with what crosses each, what Laraflow checks there and what remains; the attacker models the review works through; and the nine invariants a finding would falsify. `SECURITY.md` keeps its scope list and now points at the reasoning behind it. [docs/soak.md](docs/soak.md) fixes the soak and benchmark suite before it exists — the mixed workload, the four injected faults, the nine invariants asserted after every round, the benchmark numbers published rather than gated, and what the suite does *not* cover.
+
+- **Two decision records.** [0012](docs/decisions/0012-what-1.0-freezes.md) decides what 1.0 freezes: Public becomes semver-covered and is held by a committed API signature baseline rather than by care; the console's command names and `--json` envelope, the dashboard, the triggers, the metrics snapshot, the tracing hook, and both bundled connectors are promoted to Public; `ExecutionStore` stays Experimental deliberately, which is [0006](docs/decisions/0006-a-small-final-public-surface.md) holding rather than an oversight; and the bundled connectors stay in this repository, because calling an external service is the package's job in a way running an application's monitoring was not ([0011](docs/decisions/0011-one-optional-package.md)). [0013](docs/decisions/0013-what-the-soak-proves.md) replaces the soak's calendar-shaped exit criterion with a stated budget, and records that the injected database fault is container loss and recovery — not a promoted replica.
+
+- **The post-1.0 compatibility and support policy.** [docs/releases.md](docs/releases.md) gains the versioning rules, cadence, and removal path that take effect at 1.0, and the **long-term-support window**: the last minor of an outgoing major receives security fixes for 12 months after the next major is published, so an application has a year to make the changes a major asks for without running unpatched. `SECURITY.md` carries the same window and remains its authority. `docs/compatibility.md` records why the deprecation marker stays a `@deprecated` docblock rather than PHP 8.4's `#[\Deprecated]` attribute: the supported floor is 8.2, and the attribute emits exactly the runtime notice this project declines to emit.
+
+### Breaking
+
+- **The pre-0.6.0 generator names are removed.** `make:workflow`, `make:step`, and `make:connector` have been hidden deprecated forwarders since 0.6.0, which announced their removal; use `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`. 1.0 is the last release allowed to remove them — after it, a removal waits for a major. The contract test that held them now holds something more durable: every command Laraflow registers is named under the `laraflow:` prefix, so the package can never again collide with Laravel's own namespace or another package's.
+
+### Fixed
+
+- **Release hygiene a 1.0 cannot carry.** `v0.6.0` was never tagged, so the changelog's `[0.6.0]` compare link pointed at nothing and `SECURITY.md`'s support table promised fixes for a "previous minor" that had no tag; the tag now exists and the table names the versions. `CONTRIBUTING.md` states that release tags are annotated — `v0.2.0` is the one lightweight tag in the history, left as it is rather than moved — and that they are signed once the maintainer has a key configured. The empty, unreferenced `.env.example` is gone, with the `.gitignore` entry that preserved it, and `.gitattributes` no longer export-ignores a file that does not exist; its comment now names `MAINTAINERS.md`, which has shipped in the dist archive since 0.7.0 without being listed.
+
 ## [0.7.0] - 2026-11-05
 
 Milestone 11: what an application needs to observe Laraflow, without Laraflow running the application's monitoring. An exact metrics snapshot for gauges, beside the lifecycle events for counters; a tracing hook in the core and one optional package, `laraflow/opentelemetry`, that joins an execution's runs into one trace across workers and days; a documentation site built from `docs/` with the README cut to a page; connector packages published and listed with the contract test as the review; issue forms, a maintainers file, and a release and support policy; and Horizon and Octane guidance held by tests. The milestone was narrowed partway ([decision 0011](docs/decisions/0011-one-optional-package.md)): metrics packages for Prometheus, StatsD, and Pulse were built and removed before release. Everything new is Experimental until 1.0. One additive migration, safe against live workers.

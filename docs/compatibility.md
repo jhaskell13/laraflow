@@ -149,7 +149,9 @@ Under Horizon, see [queue-and-recovery.md](queue-and-recovery.md#under-horizon) 
 Laraflow follows [Semantic Versioning 2.0](https://semver.org). What counts as the public API for versioning purposes is exactly what [public-api.md](public-api.md) marks **Public**: experimental classes may change in any minor, and internal ones in any release.
 
 - **Before 1.0:** `0.x` minor versions may contain breaking changes. Each is documented in `CHANGELOG.md` under **Breaking** with upgrade notes. Patch versions are backwards compatible.
-- **After 1.0:** breaking changes only in major versions, with a deprecation period of at least one minor version where practical.
+- **After 1.0:** breaking changes only in major versions, after the deprecation path below, with at least one minor release carrying the deprecation first. Minors add; patches fix.
+
+What 1.0 freezes — and the one surface deliberately left outside the freeze — is [decision 0012](decisions/0012-what-1.0-freezes.md). The freeze is held by a committed API signature baseline rather than by care: a test fails if any Public method signature, constant, enum case, or property type changes, so moving one is a reviewable diff that has to argue for itself, the way a schema change already does. The support window, including the long-term-support commitment to the last minor of an outgoing major, is in [releases.md](releases.md#support-window).
 
 ### How a deprecation works
 
@@ -160,6 +162,8 @@ A deprecation is visible in three places before anything is removed, so no remov
 3. **The removal** happens no sooner than the next major (post-1.0) or the next minor (pre-1.0), and is listed under *Removed*.
 
 Deprecated code keeps working and keeps its tests until it is removed. Laraflow does not emit runtime deprecation notices for its own API — the suite runs with `failOnDeprecation`, and a library that warns on every call punishes the applications that upgrade most carefully. Configuration keys follow the same path: a renamed key keeps its old name working for the deprecation window, with the old name noted in `config/laraflow.php`.
+
+**The docblock is the marker, not PHP's `#[\Deprecated]` attribute.** The attribute arrived in PHP 8.4 and the supported floor is 8.2, so an attribute would be invisible on two of the four supported versions and, where it is visible, emits exactly the runtime notice the paragraph above declines to emit. `@deprecated` is read by every IDE and by PHPStan on every supported version. If the floor ever reaches 8.4 this is worth revisiting; until then the docblock is the whole mechanism, and the upgrade checker is what tells an application it is affected.
 
 The database schema is **frozen**: the shipped migrations are immutable, and any later change arrives as a new dated migration that an installed application applies with `php artisan migrate`. Upgrading, rolling back, and recovering interrupted work are specified in [upgrading.md](upgrading.md). A schema change is still a notable change and is called out in `CHANGELOG.md` with its operational impact.
 

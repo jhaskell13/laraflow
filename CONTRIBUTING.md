@@ -74,7 +74,7 @@ Releases are drafted by machinery and published by a person.
 
 1. **Convert the changelog.** Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, start a fresh empty `## [Unreleased]` above it, and update the compare links in the footer. The release workflow refuses a tag whose version has no changelog section.
 2. **Land that on `main`** through a pull request like any other change, and wait for CI — the tag must point at a commit the full matrix has already passed.
-3. **Tag it:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. **Tag it, annotated:** `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. Annotated, not lightweight — an annotated tag carries its own author, date, and message, and is what `git describe` and signature verification work with. `v0.2.0` is the one lightweight tag in the history and is left as it is rather than moved; every tag from 1.0 is annotated and, once the maintainer has a signing key configured, signed with `-s`.
 4. The `Release` workflow re-runs the entire CI matrix against the tag and, only if everything passes, **drafts** a GitHub release with that version's changelog section as its notes. Nothing is published automatically.
 5. **Read the draft, then publish it.** Publishing is the human decision in the loop; a draft that looks wrong is deleted, the problem fixed, and the tag re-cut.
 
