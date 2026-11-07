@@ -14,7 +14,9 @@ use Laraflow\Workflow\Scheduling\Scheduler;
 use Laraflow\Workflow\Scheduling\SchedulerRun;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * One scheduler tick: synchronise every registered declaration, claim
  * each due tick exactly once across any number of concurrent runs, and

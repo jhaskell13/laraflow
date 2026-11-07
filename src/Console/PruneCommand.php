@@ -18,7 +18,9 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * Applies the configured retention policy to finished executions.
  * Laraflow never prunes on its own; schedule this:

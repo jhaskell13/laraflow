@@ -18,8 +18,6 @@ use Laraflow\Integration\Http\StatusErrorMapper;
  * alone both would read as authentication failures and be retried
  * never rather than later — and ignoring the secondary limit's wait is
  * precisely when GitHub escalates the ban.
- *
- * @experimental With the connector it belongs to.
  */
 class GithubErrorMapper extends StatusErrorMapper
 {

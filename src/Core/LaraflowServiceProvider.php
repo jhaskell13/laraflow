@@ -17,7 +17,6 @@ use Laraflow\Console\ChildrenCommand;
 use Laraflow\Console\ConnectorsCommand;
 use Laraflow\Console\DemoCommand;
 use Laraflow\Console\ExecuteCommand;
-use Laraflow\Console\Generators\DeprecatedGeneratorName;
 use Laraflow\Console\Generators\MakeConnectorCommand;
 use Laraflow\Console\Generators\MakeStepCommand;
 use Laraflow\Console\Generators\MakeWorkflowCommand;
@@ -31,6 +30,7 @@ use Laraflow\Console\ShowCommand;
 use Laraflow\Console\SignalCommand;
 use Laraflow\Console\StartCommand;
 use Laraflow\Console\SummaryCommand;
+use Laraflow\Console\UpgradeCommand;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\LifecycleLogger;
 use Laraflow\Integration\ConfigCredentialProvider;
@@ -80,6 +80,7 @@ use Laraflow\Workflow\Scheduling\SchedulerOptions;
 use Laraflow\Workflow\Tenancy\ConfigTenantPolicy;
 use Laraflow\Workflow\Tenancy\TenantCeilings;
 use Laraflow\Workflow\Tenancy\TenantPolicy;
+use Laraflow\Workflow\UpgradeInspection;
 use Laraflow\Workflow\WorkflowResolver;
 use Laraflow\Workflow\WorkflowRunner;
 use Psr\Clock\ClockInterface;
@@ -330,6 +331,12 @@ final class LaraflowServiceProvider extends ServiceProvider
             schedules: $app->make(ScheduleRepository::class),
         ));
 
+        $this->app->singleton(UpgradeInspection::class, fn (Container $app): UpgradeInspection => new UpgradeInspection(
+            container: $app,
+            executions: $app->make(ExecutionReader::class),
+            resolver: $app->make(WorkflowResolver::class),
+        ));
+
         $this->app->singleton(RetentionService::class, fn (Container $app): RetentionService => new RetentionService(
             repository: $app->make(ExecutionRepository::class),
             schedules: $app->make(ScheduleRepository::class),
@@ -469,11 +476,14 @@ final class LaraflowServiceProvider extends ServiceProvider
             SignalCommand::class,
             StartCommand::class,
             SummaryCommand::class,
-            // The pre-0.6.0 generator names, hidden and deprecated; see
-            // DeprecatedGeneratorName.
-            new DeprecatedGeneratorName('make:workflow', 'laraflow:make-workflow'),
-            new DeprecatedGeneratorName('make:step', 'laraflow:make-step'),
-            new DeprecatedGeneratorName('make:connector', 'laraflow:make-connector'),
+            UpgradeCommand::class,
+            // The pre-0.6.0 generator names — make:workflow, make:step,
+            // make:connector — were hidden deprecated forwarders here
+            // from 0.6.0 and are gone as of 1.0. They sat in Laravel's
+            // own command namespace, which other workflow packages also
+            // ship into, so whichever provider booted last silently won
+            // (Milestone 10 audit). 1.0 is the last release allowed to
+            // remove them: after it, removal waits for a major.
         ]);
     }
 

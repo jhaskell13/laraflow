@@ -80,6 +80,8 @@ final class ScheduleRegistry
     }
 
     /**
+     * @internal Serves the scheduler; public-api.md: its methods beyond register() are not a contract.
+     *
      * Validate one listed class into a runnable definition.
      *
      * @throws InvalidScheduleException naming the class and what is wrong with it.

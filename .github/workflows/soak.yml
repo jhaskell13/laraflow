@@ -1,0 +1,219 @@
+# The soak and benchmark suite (docs/soak.md, docs/decisions/0013):
+# sustained mixed load on every engine the compatibility policy names,
+# with workers killed and the database and queue containers stopped and
+# started under it, ending in the nine invariant checks and a report.
+#
+# Scheduled nightly; a person can start a longer run by hand. Never
+# part of a pull request: it runs for half an hour per engine by
+# default and its numbers are published, not gated.
+name: Soak
+
+on:
+  schedule:
+    # 03:17 UTC daily — off the hour, so it does not queue behind every
+    # other project's on-the-hour schedule.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Seconds of load per engine (the sustained run is 7200)
+        default: '1800'
+        required: true
+      engines:
+        description: Comma-separated subset of mysql-8.4,mariadb-10.11,mariadb-11.4,pgsql-14,pgsql-17,sqlsrv-2022 — blank for all
+        default: ''
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: soak
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    name: Soak (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    # Load, settling, verification, and the container startups that
+    # bracket them — the slowest engine, SQL Server, needs the margin.
+    timeout-minutes: 180
+    if: github.event_name == 'schedule' || inputs.engines == '' || contains(format(',{0},', inputs.engines), format(',{0},', matrix.db))
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [mysql-8.4, mariadb-10.11, mariadb-11.4, pgsql-14, pgsql-17, sqlsrv-2022]
+        include:
+          - db: mysql-8.4
+            engine: mysql
+            name: MySQL 8.4
+            image: mysql:8.4
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: mariadb-10.11
+            engine: mariadb
+            name: MariaDB 10.11
+            image: mariadb:10.11
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="healthcheck.sh --connect --innodb_initialized"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: mariadb-11.4
+            engine: mariadb
+            name: MariaDB 11.4
+            image: mariadb:11.4
+            port: 3306
+            extensions: pdo_mysql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="healthcheck.sh --connect --innodb_initialized"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: pgsql-14
+            engine: pgsql
+            name: PostgreSQL 14
+            image: postgres:14
+            port: 5432
+            extensions: pdo_pgsql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="pg_isready -U laraflow"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: pgsql-17
+            engine: pgsql
+            name: PostgreSQL 17
+            image: postgres:17
+            port: 5432
+            extensions: pdo_pgsql
+            username: laraflow
+            password: secret
+            options: >-
+              --health-cmd="pg_isready -U laraflow"
+              --health-interval=5s --health-timeout=5s --health-retries=20
+          - db: sqlsrv-2022
+            engine: sqlsrv
+            name: SQL Server 2022
+            image: mcr.microsoft.com/mssql/server:2022-latest
+            port: 1433
+            extensions: pdo_sqlsrv
+            username: sa
+            password: "Laraflow!Passw0rd"
+            options: --env MSSQL_PID=Developer
+
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laraflow_soak
+          MYSQL_USER: laraflow
+          MYSQL_PASSWORD: secret
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: laraflow_soak
+          MARIADB_USER: laraflow
+          MARIADB_PASSWORD: secret
+          POSTGRES_DB: laraflow_soak
+          POSTGRES_USER: laraflow
+          POSTGRES_PASSWORD: secret
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Laraflow!Passw0rd"
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: ${{ matrix.options }}
+      # The queue backend, separate from the database so that losing one
+      # is not losing the other: the queue-loss fault stops this
+      # container, the database-loss fault stops the one above.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, json, pcntl, posix, redis, ${{ matrix.extensions }}
+          coverage: none
+
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php8.4-lock-${{ hashFiles('composer.json', 'composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-php8.4-lock-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Install the Microsoft ODBC driver
+        if: matrix.engine == 'sqlsrv'
+        run: |
+          sudo apt-get update -qq
+          sudo ACCEPT_EULA=Y apt-get install -y -qq msodbcsql18
+
+      - name: Wait for SQL Server and create the database
+        if: matrix.engine == 'sqlsrv'
+        run: |
+          QUERY="IF DB_ID('laraflow_soak') IS NULL CREATE DATABASE laraflow_soak"
+          for i in $(seq 1 60); do
+            if docker exec ${{ job.services.database.id }} sh -c \
+              "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b \
+               || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'Laraflow!Passw0rd' -Q \"$QUERY\" -b"; then
+              echo "SQL Server is ready."; exit 0
+            fi
+            sleep 5
+          done
+          echo "SQL Server never became ready; container log follows."
+          docker logs ${{ job.services.database.id }}
+          exit 1
+
+      # The orchestrator is given the container ids so the fault
+      # injector can stop and start them; without them a run kills
+      # workers only, and says so.
+      - name: Soak
+        env:
+          LARAFLOW_SOAK: '1'
+          LARAFLOW_TEST_DB_DRIVER: ${{ matrix.engine }}
+          LARAFLOW_TEST_DB_HOST: 127.0.0.1
+          LARAFLOW_TEST_DB_PORT: ${{ matrix.port }}
+          LARAFLOW_TEST_DB_DATABASE: laraflow_soak
+          LARAFLOW_TEST_DB_USERNAME: ${{ matrix.username }}
+          LARAFLOW_TEST_DB_PASSWORD: ${{ matrix.password }}
+          QUEUE_CONNECTION: redis
+          REDIS_CLIENT: phpredis
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: '6379'
+          SOAK_DB_CONTAINER: ${{ job.services.database.id }}
+          SOAK_QUEUE_CONTAINER: ${{ job.services.redis.id }}
+        run: >
+          vendor/bin/testbench soak:run
+          --duration=${{ inputs.duration || 1800 }}
+          --workers=4 --schedulers=3 --rate=8
+          --kill-every=15 --fault-every=120 --down=12
+          --settle-timeout=2700 --stall-after=300
+          --run-dir="$RUNNER_TEMP/soak"
+
+      # Always: a failed run's logs are the reproduction.
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: soak-${{ matrix.db }}
+          path: ${{ runner.temp }}/soak
+          retention-days: 30

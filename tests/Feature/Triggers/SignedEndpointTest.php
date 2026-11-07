@@ -277,6 +277,22 @@ class SignedEndpointTest extends TestCase
         $this->assertSame(1, $this->app->make('db')->table('jobs')->count());
     }
 
+    /**
+     * A signal name that is not UTF-8 cannot reach Laraflow through
+     * this endpoint at all: the URL is malformed and the HTTP stack
+     * refuses it with a 400 before routing. Recorded because the
+     * Milestone 12 security review went looking for a 500 here and
+     * found this instead — the boundary is real, and worth a test so
+     * it stays that way.
+     */
+    public function test_a_malformed_url_is_refused_by_the_stack_before_laraflow_sees_it(): void
+    {
+        $response = $this->call('POST', '/laraflow/triggers/executions/1/signals/'.rawurlencode('approval'.chr(0xFF)));
+
+        $this->assertContains($response->getStatusCode(), [400, 401], 'Refused, and never a 500.');
+        $this->assertFalse($this->logger->hasRecordContaining('error', 'Malformed UTF-8'));
+    }
+
     public function test_a_refused_requests_signal_is_bounded_and_stripped_before_it_is_logged(): void
     {
         $hostile = rawurlencode("approval\x0forged".str_repeat('x', 400));

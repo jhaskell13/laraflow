@@ -33,7 +33,7 @@ features:
 ## Install
 
 ```bash
-composer require laraflow/laraflow
+composer require jhaskell13/laraflow
 php artisan laraflow:install
 php artisan laraflow:make-workflow FulfilOrder
 ```

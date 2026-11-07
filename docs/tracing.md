@@ -76,4 +76,4 @@ Like the event emitter, a tracer must never affect an execution: the core calls 
 
 ## Compatibility
 
-Everything here is **experimental until 1.0**: span names, kinds, the parenting rules, the attributes, and the `Tracer` hook may change in a 0.x minor, announced in the changelog. Real use decides what 1.0 freezes. From 1.0 the rules will be the usual ones for anything a saved query depends on: adding an attribute or an outcome value is not breaking; renaming or removing an attribute or a span, or changing a span's name, kind, or parent, is.
+Everything here is **Public as of 1.0** — the `Tracer` hook, the span names, their kinds, the parenting rules, and the attributes ([decision 0012](decisions/0012-what-1.0-freezes.md)). The rules are the usual ones for anything a saved query depends on: adding an attribute or an outcome value is not breaking; renaming or removing an attribute or a span, or changing a span's name, kind, or parent, is.

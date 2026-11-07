@@ -11,8 +11,6 @@ use LogicException;
 use Psr\Clock\ClockInterface;
 
 /**
- * @experimental Triggers are new in Milestone 10; see docs/triggers.md.
- *
  * The signing scheme, written down once. The signed string binds a
  * request to its target and its moment —
  *

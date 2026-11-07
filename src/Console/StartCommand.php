@@ -18,7 +18,9 @@ use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * Starts an execution of any workflow class, with JSON input, inline or
  * on the queue. The primitive the install story needs once the

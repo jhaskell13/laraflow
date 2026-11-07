@@ -76,6 +76,50 @@ class NamedTriggerTest extends TestCase
         $this->assertEquals(['amount' => 5000], $execution->context['manager-approval']);
     }
 
+    /**
+     * The reachable half of the Milestone 12 finding. A named
+     * trigger's resolver builds the SignalIntent from the request
+     * body, which no URL rule constrains, so a resolver can hand the
+     * runtime a signal name carrying anything. The name is refused —
+     * and the refusal must be a clean 422, not a 500: before the
+     * review, encoding the echoed name into the response made
+     * JsonResponse throw.
+     */
+    public function test_a_resolver_returning_an_unencodable_signal_name_is_refused_cleanly(): void
+    {
+        Triggers::register('stripe', AcceptingVerifier::class, fn (): SignalIntent => new SignalIntent(
+            $this->parked,
+            'approval'.chr(0xFF).chr(0xFE),
+            ['ok' => true],
+        ));
+
+        $response = $this->postJson('/laraflow/triggers/stripe', ['type' => 'anything']);
+
+        $response->assertStatus(422);
+        $this->assertSame('invalid', $response->json('status'));
+        $this->assertIsString($response->json('signal'), 'The echoed name must survive JSON encoding.');
+        $this->assertStringNotContainsString(chr(0xFF), (string) $response->getContent());
+        $this->assertTrue($this->executions()->find($this->parked)->isWaiting(), 'Nothing was recorded.');
+    }
+
+    public function test_a_resolver_returning_a_control_character_signal_name_is_refused_cleanly(): void
+    {
+        Triggers::register('stripe', AcceptingVerifier::class, fn (): SignalIntent => new SignalIntent(
+            $this->parked,
+            "manager-approval\nINFO: forged a log line",
+            ['ok' => true],
+        ));
+
+        $response = $this->postJson('/laraflow/triggers/stripe', ['type' => 'anything']);
+
+        $response->assertStatus(422);
+        $this->assertStringNotContainsString("\n", (string) $response->json('signal'));
+        $this->assertFalse(
+            $this->logger->hasRecordContaining('info', 'forged a log line'),
+            'A crafted name must not be able to write its own log line.',
+        );
+    }
+
     public function test_the_verifier_refuses_before_the_resolver_runs(): void
     {
         $resolved = false;

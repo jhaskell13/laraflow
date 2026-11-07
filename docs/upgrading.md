@@ -23,7 +23,7 @@ Every schema change is called out in `CHANGELOG.md` under the release that intro
 Laraflow is a library: its version moves when you ask Composer to move it.
 
 ```bash
-composer update laraflow/laraflow
+composer update jhaskell13/laraflow
 php artisan migrate
 ```
 
@@ -83,7 +83,7 @@ php artisan laraflow:connectors --check
 - **Re-running a failed execution is an opt-in.** An application that re-dispatched failures with `WorkflowDispatcher::dispatchExecution()` must pass `reexecuteFailed: true`; `laraflow:execute`, the dashboard, and `Handoff` already do.
 - **Constructor collaborators**, for anything built by hand rather than resolved from the container: `WorkflowRunner` takes an `ExecutionScope` where it took a `LoggingContext`, and `TransportPipeline` and `ThrottlingTransport` take it too; `EloquentExecutionRepository` takes `TenantCeilings`; `RetentionService` and `AttentionScan` take the `ScheduleRepository`.
 - **Public concrete classes are `final`** unless designed for extension. Code that subclassed one should implement or decorate the documented interface and bind it in the container.
-- **The generators are `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`.** `make:workflow`, `make:step`, and `make:connector` still work — hidden from `artisan list`, forwarding every argument and option, and printing a deprecation warning each time — update scripts and documentation before a future minor removes them.
+- **The generators are `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`.** `make:workflow`, `make:step`, and `make:connector` still work in 0.6 and 0.7 — hidden from `artisan list`, forwarding every argument and option, and printing a deprecation warning each time. **They are removed in 1.0**; update scripts and documentation before upgrading to it.
 - **Trigger routes are throttled by default.** `laraflow.triggers.middleware` defaults to `['api', 'throttle:60,1']`, and a body over `laraflow.triggers.max_body_bytes` (65536) is refused with `413`. An application that published its config keeps its own middleware list — add a throttle to it.
 - **Bulk `laraflow:cancel` and `laraflow:execute` select only what they can act on.** Completed and cancelled executions are never selected, `matched` counts the actionable set, a `--status` naming only those is refused, and the `--json` handoff outcomes are `push_failed` and `step_failed`. A script reading the old shapes should be checked against [inspection-and-observability.md](inspection-and-observability.md#machine-readable-output).
 
@@ -102,6 +102,32 @@ php artisan laraflow:connectors --check
 
 Nothing else needs doing. `laraflow/opentelemetry`, the optional tracing package, is installed only if you want it, and off until enabled.
 
+## Upgrading to 1.0
+
+**Run the checker first.** It reads and changes nothing, and it names what this application has to deal with before the upgrade:
+
+```bash
+php artisan laraflow:upgrade
+```
+
+It exits non-zero when a check needs action, so it belongs in a deploy pipeline beside `laraflow:connectors --check`. `--json` gives the same answer as one document. What it looks at: Laraflow migrations not yet run; published migration copies this version has outgrown; published configuration keys this version no longer defines, and new ones it has gained; Laraflow contracts the application has rebound, which an upgrade should re-read; workflows with unfinished executions whose recorded plan no longer matches their `steps()`; and what this major removed.
+
+That last one it **names rather than detects** — the package cannot see an application's deploy scripts, runbooks, or CI, and a checker that reports "nothing to do" because it did not look is worse than one that says "look here".
+
+**The PHP floor is 8.3.** PHP 8.2 reaches security end-of-life on 31 December 2026, and a PHP version may be dropped in a minor before 1.0 or a major after it — so 1.0 is the last release that could drop it, and shipping with `^8.2` would have tied the package to an unpatched runtime until 2.0 ([compatibility.md](compatibility.md#supported-versions)). Composer will refuse to install 1.0 on 8.2 rather than install something untested. An application still on 8.2 should upgrade the runtime; `0.7.x` covers it meanwhile ([releases.md](releases.md#support-window)).
+
+**The migrations.** None. 1.0 adds no schema change, so `composer update` and `php artisan migrate` are the whole upgrade for an application already on 0.7 and on PHP 8.3 or newer.
+
+**Breaking changes to check for.**
+
+- **The generator aliases `make:workflow`, `make:step`, and `make:connector` are removed.** They have printed a deprecation warning since 0.6.0. Use `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`. 1.0 is the last release allowed to remove them: afterwards a removal waits for 2.0.
+- **The console command *classes* are `@internal`.** Nothing should have type-hinted, extended, or constructed `Laraflow\Console\ShowCommand` and friends; the command name is the contract, and it has not changed. If you did, call the command instead.
+- **The `Laraflow\Demo` classes are `@internal`.** They exist for `laraflow:demo`.
+
+**What became stable, needing no action.** The dashboard, the trigger surface, the metrics snapshot, the tracing hook, `SignalReceipt`, and both bundled connectors with their mappers are **Public** as of 1.0, as are every console command's name, options, exit codes, and `--json` envelope. Nothing about them changed; what changed is the promise. [Decision 0012](decisions/0012-what-1.0-freezes.md) records the reasoning, and [public-api.md](public-api.md) is the list.
+
+**What is still not frozen.** `ExecutionStore` — the storage-driver half of `ExecutionRepository` — stays Experimental, deliberately and alone. A **custom persistence driver** should pin a minor version and run the package's repository tests against itself; a minor may add or change a store method, and the changelog will say so. Code that only *reads* should type-hint `ExecutionReader`, which is Public and frozen.
+
 ## Rolling back
 
 ### Rolling back a schema change
@@ -110,7 +136,7 @@ Nothing else needs doing. `laraflow/opentelemetry`, the optional tracing package
 
 ```bash
 php artisan migrate:rollback --step=1
-composer require laraflow/laraflow:<previous-version>
+composer require jhaskell13/laraflow:<previous-version>
 ```
 
 Roll the code back **with or after** the schema, not before: older code does not know about a newer column, but newer code may require one.
@@ -122,7 +148,7 @@ A rollback that crosses a release which *removed* something is the case to be ca
 If the schema did not move between the two versions — the common case — rolling back is just Composer:
 
 ```bash
-composer require laraflow/laraflow:<previous-version>
+composer require jhaskell13/laraflow:<previous-version>
 ```
 
 Nothing else is needed. Executions persisted by the newer code remain readable, because the schema they were written against is the same one.

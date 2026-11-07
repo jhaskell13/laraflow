@@ -101,6 +101,8 @@ final readonly class StepPolicy
     }
 
     /**
+     * @internal The runner asks the policy these; an application declares a policy rather than interrogating one.
+     *
      * Whether another attempt may run after a failure on $attempt
      * (1-based: the step's `attempts` counter at the time it failed).
      */
@@ -179,12 +181,17 @@ final readonly class StepPolicy
         return (int) max(0, min((float) $this->maxDelaySeconds, round($delay)));
     }
 
+    /**
+     * @internal The runner asks the policy these; an application declares a policy rather than interrogating one.
+     */
     public function retriesEnabled(): bool
     {
         return $this->maxAttempts > 1;
     }
 
     /**
+     * @internal The runner asks the policy these; an application declares a policy rather than interrogating one.
+     *
      * When an attempt started at $startedAt runs out of time, or null
      * when this policy sets no deadline.
      *

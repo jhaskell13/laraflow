@@ -9,7 +9,7 @@ Why both: a gauge kept by counting events up and down is wrong forever once one 
 
 ## The snapshot
 
-`Laraflow\Observability\Snapshots::take(DateTimeImmutable $now, ?ExecutionFilter $scope = null)` returns a `MetricsSnapshot` (both Experimental until 1.0):
+`Laraflow\Observability\Snapshots::take(DateTimeImmutable $now, ?ExecutionFilter $scope = null)` returns a `MetricsSnapshot`:
 
 | Field | Meaning |
 |---|---|

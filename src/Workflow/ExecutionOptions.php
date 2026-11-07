@@ -78,6 +78,8 @@ final readonly class ExecutionOptions
     }
 
     /**
+     * @internal Validation and the runner wither that fills the trace context in; applications pass a value to the constructor.
+     *
      * Whether $value is a version-00 W3C `traceparent` with a real trace
      * and span id. Only version 00 is accepted: it is the only version
      * defined, and the column holds exactly its 55 characters.
@@ -88,6 +90,8 @@ final readonly class ExecutionOptions
     }
 
     /**
+     * @internal Validation and the runner wither that fills the trace context in; applications pass a value to the constructor.
+     *
      * These options with the trace context set, unless one was given.
      */
     public function withTraceContextIfAbsent(?string $traceContext): self

@@ -12,7 +12,9 @@ use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * `laraflow:start` for the one workflow that ships with the package:
  * the same start-and-report path, with the demo's input filled in.

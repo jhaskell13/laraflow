@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\WorkflowException;
 use Laraflow\Queue\WorkflowDispatcher;
+use Laraflow\Support\ErrorMessage;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
@@ -283,7 +284,7 @@ final class ActionController
             return '';
         }
 
-        return mb_substr($this->redactor->redact($exception, $exception->getMessage()), 0, $this->options->maxErrorLength);
+        return mb_substr($this->redactor->redact($exception, ErrorMessage::of($exception)), 0, $this->options->maxErrorLength);
     }
 
     private function toOutcome(Request $request, WorkflowExecution $execution): RedirectResponse

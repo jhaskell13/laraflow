@@ -14,6 +14,7 @@ use Laraflow\Exceptions\SuggestsRetryDelay;
 use Laraflow\Exceptions\Workflow\ClaimLostException;
 use Laraflow\Exceptions\Workflow\RecordedFailure;
 use Laraflow\Exceptions\Workflow\WorkflowException;
+use Laraflow\Support\ErrorMessage;
 use Laraflow\Support\ErrorRedactor;
 use Laraflow\Workflow\Policy\FailurePolicy;
 use Laraflow\Workflow\Policy\StepPolicy;
@@ -368,7 +369,7 @@ final class OutcomeRecorder
         // 65,535 bytes, not characters — a long non-ASCII message would
         // otherwise fail the very write that records the failure.
         return mb_strcut(
-            mb_substr($this->redactor->redact($exception, $exception->getMessage()), 0, $this->maxErrorLength),
+            mb_substr($this->redactor->redact($exception, ErrorMessage::of($exception)), 0, $this->maxErrorLength),
             0,
             self::ERROR_COLUMN_BYTES,
         );
@@ -487,9 +488,10 @@ final class OutcomeRecorder
     }
 
     /**
-     * Storage failures keep their raw messages: they are database
-     * driver errors, not step data, and the redactor governs the
-     * latter.
+     * Storage failures keep their messages unredacted — they are
+     * database driver errors, not step data, and the redactor governs
+     * the latter — but not their bound values, which *are* step data:
+     * a checkpoint that failed to write was writing the context.
      */
     protected function logStorageFailure(
         string $what,
@@ -505,10 +507,10 @@ final class OutcomeRecorder
                 'position' => $stepExecution->position,
             ]),
             // The step's exception is redacted, as every retained
-            // message is. The storage error is not: it is a database
-            // driver error, not step data.
+            // message is. The storage error is not, but its bound
+            // values go: see ErrorMessage.
             'original_exception' => $exception::class.': '.$this->errorMessage($exception),
-            'storage_exception' => $storageFailure::class.': '.$storageFailure->getMessage(),
+            'storage_exception' => $storageFailure::class.': '.ErrorMessage::of($storageFailure),
         ]);
     }
 }

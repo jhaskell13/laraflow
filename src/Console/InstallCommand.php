@@ -7,7 +7,9 @@ namespace Laraflow\Console;
 use Illuminate\Console\Command;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * The one command between `composer require` and a running workflow:
  * publishes the configuration, runs the migrations, and says what to
@@ -73,7 +75,7 @@ final class InstallCommand extends Command
             'php artisan laraflow:make-connector StripeConnector       an HTTP connector in app/Connectors',
             'php artisan laraflow:start FulfilOrder           run a workflow you wrote, and inspect it with laraflow:show 1',
             'php artisan laraflow:demo                        or run the bundled demo first',
-            'vendor/laraflow/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',
+            'vendor/jhaskell13/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',
         ]);
 
         return self::SUCCESS;

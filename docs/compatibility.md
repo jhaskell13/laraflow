@@ -6,24 +6,25 @@ This policy states which platform versions Laraflow supports, what "supported" m
 
 | Component | Versions | Status |
 |-----------|----------|--------|
-| PHP | 8.2, 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). |
-| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.2) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each server engine version below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.2. |
+| PHP | 8.3, 8.4, 8.5 | Every version runs in the GitHub Actions matrix (`.github/workflows/ci.yml`). The floor rose from 8.2 to 8.3 for 1.0; see below. |
+| Laravel | 12.x, 13.x | Declared via `illuminate/*` `^12.0|^13.0`; tested with Orchestra Testbench 10 and 11. CI runs both majors on SQLite across every supported PHP version, plus one `prefer-lowest` cell (Laravel 12 on PHP 8.3) that resolves every constraint to its floor, so the floor is proven rather than assumed. Each server engine version below runs both ends of that axis: Laravel 13 on the lock file, and Laravel 12 at the floor on PHP 8.3. |
 | SQLite | 3.x | Tested: the suite's default (in-memory). |
 | MySQL | 8.4+ | Tested: the full suite runs against MySQL 8.4 (LTS) in CI, on both Laravel majors, and the install walk ends the job against it. The 9.x innovation releases are not a support target. |
 | MariaDB | 10.11+ | Tested: the full suite runs against MariaDB 10.11 and 11.4 in CI, on both Laravel majors, and the install walk ends the job against it. JSON columns are stored as `LONGTEXT` with a check constraint. |
 | PostgreSQL | 14+ | Tested: the full suite runs against PostgreSQL 14 and 17 in CI, on both Laravel majors, and the install walk ends the job against it. |
 | SQL Server | 2022+ | Tested: the full suite runs against SQL Server 2022 in CI, on both Laravel majors, and the install walk ends the job against it. Laravel's `sqlsrv` driver; needs `pdo_sqlsrv` and Microsoft's ODBC driver. On SQL Server the direct `laraflow_step_attempts.workflow_execution_id` foreign key does not cascade — the engine refuses a second cascade path — and deletion flows through `laraflow_step_executions` instead; retention's own deletes never relied on cascades anywhere. |
 
-Laravel 13 requires PHP 8.3, so that combination's floor is 8.3 rather than 8.2; the matrix excludes the pair that cannot exist.
+Laravel 13 requires PHP 8.3, which is now the floor for both majors, so every cell of the matrix is a combination that exists.
 
 **One dependency beyond `illuminate/*`.** Schedules read cron expressions through `dragonmantank/cron-expression` (`^3.4`), which `illuminate/console` only *suggests* — Laravel's own scheduler needs it, so `laravel/framework` requires it and every Laravel application already has it installed, but a package that relied on that would be relying on a dependency it never declared. It is required directly, at the constraint `laravel/framework` 12 and 13 share, so the `prefer-lowest` cell exercises its floor like every other.
 
 **Suggested, not required.** The inspection dashboard needs `illuminate/routing`, `illuminate/view`, and `illuminate/session`, and the trigger endpoints need `illuminate/routing` alone; `composer.json` lists all three under `suggest`. Every `laravel/framework` application already has them, so nothing changes for an ordinary install, and a container that only runs workflows keeps its footprint. Mounting the dashboard without them refuses by name rather than failing on the first request. They carry the same version constraints as the rest of the `illuminate/*` set.
 
-**Laravel 11 and below, and PHP 8.1 and below, are not supported and will not be added.** This follows the drop policy below rather than taste:
+**Laravel 11 and below, and PHP 8.2 and below, are not supported and will not be added.** This follows the drop policy below rather than taste:
 
 - Laravel 10 (February 2023) and Laravel 11 (March 2024) are both past the end of their bug-fix windows, and Laravel 10 requires only PHP 8.1. Supporting a major that upstream no longer fixes would mean carrying compatibility shims for a platform whose own bugs will never be repaired.
-- PHP 8.1 reached security end-of-life in December 2025. Laraflow's option and policy objects (`HttpOptions`, `TransportPolicy`, `RateLimitPolicy`, `Credentials`, `Wait`) are `final readonly class`, which is PHP 8.2 syntax; dropping to 8.1 would mean giving up compile-time immutability across the durable boundaries in exchange for an unsupported runtime.
+- PHP 8.1 reached security end-of-life in December 2025.
+- **PHP 8.2 reaches security end-of-life on 31 December 2026**, and the drop policy below says a version goes when it does. The timing is what made this urgent rather than tidy: a PHP version may be dropped in a minor before 1.0 or a **major** after it, so 1.0 was the last release that could drop 8.2 at all. Shipping 1.0 with an `^8.2` floor would have committed the package to a runtime with no security fixes until 2.0 — months of carrying a platform whose own vulnerabilities would never be patched, and of holding new code to its syntax. Applications still on 8.2 have `0.7.x` for its support window ([releases.md](releases.md#support-window)); the remedy for the runtime is to upgrade it.
 
 If an application is pinned to Laravel 10 or 11, the right answer is to upgrade the application — not to widen this package.
 
@@ -40,7 +41,7 @@ A persistence driver implements `Laraflow\Workflow\ExecutionRepository` and bind
 
 The split is what lets 1.0 promise a stable read API without promising that the write protocol is finished. A store method graduates to Public once a second driver has implemented it unchanged.
 
-### What "supported" means before 1.0
+### What "supported" means
 
 - **Tested** means the test suite runs against it in the repository's own development or CI workflow.
 - **Expected to work** means the package uses only portable Laravel abstractions (schema builder, Eloquent, JSON casts) for that platform, but no automated run proves it. Bug reports for these platforms are welcome and will be treated as defects, not feature requests.
@@ -149,7 +150,9 @@ Under Horizon, see [queue-and-recovery.md](queue-and-recovery.md#under-horizon) 
 Laraflow follows [Semantic Versioning 2.0](https://semver.org). What counts as the public API for versioning purposes is exactly what [public-api.md](public-api.md) marks **Public**: experimental classes may change in any minor, and internal ones in any release.
 
 - **Before 1.0:** `0.x` minor versions may contain breaking changes. Each is documented in `CHANGELOG.md` under **Breaking** with upgrade notes. Patch versions are backwards compatible.
-- **After 1.0:** breaking changes only in major versions, with a deprecation period of at least one minor version where practical.
+- **After 1.0:** breaking changes only in major versions, after the deprecation path below, with at least one minor release carrying the deprecation first. Minors add; patches fix.
+
+What 1.0 freezes — and the one surface deliberately left outside the freeze — is [decision 0012](decisions/0012-what-1.0-freezes.md). The freeze is held by a committed API signature baseline rather than by care: a test fails if any Public method signature, constant, enum case, or property type changes, so moving one is a reviewable diff that has to argue for itself, the way a schema change already does. The support window, including the long-term-support commitment to the last minor of an outgoing major, is in [releases.md](releases.md#support-window).
 
 ### How a deprecation works
 
@@ -160,6 +163,8 @@ A deprecation is visible in three places before anything is removed, so no remov
 3. **The removal** happens no sooner than the next major (post-1.0) or the next minor (pre-1.0), and is listed under *Removed*.
 
 Deprecated code keeps working and keeps its tests until it is removed. Laraflow does not emit runtime deprecation notices for its own API — the suite runs with `failOnDeprecation`, and a library that warns on every call punishes the applications that upgrade most carefully. Configuration keys follow the same path: a renamed key keeps its old name working for the deprecation window, with the old name noted in `config/laraflow.php`.
+
+**The docblock is the marker, not PHP's `#[\Deprecated]` attribute.** The attribute arrived in PHP 8.4 and the supported floor is 8.3, so an attribute would be invisible on the floor and, where it is visible, emits exactly the runtime notice the paragraph above declines to emit. `@deprecated` is read by every IDE and by PHPStan on every supported version. If the floor ever reaches 8.4 this is worth revisiting; until then the docblock is the whole mechanism, and the upgrade checker is what tells an application it is affected.
 
 The database schema is **frozen**: the shipped migrations are immutable, and any later change arrives as a new dated migration that an installed application applies with `php artisan migrate`. Upgrading, rolling back, and recovering interrupted work are specified in [upgrading.md](upgrading.md). A schema change is still a notable change and is called out in `CHANGELOG.md` with its operational impact.
 

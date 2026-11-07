@@ -43,7 +43,9 @@ Milestone 10 is complete (November 2026) and released as **0.6.0**: schedules, t
 
 Milestone 11 is complete (November 2026) and released as **0.7.0**, narrowed partway to what only a Laravel package should do ([decision 0011](docs/decisions/0011-one-optional-package.md)): an exact metrics snapshot and the lifecycle events for an application's own metrics, a tracing hook with one optional OpenTelemetry package, a documentation site with the README cut to a page, connector packages listed by contract, the open-source files, and Horizon and Octane guidance held by tests.
 
-The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
+Milestone 12 is complete (November 2026), to be released as **1.0.0**: the public API frozen and held by a committed signature baseline, the console command classes and the demo made internal and every other experimental surface but `ExecutionStore` made Public, a soak suite that breaks workers and containers under load on six engines and checks thirteen invariants after, a security review against a published threat model whose three findings are fixed, `laraflow:upgrade`, the post-1.0 policy with a twelve-month long-term-support window, and the PHP floor raised to 8.3 ahead of 8.2's security end-of-life. Its record is under the milestone.
+
+The MVP is complete and the road to 1.0 has been walked; what follows 1.0 is driven by issues rather than milestones ([releases.md](docs/releases.md#cadence)).
 
 ## Product principles
 
@@ -415,17 +417,44 @@ The closing audit — the milestone's net change, read for correctness, security
 
 ### Milestone 12 — Production validation and 1.0
 
+Released as **1.0.0** ([decision 0009](docs/decisions/0009-one-release-per-milestone.md)). Planned November 2026; the contracts below were written first (phase 0), as every milestone since 7 has done.
+
+#### Two amendments to this milestone as originally written
+
+Both were made at planning, before any code, and both make the milestone smaller and more honest rather than larger.
+
+**The soak's exit criterion is a stated budget, not a calendar window.** It read *"run clean for a full support window"* — 90 days, which dates 1.0 to February 2027 and gates a release on a calendar rather than on evidence. Ninety days of a soak that exercises the wrong thing proves nothing; a fortnight of one that checks the right invariants on six engines under injected faults proves a great deal. The budget is now fourteen consecutive clean scheduled runs across all six engine cells plus one multi-hour sustained run per engine, and the soak keeps running after 1.0 — which is where rare defects are actually found. [Decision 0013](docs/decisions/0013-what-the-soak-proves.md). The same decision records that the injected database fault is container loss and recovery, **not** a promoted replica: no replica set is stood up, and `docs/soak.md` says so rather than letting "failover" imply it.
+
+**The security review is internal, and says so.** It was written as *"an external security review"*, and there is no third party in this loop. Running one and calling it external would be the first dishonest line in the repository, in a project whose own documentation still says it has no production mileage. Instead: the threat model a review needs is written down (`docs/threat-model.md`), the review is conducted against it in named dimensions, and its findings are published — so a real external reviewer has somewhere to start, and nobody is told a review happened that did not. A paid external review remains worth doing and is a separate decision with its own calendar; it would be sequenced after the freeze, so a reviewer reads the final API.
+
 #### Work
 
-- A soak and benchmark suite: sustained load on every engine with worker loss, queue loss, and database failover injected, run on a schedule and published.
-- An external security review of the claim discipline, the signal boundary, and the connector credential paths, with findings closed or recorded.
-- The 1.0 API freeze: every Public class reviewed line by line, deprecation attributes and a `laraflow:upgrade` checker shipped, the compatibility policy switched to its post-1.0 rules, and a long-term-support window declared.
-- 1.0.0 released by the same machinery as every release before it, drafted by CI and published by a person.
+0. **Contracts first.** [docs/threat-model.md](docs/threat-model.md) (trust boundaries, attacker models, the invariants a finding would falsify, residual risk at each boundary), [docs/soak.md](docs/soak.md) (workload, faults, invariants, published numbers, what is not covered), the post-1.0 compatibility and support policy in [docs/releases.md](docs/releases.md) and [docs/compatibility.md](docs/compatibility.md) including the long-term-support window, and decisions [0012](docs/decisions/0012-what-1.0-freezes.md) and [0013](docs/decisions/0013-what-the-soak-proves.md).
+1. **Release-machinery repair.** The hygiene a 1.0 cannot carry: the missing `v0.6.0` tag and the changelog compare link that pointed at it, the support table that named a minor with no tag, annotated tags as a stated rule, the pre-0.6.0 `make:*` generator aliases removed at the last release that may remove them, and Packagist readiness.
+2. **The soak and benchmark suite.** The harness under `workbench/`, its scheduled workflow, the invariant checks, and the published baseline.
+3. **The 1.0 API freeze.** A verdict for each of the 40 `@experimental` files and a line-by-line pass over every Public class; an **API signature baseline test**, so the freeze is held by a machine the way the schema freeze is; and `laraflow:upgrade`, which inspects an installed application and names what must change first.
+4. **The security review**, against the threat model, in named dimensions: claim discipline, the signal and trigger boundary, credential paths, dashboard authorization and CSRF, the serialization boundary, every raw SQL fragment, and the supply chain. Findings fixed with the regression test that would have caught them.
+5. **The full-project audit, Milestones 0–12.** The pattern that worked at 0.5.0 and 0.7.0: parallel hostile reviews over concurrency, code quality, contract alignment, documentation alignment, test quality, schema and performance, and over-engineering — including whether the tests can fail, which has caught real problems here before.
+6. **Documentation and the status line.** The README's status line rewritten to what 1.0 actually promises — the API is frozen and the contracts are proven by test, *not* that it has production mileage, which [docs/limitations.md](docs/limitations.md) keeps saying it has none of — plus "Upgrading to 1.0" and the site's new pages.
+7. **The release.** 1.0.0 drafted by CI against the tag and published by a person, as every release before it.
+
+#### How it closed
+
+Phases 0 and 1 landed together: the threat model and the soak contract written before either existed, the post-1.0 policy and the long-term-support window that `docs/releases.md` had deferred to this milestone, decisions 0012 and 0013, and the release hygiene — the untagged `v0.6.0` and its broken compare link, a support table naming a minor with no tag, the `make:*` aliases removed at the last release permitted to remove them, and an empty committed `.env.example`.
+
+Phase 2's soak found a security defect on its first run, which is the best argument for building it. Laravel formats a `QueryException` as the driver's error followed by the SQL *with every bound value substituted in* — so a locked table during a checkpoint put the workflow's input, output, and context into the `error` columns, the attempt history, two lifecycle events, the lifecycle log, the failed-job log, and the dashboard's flashed outcome, where the contract says payloads never go and where retention's scrub tier would never have reached them. Fixed at every retained-message sink, before the redactor, so the protection does not depend on one being configured.
+
+Phase 3 froze the API. The 38 `@experimental` surfaces became one: the dashboard, the triggers, the snapshot, the tracer, `SignalReceipt`, and both bundled connectors are Public, the console's names and `--json` envelope are Public while the command *classes* became Internal, and `ExecutionStore` stays Experimental alone. Building the baseline forced the line-by-line read the milestone asked for, and it found members no document had ever promised — `Wait` carried ten reserved-signal methods beside the four it describes. It also found two holes in the enforcement itself: the level parser skipped every row written `Public (contract)` — twenty of them — and markers were detected by substring, so `ExecutionRepository`'s docblock *explaining* that `ExecutionStore` is experimental made the interface read as experimental. The baseline twice encoded the machine that generated it, once through Laravel's trait properties and once through PHP 8.5 resolving `self` to a class name; both were caught by CI and both are now pinned by tests across every supported version.
+
+Phase 4's security review, run against the threat model, came back clean on the surfaces that carry the most — parameterised SQL throughout, escaped output throughout, no `unserialize` or `eval` anywhere, a workflow name checked with `is_subclass_of` on the string before anything is constructed, and trigger verification that compares with `hash_equals`, hashes the body once however many keys a rotation carries, and holds previous keys to the current one's floor. Three findings: signal names were held to a weaker standard than the identifiers beside them and could forge a log line, a trigger refusal could become a `500` by echoing a name that would not encode, and `SECURITY.md` misdescribed its own attack surface. The review also raised the PHP floor to 8.3 — 8.2 reaches security end-of-life on 31 December 2026, and 1.0 is the last release the drop policy allows to raise it.
+
+Phase 5, this audit, read the project back to Milestone 0 across contract alignment, documentation, code standards, test quality, dead code, and over-engineering. Code standards came back clean: no debug statements, no analysis suppressions in `src/`, no unreferenced class, no configuration key nothing reads. The findings were documentation drift of a kind no test could catch — the stability agreement test checks *table rows*, so prose elsewhere had gone on calling the bundled connectors, the metrics snapshot, and the tracing hook "experimental until 1.0" after the code made them Public, and `limitations.md` still dated itself to 0.7.0 and told a reader the API might still move. One test was found asserting less than it claimed: the throttling suite proved two connections have separate budgets only by not throwing, where its siblings assert the wire and the sleeper. The soak's own settling loop was found holding a finished run's CI job until its ceiling — a run that settled in two minutes kept a runner for the remaining forty-five, nightly, on six engines — because the loop helper had no way for a tick to say it was done. And the README's status line, which is an exit criterion, is now bound to its mechanisms by a test — a promise that the API is frozen fails the build if the baseline that holds it is gone.
 
 #### Exit criteria
 
-- The soak suite has run clean for a full support window with no recovery defect found.
+- The soak has met its budget — fourteen consecutive clean scheduled runs across all six engine cells, plus one multi-hour sustained run per engine — with every invariant holding and no recovery defect open.
 - A 0.x application upgrades to 1.0 by `composer require` and `php artisan migrate`, with the upgrade checker naming every change it must make first.
+- Every Public class's signature is pinned by the API baseline, and changing one fails a test.
 - The README's status line says what a user can rely on, and the contract tests make it true.
 
 ## Suggested immediate order
@@ -446,7 +475,7 @@ The closing audit — the milestone's net change, read for correctness, security
 14. ~~Fan-out/fan-in, then compensation — semantics first (Milestone 9).~~ Done, and released as 0.5.0.
 15. ~~Schedules, signed triggers, tenant throttling (Milestone 10).~~ Done, and released as 0.6.0.
 16. ~~Contracts, the metrics snapshot and the tracing hook, the documentation site, contributing connectors, open-source practice (Milestone 11).~~ Done, and released as 0.7.0.
-17. Soak, external review, the API freeze, 1.0 (Milestone 12, 1.0.0).
+17. ~~Contracts, release-machinery repair, the soak, the API freeze, the security review, the full-project audit, 1.0 (Milestone 12).~~ Done; released as 1.0.0 once the soak budget is met.
 
 ## Out of scope through 1.0
 

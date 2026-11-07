@@ -17,6 +17,8 @@ Records are numbered in the order they were written, not the order the decisions
 | [0009](0009-one-release-per-milestone.md) | Milestone 11 is 0.7.0 and Milestone 12 is 1.0.0 | Accepted |
 | [0010](0010-one-mapping-bridges-are-sinks.md) | One mapping in the core; a bridge is a sink | Superseded by 0011 |
 | [0011](0011-one-optional-package.md) | One optional package; metrics are the application's | Accepted |
+| [0012](0012-what-1.0-freezes.md) | What 1.0 freezes, and what it deliberately does not | Accepted |
+| [0013](0013-what-the-soak-proves.md) | What the soak proves, and what it cannot | Accepted |
 
 ## Writing one
 

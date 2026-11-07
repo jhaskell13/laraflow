@@ -7,6 +7,7 @@ namespace Laraflow\Triggers;
 use Laraflow\Events\EventEmitter;
 use Laraflow\Events\TriggerAccepted;
 use Laraflow\Events\TriggerRefused;
+use Laraflow\Support\SafeIdentifier;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -81,12 +82,13 @@ final class TriggerReporter
     }
 
     /**
-     * A refused request's signal, made safe to say: at most 255 bytes,
-     * control bytes dropped. Byte-level on purpose — invalid UTF-8 must
-     * not make the sanitiser the thing that fails.
+     * A refused request's signal, made safe to say. The rule is
+     * SafeIdentifier's, shared with the trigger response and with the
+     * guard that refuses such a name in the first place, so the three
+     * cannot disagree about what is safe to carry.
      */
     private static function presentable(string $signal): string
     {
-        return (string) preg_replace('/[\x00-\x1F\x7F]/', '', substr($signal, 0, 255));
+        return SafeIdentifier::presentable($signal);
     }
 }

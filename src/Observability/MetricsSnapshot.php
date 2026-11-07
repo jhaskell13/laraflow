@@ -8,8 +8,6 @@ use DateTimeImmutable;
 use Laraflow\Workflow\ExecutionStatus;
 
 /**
- * @experimental Until 1.0; see docs/metrics.md.
- *
  * What is true of the executions at one instant, counted exactly: what
  * a gauge in the application's own metrics should be set from
  * (docs/metrics.md).
