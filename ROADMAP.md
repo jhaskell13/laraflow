@@ -43,7 +43,9 @@ Milestone 10 is complete (November 2026) and released as **0.6.0**: schedules, t
 
 Milestone 11 is complete (November 2026) and released as **0.7.0**, narrowed partway to what only a Laravel package should do ([decision 0011](docs/decisions/0011-one-optional-package.md)): an exact metrics snapshot and the lifecycle events for an application's own metrics, a tracing hook with one optional OpenTelemetry package, a documentation site with the README cut to a page, connector packages listed by contract, the open-source files, and Horizon and Octane guidance held by tests.
 
-The MVP is complete. The road to 1.0 is laid out below, after the milestone records.
+Milestone 12 is complete (November 2026), to be released as **1.0.0**: the public API frozen and held by a committed signature baseline, the console command classes and the demo made internal and every other experimental surface but `ExecutionStore` made Public, a soak suite that breaks workers and containers under load on six engines and checks thirteen invariants after, a security review against a published threat model whose three findings are fixed, `laraflow:upgrade`, the post-1.0 policy with a twelve-month long-term-support window, and the PHP floor raised to 8.3 ahead of 8.2's security end-of-life. Its record is under the milestone.
+
+The MVP is complete and the road to 1.0 has been walked; what follows 1.0 is driven by issues rather than milestones ([releases.md](docs/releases.md#cadence)).
 
 ## Product principles
 
@@ -432,7 +434,7 @@ Both were made at planning, before any code, and both make the milestone smaller
 2. **The soak and benchmark suite.** The harness under `workbench/`, its scheduled workflow, the invariant checks, and the published baseline.
 3. **The 1.0 API freeze.** A verdict for each of the 40 `@experimental` files and a line-by-line pass over every Public class; an **API signature baseline test**, so the freeze is held by a machine the way the schema freeze is; and `laraflow:upgrade`, which inspects an installed application and names what must change first.
 4. **The security review**, against the threat model, in named dimensions: claim discipline, the signal and trigger boundary, credential paths, dashboard authorization and CSRF, the serialization boundary, every raw SQL fragment, and the supply chain. Findings fixed with the regression test that would have caught them.
-5. **The full-project audit, Milestones 0–12.** The pattern that worked at 0.5.0 and 0.7.0: parallel hostile reviews over concurrency, code quality, contract alignment, documentation alignment, test quality, schema and performance, and over-engineering — including whether the 1438 tests can fail, which has caught real problems here before.
+5. **The full-project audit, Milestones 0–12.** The pattern that worked at 0.5.0 and 0.7.0: parallel hostile reviews over concurrency, code quality, contract alignment, documentation alignment, test quality, schema and performance, and over-engineering — including whether the tests can fail, which has caught real problems here before.
 6. **Documentation and the status line.** The README's status line rewritten to what 1.0 actually promises — the API is frozen and the contracts are proven by test, *not* that it has production mileage, which [docs/limitations.md](docs/limitations.md) keeps saying it has none of — plus "Upgrading to 1.0" and the site's new pages.
 7. **The release.** 1.0.0 drafted by CI against the tag and published by a person, as every release before it.
 
@@ -473,7 +475,7 @@ Phase 5, this audit, read the project back to Milestone 0 across contract alignm
 14. ~~Fan-out/fan-in, then compensation — semantics first (Milestone 9).~~ Done, and released as 0.5.0.
 15. ~~Schedules, signed triggers, tenant throttling (Milestone 10).~~ Done, and released as 0.6.0.
 16. ~~Contracts, the metrics snapshot and the tracing hook, the documentation site, contributing connectors, open-source practice (Milestone 11).~~ Done, and released as 0.7.0.
-17. Contracts, release-machinery repair, the soak, the API freeze, the security review, the full-project audit, 1.0 (Milestone 12, 1.0.0).
+17. ~~Contracts, release-machinery repair, the soak, the API freeze, the security review, the full-project audit, 1.0 (Milestone 12).~~ Done; released as 1.0.0 once the soak budget is met.
 
 ## Out of scope through 1.0
 

@@ -78,7 +78,18 @@ Releases are drafted by machinery and published by a person.
 4. The `Release` workflow re-runs the entire CI matrix against the tag and, only if everything passes, **drafts** a GitHub release with that version's changelog section as its notes. Nothing is published automatically.
 5. **Read the draft, then publish it.** Publishing is the human decision in the loop; a draft that looks wrong is deleted, the problem fixed, and the tag re-cut.
 
-The dist archive an application vendors is trimmed by `.gitattributes` `export-ignore` lines: source, config, migrations, `docs/`, and the top-level README, CHANGELOG, LICENSE, SECURITY, and CONTRIBUTING ship; tests, the workbench, CI configuration, and planning documents do not. Check it with `git archive HEAD | tar -t` after changing `.gitattributes`.
+#### Before the 1.0.0 tag, once
+
+Four things only a maintainer's account can do, each a prerequisite for a claim the documentation now makes.
+
+1. **Publish on Packagist.** Sign in at packagist.org with the GitHub account, *Submit* `https://github.com/jhaskell13/laraflow`, and enable the GitHub hook it offers so every future tag is picked up without a manual update. The README says `composer require laraflow/laraflow`; until this is done, that line is false. Check with `composer show laraflow/laraflow --all` from any machine.
+2. **Configure tag signing.** Either a GPG key (`gpg --full-generate-key`, then `git config --global user.signingkey <id>` and `git config --global tag.gpgSign true`) or an SSH key (`git config --global gpg.format ssh` and `user.signingkey ~/.ssh/<key>.pub`), and upload the public half to the GitHub account so the tag shows *Verified*. Then step 3 above becomes `git tag -s v1.0.0 -m "v1.0.0"`.
+3. **Confirm the soak schedule is live.** Scheduled workflows run only from the default branch, so the `Soak` workflow starts the night after Milestone 12 lands on `main`. The roadmap's first exit criterion is fourteen consecutive clean nightly runs across all six engines plus one multi-hour run per engine (`workflow_dispatch` with `duration: 7200`); the tag waits for that budget, not for a date.
+4. **Enable GitHub Pages and Discussions.** Pages: *Settings → Pages*, source *GitHub Actions*, then set the repository variable `DOCS_DEPLOY` to `true` so the `Docs` workflow deploys. Discussions: *Settings → General → Features*. Both are referenced by the issue forms and the documentation site and have been pending since Milestone 11.
+
+Then the five steps above, with `X.Y.Z` = `1.0.0`.
+
+The dist archive an application vendors is trimmed by `.gitattributes` `export-ignore` lines: source, config, migrations, stubs, `docs/`, and the top-level README, CHANGELOG, LICENSE, SECURITY, CONTRIBUTING, and MAINTAINERS ship; tests, the workbench, CI configuration, and planning documents do not. `tests/Feature/DistArchiveTest.php` pins the archive's top-level contents, so adding a file at the root fails the build until it is either export-ignored or added to the list deliberately — the Milestone 12 audit found a stray 305 KB file that had shipped because this check was a sentence rather than a test.
 
 ### Database migrations
 
