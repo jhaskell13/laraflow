@@ -184,41 +184,46 @@ class ConsoleContractTest extends TestCase
         $this->assertNull($this->app->make(ScheduleRepository::class)->find(NightlyWorkflow::class));
     }
 
-    public function test_the_generators_live_under_laraflow_and_the_old_names_warn(): void
+    /**
+     * The generators were `make:workflow`, `make:step`, and
+     * `make:connector` until 0.6.0, which moved them under `laraflow:`
+     * and kept the old names as hidden deprecated forwarders — they sat
+     * in Laravel's own command namespace, where other workflow packages
+     * also register, so whichever provider booted last silently won
+     * (Milestone 10 audit). 1.0 removed the forwarders: it is the last
+     * release allowed to, because after it a removal waits for a major.
+     *
+     * The assertion that outlives them is the second one. Every command
+     * Laraflow registers is named under `laraflow:`, so the package can
+     * never again collide with Laravel's namespace or another package's.
+     */
+    public function test_every_laraflow_command_is_named_under_the_laraflow_prefix(): void
     {
         $suffix = 'Renamed'.bin2hex(random_bytes(3));
 
-        ['status' => $status, 'output' => $output] = $this->callCommand('make:workflow', ['name' => "Old{$suffix}"]);
+        ['status' => $status, 'output' => $output] = $this->callCommand('laraflow:make-workflow', ['name' => "New{$suffix}"]);
         $this->assertSame(CommandStatus::SUCCESS, $status);
-        $this->assertStringContainsString('[make:workflow] is deprecated', $output);
-        $this->assertStringContainsString('laraflow:make-workflow', $output);
-
-        ['output' => $output] = $this->callCommand('laraflow:make-workflow', ['name' => "New{$suffix}"]);
         $this->assertStringNotContainsString('deprecated', $output);
 
-        // The old name reads the replacement's options, not just its
-        // argument: --conditional reaches laraflow:make-step and picks
-        // the conditional stub.
-        ['status' => $status, 'output' => $output] = $this->callCommand('make:step', ['name' => "Old{$suffix}Step", '--conditional' => true]);
-        $this->assertSame(CommandStatus::SUCCESS, $status);
-        $this->assertStringContainsString('[make:step] is deprecated', $output);
-        $this->assertStringContainsString('ConditionalStep', (string) file_get_contents($this->app->path("Workflows/Steps/Old{$suffix}Step.php")));
+        $registered = Artisan::all();
 
-        // Listed nowhere: not as commands of their own, and not beside
-        // the commands that replaced them, which is how a Symfony alias
-        // would print.
-        Artisan::call('list', ['--raw' => true]);
-        $this->assertStringNotContainsString('make:workflow', Artisan::output());
-        Artisan::call('list');
-        $this->assertStringNotContainsString('[make:', Artisan::output());
-
-        foreach (['make:workflow', 'make:step', 'make:connector'] as $deprecated) {
-            $this->assertTrue(Artisan::all()[$deprecated]->isHidden(), "{$deprecated} should be hidden");
+        foreach (['make:workflow', 'make:step', 'make:connector'] as $removed) {
+            $this->assertArrayNotHasKey($removed, $registered, "{$removed} was removed in 1.0 and must not be registered.");
         }
 
-        @unlink($this->app->path("Workflows/Old{$suffix}.php"));
+        $outsideThePrefix = [];
+
+        foreach ($registered as $name => $command) {
+            $class = $command::class;
+
+            if (str_starts_with($class, 'Laraflow\\') && ! str_starts_with($name, 'laraflow:')) {
+                $outsideThePrefix[] = "{$name} ({$class})";
+            }
+        }
+
+        $this->assertSame([], $outsideThePrefix, 'Every command Laraflow registers must be named under the laraflow: prefix.');
+
         @unlink($this->app->path("Workflows/New{$suffix}.php"));
-        @unlink($this->app->path("Workflows/Steps/Old{$suffix}Step.php"));
     }
 
     protected function useTokenRedactor(): void

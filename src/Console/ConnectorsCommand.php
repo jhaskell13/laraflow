@@ -14,7 +14,9 @@ use Laraflow\Integration\HttpConnector;
 use Throwable;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * What connectors this application has, what connections each one
  * serves, and how each is configured — the operational answer to "is

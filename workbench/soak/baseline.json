@@ -1,0 +1,4 @@
+{
+    "_comment": "Benchmark baselines per database driver, accepted by a maintainer from a soak run; advisory only (docs/decisions/0013). Keys match report.json benchmarks.",
+    "sqlite": {}
+}

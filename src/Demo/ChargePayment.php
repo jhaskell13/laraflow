@@ -9,7 +9,7 @@ use Laraflow\Workflow\WorkflowContext;
 use RuntimeException;
 
 /**
- * @experimental Ships for the `laraflow:demo` command; not a stable API.
+ * @internal Ships for the `laraflow:demo` command; never build on it.
  *
  * Simulates calling a payment provider. With the `fail` input set, the
  * first attempt throws — leaving a failed execution behind so that

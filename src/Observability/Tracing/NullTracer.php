@@ -10,8 +10,6 @@ use Laraflow\Workflow\StepExecution;
 use Laraflow\Workflow\WorkflowExecution;
 
 /**
- * @experimental See Tracer.
- *
  * The tracer that ships: nothing is traced until a bridge binds one.
  */
 final class NullTracer implements Tracer

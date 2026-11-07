@@ -16,7 +16,9 @@ use Laraflow\Workflow\ExecutionStatus;
 use Psr\Clock\ClockInterface;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * One screen answering "is anything wrong right now?": how many
  * executions are in each status for a given scope, and the conditions

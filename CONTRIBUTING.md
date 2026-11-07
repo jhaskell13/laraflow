@@ -74,7 +74,7 @@ Releases are drafted by machinery and published by a person.
 
 1. **Convert the changelog.** Rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, start a fresh empty `## [Unreleased]` above it, and update the compare links in the footer. The release workflow refuses a tag whose version has no changelog section.
 2. **Land that on `main`** through a pull request like any other change, and wait for CI — the tag must point at a commit the full matrix has already passed.
-3. **Tag it:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. **Tag it, annotated:** `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. Annotated, not lightweight — an annotated tag carries its own author, date, and message, and is what `git describe` and signature verification work with. `v0.2.0` is the one lightweight tag in the history and is left as it is rather than moved; every tag from 1.0 is annotated and, once the maintainer has a signing key configured, signed with `-s`.
 4. The `Release` workflow re-runs the entire CI matrix against the tag and, only if everything passes, **drafts** a GitHub release with that version's changelog section as its notes. Nothing is published automatically.
 5. **Read the draft, then publish it.** Publishing is the human decision in the loop; a draft that looks wrong is deleted, the problem fixed, and the tag re-cut.
 
@@ -121,6 +121,22 @@ It checks the things that are easy to get subtly wrong: that the connector holds
 A connector in a third-party package registers itself from that package's own service provider with `LaraflowManager::register()`; one in this repository is declared in `config/laraflow.php` like the bundled two. Either way, **no Laraflow file needs editing to add one** — if you find yourself wanting to, that is a bug in the extension points and worth an issue.
 
 **A connector for a service Laraflow does not ship** belongs in a package of your own rather than in this repository: [docs/community-connectors.md](docs/community-connectors.md) shows the package's shape and how it is listed, with the contract test as the review.
+
+## Running the soak
+
+The soak ([docs/soak.md](docs/soak.md)) is the suite that runs for a long time under load while workers are killed and containers are stopped, and then checks the invariants. It is not part of `composer test`.
+
+```bash
+composer soak                                  # five minutes of load on SQLite, then settling; worker kills only
+composer soak -- --duration=120 --workers=2    # shorter, for a change to the soak itself
+LARAFLOW_TEST_DB_DRIVER=pgsql composer soak    # an engine, through the suite's own variables
+```
+
+Settling stops when nothing is unfinished, or when the unfinished count has stopped falling (`--stall-after`, 180s) — not on a fixed clock, because a healthy drain can be slow. Each run writes `storage/soak/<timestamp>/` — every process's log, the timing records, the ledger of executions created, and `report.json` with `report.md` beside it — and exits non-zero if an invariant was violated or the run did not settle. `vendor/bin/testbench soak:verify --run-dir=storage/soak/<timestamp>` re-runs the invariant checks against the database as it stands.
+
+In CI the `Soak` workflow runs nightly on every engine with the database and Redis containers stopped and started under load, and a person can start a longer run from the Actions tab with a duration. Its results are the job summary and an artifact per engine; nothing in it gates a pull request.
+
+**Maintainer steps.** Scheduled workflows run only from the default branch, so the soak starts running the night after it lands on `main`; GitHub pauses a schedule after sixty days without a commit, and the Actions tab offers to re-enable it. To accept a run's numbers as the baseline, copy the `benchmarks` object from its `report.json` under the engine's driver name in `workbench/soak/baseline.json` and commit it with a note of which run it came from; the comparison is advisory, so a baseline that is never updated costs only an unhelpful sentence in the summary.
 
 ## Working on the documentation
 

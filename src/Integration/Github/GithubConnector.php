@@ -12,7 +12,22 @@ use Laraflow\Integration\Pagination\LinkHeaderPaginator;
 use Laraflow\Integration\Pagination\Paginator;
 
 /**
- * @experimental Prototype connector, kept experimental until the first release.
+ * GitHub's REST API.
+ *
+ * Built on the same public contracts an application's own connector
+ * uses — HttpConnector, Authenticator, ErrorMapper, Paginator — and on
+ * nothing internal, which a test enforces: if this connector needed
+ * something a third party cannot reach, the extension points would not
+ * be finished.
+ *
+ * It pins the REST API version it was written against and sends it in
+ * GitHub's own header, so a provider change is a version bump rather
+ * than a surprise; and it pages through the RFC 8288 `Link` header,
+ * whose next-page URL is absolute and therefore host-checked before it
+ * is followed.
+ *
+ * The generic request, error, and paging machinery is the whole of it.
+ * Provider-specific conveniences are an application's to add on top.
  */
 class GithubConnector extends HttpConnector
 {

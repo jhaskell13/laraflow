@@ -13,8 +13,6 @@ use InvalidArgumentException;
 use LogicException;
 
 /**
- * @experimental Triggers are new in Milestone 10; see docs/triggers.md.
- *
  * The one place an application opts in to signals over HTTP. Nothing
  * here runs unless the application calls it: no route is registered by
  * the service provider, so an application that never mounts triggers

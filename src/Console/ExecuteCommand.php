@@ -23,7 +23,9 @@ use Laraflow\Workflow\WorkflowRunner;
 use Throwable;
 
 /**
- * @experimental Console tooling is still evolving; see docs/public-api.md.
+ * @internal The command class is implementation. What 1.0 freezes is the
+ * command's name, its options, and the shape of its `--json` document —
+ * see docs/public-api.md. Nothing should type-hint or extend this class.
  *
  * Executes (or re-executes) a persisted execution using the workflow class
  * recorded on it: pending executions run for the first time, failed ones

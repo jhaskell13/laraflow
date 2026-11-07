@@ -19,8 +19,6 @@ use Laraflow\Dashboard\Controllers\OverviewController;
 use LogicException;
 
 /**
- * @experimental The dashboard is new in Milestone 8.5; see docs/dashboard.md.
- *
  * The one place an application opts in to the dashboard. Nothing here
  * runs unless the application calls it: no routes are registered by
  * the service provider, so an application that never mounts the
@@ -169,6 +167,8 @@ final class Dashboard
     }
 
     /**
+     * @internal Consulted by the mounted middleware and controllers; an application calls auth() and routes().
+     *
      * Whether this request may use the actions, given that it may use
      * the dashboard at all.
      *
@@ -213,6 +213,8 @@ final class Dashboard
     }
 
     /**
+     * @internal Consulted by the mounted middleware and controllers; an application calls auth() and routes().
+     *
      * Whether the dashboard was mounted to look and not touch. Read by
      * the route registration, so with this set the action routes are
      * absent rather than hidden.

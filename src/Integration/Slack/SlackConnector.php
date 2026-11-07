@@ -24,9 +24,6 @@ use Laraflow\Integration\Pagination\Paginator;
  * It exercises what the GitHub connector does not: a provider that
  * reports failure inside a 200, cursor pagination whose result key
  * differs per endpoint, and methods that are mostly POSTs.
- *
- * @experimental Shipped so the connector contracts can be judged against a
- *               second real provider; its helper methods may change.
  */
 class SlackConnector extends HttpConnector
 {

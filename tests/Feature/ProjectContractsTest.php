@@ -296,7 +296,7 @@ class ProjectContractsTest extends TestCase
             // An undocumented class must declare a stability level.
             // Console commands are documented by command name rather
             // than class name, and carry @experimental.
-            if (! str_contains($docblock, '@internal') && ! str_contains($docblock, '@experimental')) {
+            if (! $this->hasTag($docblock, '@internal') && ! $this->hasTag($docblock, '@experimental')) {
                 $undocumented[] = $class;
             }
         }
@@ -333,8 +333,8 @@ class ProjectContractsTest extends TestCase
             $docblock = (string) (new ReflectionClass($class))->getDocComment();
 
             $marked = match (true) {
-                str_contains($docblock, '@internal') => 'Internal',
-                str_contains($docblock, '@experimental') => 'Experimental',
+                $this->hasTag($docblock, '@internal') => 'Internal',
+                $this->hasTag($docblock, '@experimental') => 'Experimental',
                 default => 'Public',
             };
 
@@ -521,8 +521,8 @@ class ProjectContractsTest extends TestCase
         $names = fn (ReflectionClass $class): array => array_map(fn ($method): string => $method->getName(), $class->getMethods());
         $this->assertSame([], array_values(array_intersect($names($reader), $names($store))), 'A method is on both halves.');
 
-        $this->assertStringNotContainsString('@experimental', (string) $reader->getDocComment());
-        $this->assertStringContainsString('@experimental', (string) $store->getDocComment());
+        $this->assertFalse($this->hasTag((string) $reader->getDocComment(), '@experimental'), 'ExecutionReader is the Public half and must not be marked experimental.');
+        $this->assertTrue($this->hasTag((string) $store->getDocComment(), '@experimental'), 'ExecutionStore is the experimental half and must say so.');
 
         $offenders = [];
 
@@ -573,6 +573,20 @@ class ProjectContractsTest extends TestCase
             \Laraflow\Exceptions\Connector\ServerErrorException::class,
             // docs/public-api.md: "Extend it and fall back to parent::map()".
             \Laraflow\Integration\Http\StatusErrorMapper::class,
+            // The bundled connectors and their mappers, Public since 1.0
+            // (decision 0012). They are starting points, not finished
+            // clients: the package ships the generic request, error, and
+            // paging machinery for a provider, and an application adds
+            // the endpoints it needs by subclassing — which is what
+            // "provider-specific conveniences are yours to add on top"
+            // in docs/limitations.md means. Sealing them would leave a
+            // developer who needs one extra endpoint reimplementing the
+            // connector. Their extension points are HttpConnector's and
+            // StatusErrorMapper's, already frozen by those bases.
+            \Laraflow\Integration\Github\GithubConnector::class,
+            \Laraflow\Integration\Github\GithubErrorMapper::class,
+            \Laraflow\Integration\Slack\SlackConnector::class,
+            \Laraflow\Integration\Slack\SlackErrorMapper::class,
         ];
 
         $open = [];
@@ -585,7 +599,7 @@ class ProjectContractsTest extends TestCase
                 continue;
             }
 
-            if (str_contains($docblock, '@internal') || str_contains($docblock, '@experimental')) {
+            if ($this->hasTag($docblock, '@internal') || $this->hasTag($docblock, '@experimental')) {
                 continue;
             }
 
@@ -885,7 +899,7 @@ class ProjectContractsTest extends TestCase
 
                     $docblock = (string) (new ReflectionClass($used))->getDocComment();
 
-                    if (str_contains($docblock, '@internal')) {
+                    if ($this->hasTag($docblock, '@internal')) {
                         $offenders[] = $file->getFilename().' uses internal '.$used;
                     }
                 }
@@ -933,6 +947,20 @@ class ProjectContractsTest extends TestCase
                 class_basename($class).' is never retried but the contract does not say so.',
             );
         }
+    }
+
+    /**
+     * Whether a docblock carries a stability tag.
+     *
+     * Matched as a tag — at the start of a docblock line — and not as a
+     * substring anywhere in the text. `ExecutionRepository`'s docblock
+     * explains that `ExecutionStore` is `@experimental`, and a
+     * substring match read that prose as a marker on the interface
+     * itself, so its documented level went unchecked (Milestone 12).
+     */
+    protected function hasTag(string $docblock, string $tag): bool
+    {
+        return preg_match('/^\s*\*\s*'.preg_quote($tag, '/').'\b/m', $docblock) === 1;
     }
 
     /**
@@ -1035,7 +1063,12 @@ class ProjectContractsTest extends TestCase
         $doc = (string) file_get_contents($this->path('docs/public-api.md'));
 
         foreach (explode("\n", $doc) as $line) {
-            if (preg_match('/^\|(.*?)\|\s*(Public|Experimental|Internal)\s*\|/', $line, $match) !== 1) {
+            // The level cell may qualify itself — "Public (contract)"
+            // marks an interface an application implements rather than
+            // calls. The qualifier is prose; the level is the promise,
+            // and before Milestone 12 a qualified cell matched nothing
+            // and so escaped the agreement check below entirely.
+            if (preg_match('/^\|(.*?)\|\s*(Public|Experimental|Internal)(?:\s*\([^)|]*\))?\s*\|/', $line, $match) !== 1) {
                 continue;
             }
 

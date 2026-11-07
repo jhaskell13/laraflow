@@ -8,6 +8,7 @@ use DateInterval;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\InvalidSignalException;
+use Laraflow\Support\SafeIdentifier;
 
 /**
  * A step's declaration that the execution should park instead of
@@ -75,6 +76,8 @@ final readonly class Wait
     }
 
     /**
+     * @internal Reserved-signal machinery; applications use forSignal().
+     *
      * The one rule for signal names an application chooses, applied
      * where a wait is declared and where a signal is delivered:
      * non-empty, short enough for the column, and outside the reserved
@@ -88,8 +91,19 @@ final readonly class Wait
             throw InvalidSignalException::empty();
         }
 
-        if (mb_strlen($name) > self::MAX_SIGNAL_LENGTH) {
-            throw InvalidSignalException::tooLong(mb_strlen($name));
+        // The same guard the execution identifiers beside this one get:
+        // a signal name is persisted, logged, put on an event, and
+        // rendered into JSON, so it is held to the same rule rather
+        // than to a weaker one (SafeIdentifier).
+        $refusal = match (SafeIdentifier::reasonFor($name, self::MAX_SIGNAL_LENGTH)) {
+            SafeIdentifier::INVALID_ENCODING => InvalidSignalException::invalidEncoding(),
+            SafeIdentifier::CONTROL_CHARACTERS => InvalidSignalException::controlCharacters(),
+            SafeIdentifier::TOO_LONG => InvalidSignalException::tooLong(mb_strlen($name)),
+            default => null,
+        };
+
+        if ($refusal !== null) {
+            throw $refusal;
         }
 
         if (str_starts_with(mb_strtolower($name), self::RESERVED_PREFIX)) {
@@ -106,7 +120,9 @@ final readonly class Wait
         return new self(self::CHILD_PREFIX.$childExecutionId, null, null);
     }
 
-    /** Whether a stored signal name is a sub-workflow parent's park on its child. */
+    /**
+     * @internal Machinery: Whether a stored signal name is a sub-workflow parent's park on its child.
+     */
     public static function isChildSignal(?string $signal): bool
     {
         return $signal !== null && str_starts_with($signal, self::CHILD_PREFIX);
@@ -121,13 +137,17 @@ final readonly class Wait
         return new self(self::JOIN_PREFIX.$stepExecutionId, null, null);
     }
 
-    /** Whether a stored signal name is a fan-out's park on its join. */
+    /**
+     * @internal Machinery: Whether a stored signal name is a fan-out's park on its join.
+     */
     public static function isJoinSignal(?string $signal): bool
     {
         return $signal !== null && str_starts_with($signal, self::JOIN_PREFIX);
     }
 
     /**
+     * @internal Reserved-signal machinery; applications use forSignal().
+     *
      * The step row id a join signal names; 0 for anything forJoin()
      * did not write, as childIdFrom() reads a malformed child signal.
      */
@@ -138,13 +158,17 @@ final readonly class Wait
         return ctype_digit($id) && (string) (int) $id === $id ? (int) $id : 0;
     }
 
-    /** Whether a stored signal is one the package parks on itself — a child's or a join's. */
+    /**
+     * @internal Machinery: Whether a stored signal is one the package parks on itself — a child's or a join's.
+     */
     public static function isMachinerySignal(?string $signal): bool
     {
         return self::isChildSignal($signal) || self::isJoinSignal($signal);
     }
 
     /**
+     * @internal Reserved-signal machinery; applications use forSignal().
+     *
      * The child execution id a child signal names. A signal forChild()
      * did not write — anything but digits after the prefix — reads as
      * 0, an id no execution can have, so a lookup reports it missing
@@ -175,7 +199,9 @@ final readonly class Wait
         return new self($this->signal, null, null, $seconds);
     }
 
-    /** The instant a timed wait resumes, measured from $now. */
+    /**
+     * @internal Machinery: The instant a timed wait resumes, measured from $now.
+     */
     public function resumeInstant(DateTimeImmutable $now): ?DateTimeImmutable
     {
         if ($this->resumeAt !== null) {
@@ -189,7 +215,9 @@ final readonly class Wait
         return null;
     }
 
-    /** The instant a signal wait times out, measured from $now. */
+    /**
+     * @internal Machinery: The instant a signal wait times out, measured from $now.
+     */
     public function timeoutInstant(DateTimeImmutable $now): ?DateTimeImmutable
     {
         return $this->timeoutAfterSeconds === null

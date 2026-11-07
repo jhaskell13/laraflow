@@ -147,6 +147,8 @@ final readonly class Schedule
     }
 
     /**
+     * @internal How the scheduler resolves input() for one tick.
+     *
      * The input the execution for $tick starts with.
      *
      * @return array<string, mixed>

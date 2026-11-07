@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Laraflow\Triggers;
 
 /**
- * @experimental Triggers are new in Milestone 10; see docs/triggers.md.
- *
  * What a named trigger's resolver turns a verified provider request
  * into: the one signal to deliver. Everything after this is the signed
  * endpoint's own path — the same `signal()`, the same delivery, the
