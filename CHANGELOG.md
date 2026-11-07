@@ -8,7 +8,7 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-## [v1.0.0]
+## [1.0.0] - 2026-11-07
 
 Milestone 12: production validation and 1.0. The API is frozen and a committed signature baseline holds it there; a soak suite runs the package under load on every engine while workers are killed and containers stopped; a security review against a published threat model closed its findings; the PHP floor rose to 8.3 ahead of 8.2's security end-of-life; and `laraflow:upgrade` tells an installed application what it must change first. One behaviour change beyond the removals below: a signal name is now refused for the same reasons a correlation id is.
 
