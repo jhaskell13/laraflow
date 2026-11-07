@@ -958,6 +958,44 @@ class ProjectContractsTest extends TestCase
      * substring match read that prose as a marker on the interface
      * itself, so its documented level went unchecked (Milestone 12).
      */
+    /**
+     * Milestone 12's third exit criterion: "the README's status line
+     * says what a user can rely on, and the contract tests make it
+     * true." Each promise there rests on a mechanism in this
+     * repository, and a promise can outlive its mechanism silently —
+     * someone deletes the baseline test and the README still says the
+     * API is frozen. This binds the two together.
+     */
+    public function test_every_reliance_the_readme_promises_has_a_mechanism_behind_it(): void
+    {
+        $readme = (string) file_get_contents($this->path('README.md'));
+
+        $promises = [
+            'the public API is frozen' => ['signature baseline', $this->path('tests/api-baseline.json')],
+            'and a test holds it there' => ['signature baseline', $this->path('tests/Feature/ApiSignatureTest.php')],
+            'the schema is frozen' => ['schema is frozen', $this->path('tests/Feature/Database/SchemaFreezeTest.php')],
+            'migrate is always enough' => ['migrate` is always enough', $this->path('tests/Feature/Database/UpgradePathTest.php')],
+            'an upgrade checker exists' => ['laraflow:upgrade', $this->path('tests/Feature/Console/UpgradeCommandTest.php')],
+            'a soak suite exists' => ['soak.md', $this->path('docs/soak.md')],
+            'a threat model is published' => ['threat-model.md', $this->path('docs/threat-model.md')],
+        ];
+
+        $unbacked = [];
+
+        foreach ($promises as $promise => [$phrase, $mechanism]) {
+            if (! str_contains($readme, $phrase)) {
+                continue;
+            }
+
+            if (! file_exists($mechanism)) {
+                $unbacked[] = "the README promises {$promise}, but ".basename($mechanism).' is gone';
+            }
+        }
+
+        $this->assertSame([], $unbacked);
+        $this->assertStringContainsString('does not claim', $readme, 'The status line must still say what 1.0 does not claim.');
+    }
+
     protected function hasTag(string $docblock, string $tag): bool
     {
         return preg_match('/^\s*\*\s*'.preg_quote($tag, '/').'\b/m', $docblock) === 1;

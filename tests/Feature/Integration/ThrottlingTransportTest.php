@@ -71,13 +71,22 @@ class ThrottlingTransportTest extends TestCase
     public function test_connections_have_separate_budgets(): void
     {
         $policy = new RateLimitPolicy(maxRequests: 1, perSeconds: 60);
-        $acme = $this->throttling(new ScriptedTransport([ConnectorResponse::fake()]), $policy, 'slack', 'acme');
-        $globex = $this->throttling(new ScriptedTransport([ConnectorResponse::fake()]), $policy, 'slack', 'globex');
+        $acmeWire = new ScriptedTransport([ConnectorResponse::fake()]);
+        $globexWire = new ScriptedTransport([ConnectorResponse::fake()]);
+        $acme = $this->throttling($acmeWire, $policy, 'slack', 'acme');
+        $globex = $this->throttling($globexWire, $policy, 'slack', 'globex');
 
         $acme->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
         $globex->send(new ConnectorRequest('GET', '/a'), new HttpOptions);
 
-        $this->addToAssertionCount(1);
+        // Budget is one per connection. Shared, the second call would be
+        // refused or made to wait; separate, both reach the wire and
+        // neither sleeps. Asserted rather than inferred from the absence
+        // of an exception, which was all this test used to check
+        // (Milestone 12 audit).
+        $this->assertCount(1, $acmeWire->sent);
+        $this->assertCount(1, $globexWire->sent);
+        $this->assertSame([], $this->sleeper->sleeps, 'A separate budget is never waited on.');
     }
 
     /**

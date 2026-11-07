@@ -8,7 +8,7 @@ Cutting a release renames *Unreleased* to the version and date, starts a fresh *
 
 ## [Unreleased]
 
-Milestone 12, in progress: production validation and 1.0.
+Milestone 12: production validation and 1.0. The API is frozen and a committed signature baseline holds it there; a soak suite runs the package under load on every engine while workers are killed and containers stopped; a security review against a published threat model closed its findings; the PHP floor rose to 8.3 ahead of 8.2's security end-of-life; and `laraflow:upgrade` tells an installed application what it must change first. One behaviour change beyond the removals below: a signal name is now refused for the same reasons a correlation id is.
 
 ### Added
 
@@ -38,6 +38,10 @@ Milestone 12, in progress: production validation and 1.0.
 - **The pre-0.6.0 generator names are removed.** `make:workflow`, `make:step`, and `make:connector` have been hidden deprecated forwarders since 0.6.0, which announced their removal; use `laraflow:make-workflow`, `laraflow:make-step`, and `laraflow:make-connector`. 1.0 is the last release allowed to remove them — after it, a removal waits for a major. The contract test that held them now holds something more durable: every command Laraflow registers is named under the `laraflow:` prefix, so the package can never again collide with Laravel's own namespace or another package's.
 
 ### Fixed
+
+- **Documentation that had outlived the code.** The stability agreement test compares `public-api.md`'s *table rows* against the docblocks, so prose elsewhere drifted silently: `metrics.md` and `tracing.md` still called the snapshot and the tracing hook "Experimental until 1.0" after 1.0 made them Public, `limitations.md` still said the bundled connectors "stay experimental until 1.0" and that the public API "may still move", and it dated its own list to 0.7.0. `compatibility.md` still headed a section "what supported means *before 1.0*". The README told a reader the package was not on Packagist while the documentation site's landing page told them to `composer require` it. All corrected, and the README's status line now says what 1.0 does and does not claim — bound to its mechanisms by a test, so a promise that the API is frozen fails the build if the baseline holding it is deleted.
+
+- **A test that asserted less than it claimed.** `ThrottlingTransportTest::test_connections_have_separate_budgets` proved two connections have separate rate-limit budgets only by not throwing, where every sibling asserts what reached the wire and what the sleeper recorded. It now asserts both.
 
 - **The API baseline depended on which PHP was installed.** PHP 8.5 resolves the relative type `self` to the fully qualified class name, where 8.2 to 8.4 report `self` — so the same source produced two different baselines, and PHP 8.5, the newest version the compatibility policy names, failed the freeze test against a baseline generated on any older one. 123 members across 56 classes differed, every one of them for that single reason, in return and parameter position alike. A relative type is now recorded as the keyword on every version: `self` for a type naming the class it is declared on, and `parent` for one naming that class's parent, which PHP 8.5 resolves the same way — a second instance of the same defect, latent because the surface has none today, closed with the first rather than left for the release that would have introduced one. `static` is reported as `static` everywhere and needs no help, as do constant defaults; both were checked rather than assumed. Three tests pin it. Verified against all four supported versions — 8.2.35 on the Laravel 12 floor, 8.3.36, 8.4.27, and 8.5.12 — which produce an identical baseline, and the whole suite was run on 8.5.
 

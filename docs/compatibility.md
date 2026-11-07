@@ -41,7 +41,7 @@ A persistence driver implements `Laraflow\Workflow\ExecutionRepository` and bind
 
 The split is what lets 1.0 promise a stable read API without promising that the write protocol is finished. A store method graduates to Public once a second driver has implemented it unchanged.
 
-### What "supported" means before 1.0
+### What "supported" means
 
 - **Tested** means the test suite runs against it in the repository's own development or CI workflow.
 - **Expected to work** means the package uses only portable Laravel abstractions (schema builder, Eloquent, JSON casts) for that platform, but no automated run proves it. Bug reports for these platforms are welcome and will be treated as defects, not feature requests.
