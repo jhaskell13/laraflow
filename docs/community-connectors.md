@@ -6,13 +6,13 @@ How to write a connector is in [connectors.md](connectors.md); the step-by-step 
 
 ## Publishing one
 
-A connector package needs nothing from this repository beyond `laraflow/laraflow` itself. The shape, for a package named `acme/laraflow-crm`:
+A connector package needs nothing from this repository beyond `jhaskell13/laraflow` itself. The shape, for a package named `acme/laraflow-crm`:
 
 ```text
 src/CrmConnector.php            extends Laraflow\Integration\HttpConnector
 src/CrmServiceProvider.php      registers the connector
 tests/ContractTest.php          runs ConnectorContract
-composer.json                   requires laraflow/laraflow, auto-discovers the provider
+composer.json                   requires jhaskell13/laraflow, auto-discovers the provider
 ```
 
 1. **Write the connector** as [connectors.md](connectors.md) describes. `php artisan laraflow:make-connector` writes one into an application's `app/Connectors`; generate it there and move it into your package's namespace, or write it by hand — it is one class.

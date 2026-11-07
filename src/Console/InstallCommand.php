@@ -75,7 +75,7 @@ final class InstallCommand extends Command
             'php artisan laraflow:make-connector StripeConnector       an HTTP connector in app/Connectors',
             'php artisan laraflow:start FulfilOrder           run a workflow you wrote, and inspect it with laraflow:show 1',
             'php artisan laraflow:demo                        or run the bundled demo first',
-            'vendor/laraflow/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',
+            'vendor/jhaskell13/laraflow/docs/execution-lifecycle.md   the durability contract, before depending on it',
         ]);
 
         return self::SUCCESS;

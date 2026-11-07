@@ -20,7 +20,7 @@
     "require": {
         "php": "^8.3",
         "illuminate/support": "^12.0|^13.0",
-        "laraflow/laraflow": "^0.7",
+        "jhaskell13/laraflow": "^0.7",
         "open-telemetry/api": "^1.4"
     },
     "require-dev": {
@@ -58,7 +58,7 @@
             "options": {
                 "symlink": true,
                 "versions": {
-                    "laraflow/laraflow": "0.7.x-dev"
+                    "jhaskell13/laraflow": "0.7.x-dev"
                 }
             }
         }

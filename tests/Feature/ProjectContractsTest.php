@@ -99,7 +99,7 @@ class ProjectContractsTest extends TestCase
         $registered = array_keys(Artisan::all());
         $docs = $this->documentation().(string) file_get_contents($this->path('README.md'));
 
-        // Not preceded by a slash: `laraflow/laraflow:dev-main` is a
+        // Not preceded by a slash: `jhaskell13/laraflow:dev-main` is a
         // Composer constraint, not a command.
         preg_match_all('/(?<![\/a-z])laraflow:([a-z][a-z-]*[a-z]|[a-z])/', $docs, $matches);
 

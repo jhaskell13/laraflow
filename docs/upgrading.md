@@ -23,7 +23,7 @@ Every schema change is called out in `CHANGELOG.md` under the release that intro
 Laraflow is a library: its version moves when you ask Composer to move it.
 
 ```bash
-composer update laraflow/laraflow
+composer update jhaskell13/laraflow
 php artisan migrate
 ```
 
@@ -136,7 +136,7 @@ That last one it **names rather than detects** — the package cannot see an app
 
 ```bash
 php artisan migrate:rollback --step=1
-composer require laraflow/laraflow:<previous-version>
+composer require jhaskell13/laraflow:<previous-version>
 ```
 
 Roll the code back **with or after** the schema, not before: older code does not know about a newer column, but newer code may require one.
@@ -148,7 +148,7 @@ A rollback that crosses a release which *removed* something is the case to be ca
 If the schema did not move between the two versions — the common case — rolling back is just Composer:
 
 ```bash
-composer require laraflow/laraflow:<previous-version>
+composer require jhaskell13/laraflow:<previous-version>
 ```
 
 Nothing else is needed. Executions persisted by the newer code remain readable, because the schema they were written against is the same one.

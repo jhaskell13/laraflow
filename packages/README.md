@@ -12,7 +12,7 @@ Metrics need no package: the lifecycle events and the metrics snapshot are what 
 
 ```bash
 cd packages/opentelemetry
-composer install     # resolves laraflow/laraflow from ../.. by path
+composer install     # resolves jhaskell13/laraflow from ../.. by path
 composer test
 composer analyse
 ```

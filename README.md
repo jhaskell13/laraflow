@@ -25,7 +25,7 @@ See [docs/compatibility.md](docs/compatibility.md) for the full policy, includin
 ## Installation
 
 ```bash
-composer require laraflow/laraflow
+composer require jhaskell13/laraflow
 ```
 
 Laravel's package auto-discovery registers `Laraflow\Core\LaraflowServiceProvider`. No manual provider registration is needed. Then:

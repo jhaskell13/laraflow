@@ -209,7 +209,7 @@ jobs:
       # package that passes against yesterday's core proves nothing.
       - name: The core resolved from this checkout
         run: |
-          composer show laraflow/laraflow | grep -E '^dist +: \[path\] \.\./\.\.'
+          composer show jhaskell13/laraflow | grep -E '^dist +: \[path\] \.\./\.\.'
 
       - name: Tests
         run: composer test

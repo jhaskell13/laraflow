@@ -1,5 +1,5 @@
 {
-    "name": "laraflow/laraflow",
+    "name": "jhaskell13/laraflow",
     "description": "Laravel-native framework for building integrations and durable, recoverable workflows.",
     "type": "library",
     "license": "MIT",
