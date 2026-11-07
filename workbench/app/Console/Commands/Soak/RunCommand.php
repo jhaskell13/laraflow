@@ -353,9 +353,9 @@ final class RunCommand extends Command
         $fewest = PHP_INT_MAX;
         $improvedAt = microtime(true);
 
-        $this->runUntil($timeout, 5.0, function () use ($db, $stallSeconds, &$quietPolls, &$workerSerial, &$settled, &$stalled, &$fewest, &$improvedAt): void {
+        $this->runUntil($timeout, 5.0, function () use ($db, $stallSeconds, &$quietPolls, &$workerSerial, &$settled, &$stalled, &$fewest, &$improvedAt): bool {
             if ($settled || $stalled) {
-                return;
+                return false;
             }
 
             foreach ($this->fleet->dead('worker') as $dead) {
@@ -378,12 +378,16 @@ final class RunCommand extends Command
             if ($quietPolls >= 2) {
                 $settled = true;
 
-                return;
+                return false;
             }
 
             if (microtime(true) - $improvedAt >= $stallSeconds) {
                 $stalled = true;
+
+                return false;
             }
+
+            return true;
         });
 
         if ($settled) {

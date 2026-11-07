@@ -16,7 +16,13 @@ use Throwable;
 trait RunsUntil
 {
     /**
-     * @param  Closure(int $tick): void  $tick
+     * Tick until the deadline — or until a tick returns `false`, which
+     * means it has nothing left to do. Without that, the settling loop
+     * went on ticking over a finished run until its ceiling: a soak
+     * that settled in two minutes still held a CI job for the
+     * remaining forty-five (Milestone 12 audit).
+     *
+     * @param  Closure(int $tick): (bool|void)  $tick
      */
     protected function runUntil(int $durationSeconds, float $everySeconds, Closure $tick, ?Closure $onError = null): void
     {
@@ -27,7 +33,9 @@ trait RunsUntil
             $startedAt = microtime(true);
 
             try {
-                $tick(++$n);
+                if ($tick(++$n) === false) {
+                    return;
+                }
             } catch (Throwable $exception) {
                 if ($onError !== null) {
                     $onError($exception);
