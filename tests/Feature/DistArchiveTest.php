@@ -30,6 +30,7 @@ class DistArchiveTest extends TestCase
      */
     private const SHIPPED = [
         'CHANGELOG.md',
+        'CODEOWNERS',
         'CONTRIBUTING.md',
         'LICENSE',
         'MAINTAINERS.md',
