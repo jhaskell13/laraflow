@@ -6,13 +6,13 @@ Applications often begin integrating external services with a few HTTP calls and
 
 Laraflow gives that work a home. Workflows are ordered, named steps written as plain PHP classes. Connectors give external services a consistent place for authentication, requests, responses, and errors. A runner executes workflows and records every execution and step in your database so progress can be inspected and, when safe, continued.
 
-> **Status: `0.x`, under active development.** Linear workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, wait for a delay or a signal, run a child workflow, fan out and join, or undo itself when the workflow fails. Cron schedules that fire exactly once per tick, signed HTTP triggers, per-tenant ceilings, a console that speaks JSON, and an opt-in dashboard. CI-proven across PHP 8.2–8.5, Laravel 12–13, and five database engines, with a frozen schema and a tested upgrade path. The public API may still move before 1.0 — see [what is stable](docs/public-api.md) and [what is not done yet](docs/limitations.md).
+> **Status: `0.x`, under active development.** Linear workflows — an ordered list of steps, made durable, resumable, and observable — where a step may be conditional, wait for a delay or a signal, run a child workflow, fan out and join, or undo itself when the workflow fails. Cron schedules that fire exactly once per tick, signed HTTP triggers, per-tenant ceilings, a console that speaks JSON, and an opt-in dashboard. CI-proven across PHP 8.3–8.5, Laravel 12–13, and five database engines, with a frozen schema and a tested upgrade path. The public API may still move before 1.0 — see [what is stable](docs/public-api.md) and [what is not done yet](docs/limitations.md).
 
 ## Requirements
 
 | Dependency | Supported |
 |------------|-----------|
-| PHP        | 8.2, 8.3, 8.4, 8.5 |
+| PHP        | 8.3, 8.4, 8.5 |
 | Laravel    | 12.x, 13.x (Laravel 13 requires PHP 8.3+) |
 | Database   | SQLite, MySQL 8.4+, PostgreSQL 14+, MariaDB 10.11+, SQL Server 2022+ — all five run the full suite in CI |
 

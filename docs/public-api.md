@@ -146,7 +146,7 @@ Guarantees applications may rely on:
 
 New event classes, and new properties on existing ones, may be added in a **minor**: they are additive, and a listener that reads the properties it needs is unaffected. Listeners should not depend on this list being exhaustive, nor on a `match` over event classes being total.
 
-Public properties on `WorkflowExecution` and `StepExecution` remain technically writable (PHP 8.2 has no asymmetric visibility), but writing them from application code is unsupported: all state changes must go through the `mark*()` transition methods, which throw `InvalidStateTransitionException` for anything the state machine forbids.
+Public properties on `WorkflowExecution` and `StepExecution` remain technically writable (asymmetric visibility arrived in PHP 8.4 and the floor is 8.3), but writing them from application code is unsupported: all state changes must go through the `mark*()` transition methods, which throw `InvalidStateTransitionException` for anything the state machine forbids.
 
 ## Persistence
 

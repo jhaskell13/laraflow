@@ -114,7 +114,9 @@ It exits non-zero when a check needs action, so it belongs in a deploy pipeline 
 
 That last one it **names rather than detects** — the package cannot see an application's deploy scripts, runbooks, or CI, and a checker that reports "nothing to do" because it did not look is worse than one that says "look here".
 
-**The migrations.** None. 1.0 adds no schema change, so `composer update` and `php artisan migrate` are the whole upgrade for an application already on 0.7.
+**The PHP floor is 8.3.** PHP 8.2 reaches security end-of-life on 31 December 2026, and a PHP version may be dropped in a minor before 1.0 or a major after it — so 1.0 is the last release that could drop it, and shipping with `^8.2` would have tied the package to an unpatched runtime until 2.0 ([compatibility.md](compatibility.md#supported-versions)). Composer will refuse to install 1.0 on 8.2 rather than install something untested. An application still on 8.2 should upgrade the runtime; `0.7.x` covers it meanwhile ([releases.md](releases.md#support-window)).
+
+**The migrations.** None. 1.0 adds no schema change, so `composer update` and `php artisan migrate` are the whole upgrade for an application already on 0.7 and on PHP 8.3 or newer.
 
 **Breaking changes to check for.**
 

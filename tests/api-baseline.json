@@ -824,7 +824,9 @@
             "Throwable"
         ],
         "methods": {
+            "controlCharacters": "static controlCharacters(): self",
             "empty": "static empty(): self",
+            "invalidEncoding": "static invalidEncoding(): self",
             "reserved": "static reserved(string $name): self",
             "tooLong": "static tooLong(int $length): self"
         }

@@ -8,6 +8,7 @@ use DateInterval;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Laraflow\Exceptions\Workflow\InvalidSignalException;
+use Laraflow\Support\SafeIdentifier;
 
 /**
  * A step's declaration that the execution should park instead of
@@ -90,8 +91,19 @@ final readonly class Wait
             throw InvalidSignalException::empty();
         }
 
-        if (mb_strlen($name) > self::MAX_SIGNAL_LENGTH) {
-            throw InvalidSignalException::tooLong(mb_strlen($name));
+        // The same guard the execution identifiers beside this one get:
+        // a signal name is persisted, logged, put on an event, and
+        // rendered into JSON, so it is held to the same rule rather
+        // than to a weaker one (SafeIdentifier).
+        $refusal = match (SafeIdentifier::reasonFor($name, self::MAX_SIGNAL_LENGTH)) {
+            SafeIdentifier::INVALID_ENCODING => InvalidSignalException::invalidEncoding(),
+            SafeIdentifier::CONTROL_CHARACTERS => InvalidSignalException::controlCharacters(),
+            SafeIdentifier::TOO_LONG => InvalidSignalException::tooLong(mb_strlen($name)),
+            default => null,
+        };
+
+        if ($refusal !== null) {
+            throw $refusal;
         }
 
         if (str_starts_with(mb_strtolower($name), self::RESERVED_PREFIX)) {
@@ -100,7 +112,6 @@ final readonly class Wait
     }
 
     /**
-     * @internal Reserved-signal machinery; applications use forSignal().
      * @internal The sub-workflow machinery's park on its child, exempt
      * from the reserved-prefix refusal that applies to applications.
      */
@@ -118,7 +129,6 @@ final readonly class Wait
     }
 
     /**
-     * @internal Reserved-signal machinery; applications use forSignal().
      * @internal The fan-out machinery's park on its join: named by the
      * step row, since the members are found by it rather than listed.
      */

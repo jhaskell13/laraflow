@@ -95,6 +95,20 @@ These are the statements a finding would falsify:
 8. Every SQL fragment the package builds is parameterised or constant.
 9. A redactor configured by the application sees every error message Laraflow retains, before it is retained.
 
+## What the first review found
+
+Milestone 12's review was run against this document, in the dimensions it names. It is recorded here because a threat model with no findings beside it reads like a document nobody used.
+
+**Clean on the surfaces most likely to carry a vulnerability.** Every raw SQL fragment in the package is a constant or parameterised. Every dashboard URL is `route()`-generated and every value echoed into markup or an attribute goes through Blade's escaping; the one unescaped echo is an integer cast. The live-refresh script fetches same-origin, parses with an inert `DOMParser`, and swaps server-rendered markup that escaping has already made safe. There is no `unserialize`, `eval`, `exec`, or dynamic include anywhere in `src/`. A workflow named by an operator is checked with `is_subclass_of` **on the string** and refused before anything is constructed, as boundary 5 claims. Trigger verification compares with `hash_equals`, hashes the body once however many keys a rotation carries, measures the body before hashing it, and holds every key — current and previous — to the same 32-byte floor.
+
+**Three findings, all fixed with the tests that would have caught them.**
+
+1. **A signal name was held to a weaker standard than the identifiers beside it.** Correlation and tenant ids are refused when they carry control characters or are not UTF-8, for a reason stated in the code: these reach Laravel's log context, "where a newline lets a crafted identifier forge a second log line". A signal name reaches the same sinks — a column, the log context, a lifecycle event, a `--json` document, a dashboard page — and had only a length and a reserved-prefix check. The rule now lives in one place (`SafeIdentifier`) and both use it.
+2. **A refusal could become a `500`.** The trigger endpoint echoed the signal name and the refusal's wording into its JSON response without the bounding and control-byte stripping the log line has had since Milestone 10. A name that is not UTF-8 made `JsonResponse` throw while encoding the refusal, turning a clean `422` into a rendered stack trace. Reachable through a named trigger, whose resolver builds the signal from a request body that no URL rule constrains; *not* reachable through the signed endpoint, where the HTTP stack rejects a malformed URL with a `400` before routing — a boundary now recorded by a test.
+3. **[SECURITY.md](../SECURITY.md) misdescribed its own surface**, claiming trigger responses "carry no exception text at all" where [triggers.md](triggers.md#what-the-endpoint-answers) documents the opposite and the code follows triggers.md. A security policy that misstates the attack surface sends a reviewer past the path worth reading. Corrected.
+
+The review also acted on a dependency risk rather than a defect: PHP 8.2 reaches security end-of-life on 31 December 2026, and 1.0 is the last release the drop policy allows to raise the floor ([compatibility.md](compatibility.md#supported-versions)).
+
 ## Explicitly out of scope
 
 The full list is in [SECURITY.md](../SECURITY.md#scope). The ones worth repeating, because each is a decision rather than an oversight:

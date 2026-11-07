@@ -18,6 +18,7 @@ use Laraflow\Exceptions\Workflow\UnserializableValueException;
 use Laraflow\Queue\WorkflowDispatcher;
 use Laraflow\Support\Handoff;
 use Laraflow\Support\JsonObject;
+use Laraflow\Support\SafeIdentifier;
 use Laraflow\Workflow\ExecutionReader;
 use Laraflow\Workflow\WorkflowRunner;
 use LogicException;
@@ -30,6 +31,13 @@ use Throwable;
  */
 final class TriggerController
 {
+    /**
+     * How much of a refusal's wording a response carries. The runtime's
+     * own messages are short; the bound is there so a message that
+     * quotes the request cannot be used to echo a large body back.
+     */
+    private const MAX_MESSAGE_BYTES = 1024;
+
     public function __construct(
         private WorkflowRunner $runner,
         private WorkflowDispatcher $dispatcher,
@@ -191,12 +199,18 @@ final class TriggerController
     {
         $this->reporter->refused($trigger, $reason, $executionId, $signal);
 
+        // The signal came off a URL and the message can quote it, so
+        // both are made presentable before they go into a response.
+        // Unbounded they would echo whatever was sent; malformed UTF-8
+        // would make JsonResponse throw, turning a clean refusal into a
+        // 500 with a rendered stack trace (Milestone 12 security
+        // review). The log has had this treatment since Milestone 10.
         return new JsonResponse([
             'status' => $label,
             'trigger' => $trigger,
             'execution' => $executionId,
-            'signal' => $signal,
-            'message' => $message,
+            'signal' => SafeIdentifier::presentable($signal),
+            'message' => SafeIdentifier::presentable($message, self::MAX_MESSAGE_BYTES),
         ], $status);
     }
 

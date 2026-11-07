@@ -80,15 +80,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.3', '8.4', '8.5']
+        php: ['8.3', '8.4', '8.5']
         # One row per supported Laravel major, pinned through Testbench:
         # Testbench 10 is the Laravel 12 series, 11 the Laravel 13 one.
         laravel: ['12', '13']
         dependencies: [prefer-stable]
-        exclude:
-          # Laravel 13 requires PHP 8.3; the combination does not exist.
-          - php: '8.2'
-            laravel: '13'
         include:
           - laravel: '12'
             testbench: '^10.0'
@@ -97,7 +93,7 @@ jobs:
           # The floor of every declared constraint, resolved as low as
           # the dev dependencies allow, on the oldest supported PHP:
           # proves the ^-constraints in composer.json are honest.
-          - php: '8.2'
+          - php: '8.3'
             laravel: '12'
             testbench: '^10.0'
             dependencies: prefer-lowest
@@ -163,7 +159,7 @@ jobs:
         pairing: [lowest, newest]
         include:
           - pairing: lowest
-            php: '8.2'
+            php: '8.3'
             laravel: '12'
             testbench: '^10.0'
             dependencies: prefer-lowest
@@ -325,7 +321,7 @@ jobs:
           # The two ends of the dependency axis, the same pairings the
           # SQLite install job has always used.
           - laravel: '12'
-            php: '8.2'
+            php: '8.3'
             testbench: '^10.0'
             dependencies: prefer-lowest
           - laravel: '13'
@@ -477,7 +473,7 @@ jobs:
       matrix:
         include:
           - laravel: '12'
-            php: '8.2'
+            php: '8.3'
           - laravel: '13'
             php: '8.4'
 
